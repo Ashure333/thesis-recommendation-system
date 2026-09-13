@@ -90,6 +90,7 @@ python test_upload_flow.py sample.pdf
 
 This uploads the given PDF through the full flow — extraction, file
 storage, validation — and prints:
+
 - what got auto-extracted (Title, Abstract, Keywords, Publication Year)
 - whether the file landed on disk correctly
 - whether the paper is valid for recommendation, and if not, exactly
@@ -134,3 +135,7 @@ dataset curation, since they fall outside PDF auto-extraction scope.
   pull before you push to avoid conflicting changes to the database file
   (SQLite databases don't merge like text files do — coordinate with the
   team on who's updating it at a given time).
+
+## Notes for Devs
+
+- run python `scripts/view_database.py` to view database
