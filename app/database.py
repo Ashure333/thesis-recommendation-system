@@ -6,12 +6,19 @@ create_all() is used instead of Alembic migrations since the schema is
 fixed for the scope of this thesis prototype.
 """
 
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base
+from app.models.models import Base
 
-DATABASE_URL = "sqlite:///./academic_repository.db"
+# Resolved relative to this file's own folder (app/), not the current
+# working directory -- so the database is always found at app/data/
+# regardless of where a script that imports this module is run from.
+_DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+os.makedirs(_DB_DIR, exist_ok=True)
+DATABASE_URL = f"sqlite:///{os.path.join(_DB_DIR, 'academic_repository.db')}"
 
 # check_same_thread=False is needed because frameworks like FastAPI/Flask
 # may handle a single SQLite connection across different threads.

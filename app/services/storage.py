@@ -18,9 +18,13 @@ or subject_category changes later -- the file never needs to move.
 import os
 import shutil
 
-# Root folder for all stored paper files. Change this if you want the
-# repository to live somewhere other than next to your project code.
-STORAGE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage")
+# Root folder for all stored paper files, resolved relative to the project
+# root (two levels up from app/services/storage.py), not this file's own
+# folder -- so it correctly points to <project_root>/storage regardless of
+# where the script that imports this module is run from.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))          # app/services
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))     # project root
+STORAGE_ROOT = os.path.join(_PROJECT_ROOT, "storage")
 PAPERS_DIR = os.path.join(STORAGE_ROOT, "papers")
 
 

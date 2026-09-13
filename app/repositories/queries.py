@@ -12,7 +12,7 @@ regardless of which view the user is browsing.
 from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session
 
-from models import Paper
+from app.models.models import Paper
 
 SORT_OPTIONS = {
     "alphabetical": (Paper.title, asc),

@@ -1,10 +1,10 @@
 """
 Smoke test for the upload -> storage -> query flow.
 
-Run this from your project root (same folder as academic_repository.db,
-models.py, storage.py, etc.):
+Run this from your project root (the folder containing app/, scripts/,
+storage/, etc.):
 
-    python test_upload_flow.py path/to/some.pdf
+    python test/test_upload_flow.py path/to/some.pdf
 
 It does NOT touch your existing papers -- it only adds one new test
 row, uploads the file, checks it landed on disk, then prints your
@@ -14,14 +14,15 @@ repository sorted three ways so you can eyeball that everything works.
 import sys
 import os
 
-from database import SessionLocal
-from upload_paper import upload_paper_from_pdf
-from queries import list_papers
+from app.database import SessionLocal
+from app.services.upload_paper import upload_paper_from_pdf
+from app.services.storage import get_paper_file_path
+from app.repositories.queries import list_papers
 
 
 def main():
     if len(sys.argv) != 2:
-        print("Usage: python test_upload_flow.py path/to/some.pdf")
+        print("Usage: python test/test_upload_flow.py path/to/some.pdf")
         sys.exit(1)
 
     pdf_path = sys.argv[1]
@@ -41,7 +42,7 @@ def main():
     print(f"valid for rec.:      {paper.is_valid_for_recommendation}")
     print(f"missing fields:      {paper.missing_fields}")
 
-    full_path = os.path.join("storage", paper.stored_path)
+    full_path = get_paper_file_path(paper.stored_path)
     print(f"file exists on disk: {os.path.exists(full_path)}  ({full_path})")
 
     print()
