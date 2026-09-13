@@ -1,7 +1,8 @@
 """
-Run this once to create academic_repository.db with all tables.
+Run this once to create academic_repository.db (under app/data/) with
+all tables:
 
-    python init_script.py
+    python scripts/init_script.py
 
 It also inserts one sample paper and prints the validation result,
 just to confirm everything is wired up correctly. Safe to re-run --
@@ -9,9 +10,9 @@ it won't duplicate tables, and the sample paper is only inserted
 if the papers table is currently empty.
 """
 
-from database import init_db, SessionLocal
-from models import Paper
-from validation import validate_paper
+from app.database import init_db, SessionLocal
+from app.models.models import Paper
+from app.services.validation import validate_paper
 
 
 def seed_sample_paper(db):

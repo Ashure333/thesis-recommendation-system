@@ -24,10 +24,10 @@ curation, since they are not part of PDF auto-extraction scope.
 
 from sqlalchemy.orm import Session
 
-from models import Paper
-from extraction import extract_metadata_from_pdf
-from validation import validate_paper
-from storage import save_paper_file
+from app.models.models import Paper
+from app.services.extraction import extract_metadata_from_pdf
+from app.services.validation import validate_paper
+from app.services.storage import save_paper_file
 
 
 def upload_paper_from_pdf(db: Session, pdf_path: str, source_filename: str) -> Paper:

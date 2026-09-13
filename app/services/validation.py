@@ -17,7 +17,7 @@ DOI and Citation Count are optional, non-signal fields: their absence
 never affects is_valid_for_recommendation.
 """
 
-from models import Paper
+from app.models.models import Paper
 
 # Fields required for a paper to be eligible for recommendation.
 REQUIRED_FIELDS = ["title", "abstract", "keywords", "publication_year"]
