@@ -3,15 +3,21 @@ One-time migration: adds the stored_path column to the existing papers
 table without touching any existing rows.
 
 Usage:
-    python migrate_add_stored_path.py
+    python scripts/migrate_add_stored_path.py
 
 Safe to run more than once -- it checks whether the column already
 exists first and does nothing if so.
 """
 
+import os
 import sqlite3
 
-DB_PATH = "academic_repository.db"
+# Resolved relative to this file's own folder (scripts/), not the current
+# working directory -- so this finds the database at app/data/ regardless
+# of where the script is run from.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))          # scripts/
+_PROJECT_ROOT = os.path.dirname(_THIS_DIR)                      # project root
+DB_PATH = os.path.join(_PROJECT_ROOT, "app", "data", "academic_repository.db")
 COLUMN_NAME = "stored_path"
 
 

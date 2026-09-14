@@ -1,66 +1,112 @@
 """
-File storage for uploaded paper PDFs.
+File storage for uploaded academic paper PDFs.
 
-Design:
-    - All PDFs live in one flat folder: storage/papers/
-    - Each file is named by the paper's database id (e.g. "104.pdf"), so
-      there is never a filename collision and the mapping from a Paper
-      row to its file on disk is trivial (id -> id.pdf).
-    - "Organizing" papers (alphabetically, by date added, by year, etc.)
-      is NOT done by moving files into different folders. It's done by
-      querying the database, which already holds title/created_at/
-      publication_year for every paper. See queries.py.
+Physical files are stored in:
 
-This keeps physical storage simple and stable even if a paper's title
-or subject_category changes later -- the file never needs to move.
+    project_root/storage/papers/
+
+Each PDF is named using its database paper ID:
+
+    storage/papers/3.pdf
+
+The database stores only the relative path:
+
+    papers/3.pdf
 """
 
-import os
+from pathlib import Path
 import shutil
 
-# Root folder for all stored paper files. Change this if you want the
-# repository to live somewhere other than next to your project code.
-STORAGE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage")
-PAPERS_DIR = os.path.join(STORAGE_ROOT, "papers")
+
+# storage.py location:
+# project_root/app/services/storage.py
+#
+# .parent                  -> app/services
+# .parent.parent           -> app
+# .parent.parent.parent    -> project root
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Correct root storage directory
+STORAGE_ROOT = BASE_DIR / "storage"
+
+# Correct PDF directory
+PAPERS_DIR = STORAGE_ROOT / "papers"
 
 
 def ensure_storage_ready() -> None:
-    """Creates storage/papers/ if it doesn't exist yet. Safe to call anytime."""
-    os.makedirs(PAPERS_DIR, exist_ok=True)
+    """
+    Create storage/papers/ if it does not exist.
+    """
+    PAPERS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def save_paper_file(paper_id: int, source_path: str) -> str:
     """
-    Copies the file at `source_path` into storage/papers/, named by
-    `paper_id` (e.g. paper id 104 -> storage/papers/104.pdf).
+    Copy an uploaded PDF into:
 
-    Returns the path *relative to STORAGE_ROOT* (e.g. "papers/104.pdf"),
-    which is what should be saved into Paper.stored_path -- keeping the
-    DB independent of where STORAGE_ROOT happens to sit on this machine.
+        project_root/storage/papers/{paper_id}.pdf
+
+    Returns the relative path saved in the database:
+
+        papers/{paper_id}.pdf
     """
+
     ensure_storage_ready()
 
-    _, ext = os.path.splitext(source_path)
-    ext = ext.lower() if ext.lower() == ".pdf" else ".pdf"  # defensively normalize
+    source = Path(source_path).resolve()
 
-    dest_filename = f"{paper_id}{ext}"
-    dest_path = os.path.join(PAPERS_DIR, dest_filename)
+    if not source.exists():
+        raise FileNotFoundError(
+            f"Source PDF does not exist: {source}"
+        )
 
-    shutil.copyfile(source_path, dest_path)
+    if not source.is_file():
+        raise ValueError(
+            f"Source path is not a file: {source}"
+        )
 
-    return os.path.join("papers", dest_filename)
+    if source.suffix.lower() != ".pdf":
+        raise ValueError("Only PDF files are allowed.")
+
+    destination = PAPERS_DIR / f"{paper_id}.pdf"
+
+    print(f"Source PDF:      {source}")
+    print(f"Destination PDF: {destination}")
+
+    shutil.copy2(source, destination)
+
+    if not destination.exists():
+        raise IOError(
+            f"PDF was not copied successfully: {destination}"
+        )
+
+    print(f"PDF saved successfully: {destination}")
+
+    # This is the path stored in Paper.stored_path.
+    # It is relative to the root storage directory.
+    return str(Path("papers") / destination.name)
 
 
 def get_paper_file_path(stored_path: str) -> str:
     """
-    Resolves a Paper.stored_path value (e.g. "papers/104.pdf") back into
-    a full, absolute filesystem path you can open/serve.
+    Convert a database path such as:
+
+        papers/3.pdf
+
+    into the full path:
+
+        project_root/storage/papers/3.pdf
     """
-    return os.path.join(STORAGE_ROOT, stored_path)
+
+    return str(STORAGE_ROOT / stored_path)
 
 
 def delete_paper_file(stored_path: str) -> None:
-    """Removes a paper's file from disk, if present. No error if already gone."""
-    full_path = get_paper_file_path(stored_path)
-    if os.path.exists(full_path):
-        os.remove(full_path)
+    """
+    Delete a stored PDF if it exists.
+    """
+
+    full_path = Path(get_paper_file_path(stored_path))
+
+    if full_path.exists():
+        full_path.unlink()
