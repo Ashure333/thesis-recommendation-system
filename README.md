@@ -138,4 +138,4 @@ dataset curation, since they fall outside PDF auto-extraction scope.
 
 ## Notes for Devs
 
-- run python `scripts/view_database.py` to view database
+- run python `python scripts/view_database.py` to view database
