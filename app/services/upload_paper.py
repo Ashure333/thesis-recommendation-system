@@ -1,26 +1,27 @@
 """
-Paper upload workflow: PDF -> auto-extraction -> validation -> save.
+Paper upload workflow: PDF -> auto-extraction -> validation -> storage.
 
-This is the backend logic your FastAPI/Flask upload route should call.
-It demonstrates the flow described in your updated Chapter 3:
-
-    1. User uploads a PDF.
-    2. The system attempts to auto-extract Title, Abstract, Keywords,
+Flow:
+    1. Receive an uploaded PDF.
+    2. Automatically extract Title, Abstract, Keywords,
        and Publication Year.
-    3. The paper record is ALWAYS created (consistent with the existing
-       "keep incomplete records on file" policy for missing metadata).
-    4. If all four fields extracted successfully, is_valid_for_recommendation
-       is True and no manual entry is needed.
-    5. If any field failed extraction, is_valid_for_recommendation is False,
-       missing_fields lists exactly which ones, and the caller (your API
-       route / frontend form) should present those specific fields to the
-       user for manual entry -- at which point update_paper_fields() can
-       be used to fill them in and re-validate.
+    3. Create the Paper database record.
+    4. Validate the extracted metadata.
+    5. Build and store prepared_text from:
+       Title + Abstract + Keywords.
+    6. Copy the PDF into the permanent storage folder:
+       storage/papers/{paper_id}.pdf
+    7. Save the relative file path in Paper.stored_path.
 
-Author, DOI, Subject/Category, Document Type, and Citation Count are NOT
-touched by this flow -- those still come from manual entry / dataset
-curation, since they are not part of PDF auto-extraction scope.
+Papers with incomplete metadata are still saved in the database.
+They are marked as invalid for recommendation until the missing
+fields are completed manually.
+
+Author, DOI, Subject/Category, Document Type, and Citation Count
+are not automatically populated by this workflow.
 """
+
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -28,65 +29,172 @@ from app.models.models import Paper
 from app.services.extraction import extract_metadata_from_pdf
 from app.services.validation import validate_paper
 from app.services.storage import save_paper_file
+from app.services.text_preparation import refresh_prepared_text
 
 
-def upload_paper_from_pdf(db: Session, pdf_path: str, source_filename: str) -> Paper:
+def upload_paper_from_pdf(
+    db: Session,
+    pdf_path: str,
+    source_filename: str,
+) -> Paper:
     """
-    Runs auto-extraction on the given PDF, creates a Paper record with
-    whatever was extracted, saves the actual PDF file into permanent
-    storage, validates the record, and commits it.
+    Upload a PDF, extract its metadata, create a database record,
+    prepare its recommendation text, and save the physical PDF file.
 
-    `pdf_path` is expected to be a temporary upload path (e.g. from your
-    FastAPI/Flask upload handler) -- it is only read from, never assumed
-    to persist. The permanent copy lives under storage/papers/.
+    Parameters:
+        db:
+            SQLAlchemy database session.
 
-    Returns the saved Paper -- check paper.is_valid_for_recommendation
-    and paper.missing_fields to know whether manual entry is still needed,
-    and paper.stored_path to locate the saved file on disk.
+        pdf_path:
+            Path to the incoming or temporary PDF file.
+
+        source_filename:
+            Original filename of the uploaded PDF.
+
+    Returns:
+        The saved Paper database object.
+
+    Notes:
+        The database record is created before the file is copied
+        because the generated Paper ID is used as the PDF filename.
+
+        Example:
+            Database ID: 12
+            stored_path: papers/12.pdf
+            Physical file:
+                storage/papers/12.pdf
     """
-    extracted = extract_metadata_from_pdf(pdf_path)
 
+    source_path = Path(pdf_path).resolve()
+
+    if not source_path.exists():
+        raise FileNotFoundError(
+            f"Uploaded PDF does not exist: {source_path}"
+        )
+
+    if not source_path.is_file():
+        raise ValueError(
+            f"Uploaded path is not a file: {source_path}"
+        )
+
+    if source_path.suffix.lower() != ".pdf":
+        raise ValueError("Only PDF files are allowed.")
+
+    # ---------------------------------------------------------
+    # 1. Automatically extract metadata from the PDF
+    # ---------------------------------------------------------
+    extracted = extract_metadata_from_pdf(str(source_path))
+
+    # ---------------------------------------------------------
+    # 2. Create the Paper database record
+    # ---------------------------------------------------------
     paper = Paper(
-        title=extracted["title"],
-        abstract=extracted["abstract"],
-        keywords=extracted["keywords"],
-        publication_year=extracted["publication_year"],
+        title=extracted.get("title"),
+        abstract=extracted.get("abstract"),
+        keywords=extracted.get("keywords"),
+        publication_year=extracted.get("publication_year"),
         source_filename=source_filename,
         extraction_method="auto",
     )
+
+    # ---------------------------------------------------------
+    # 3. Validate the extracted metadata
+    # ---------------------------------------------------------
     validate_paper(paper)
 
-    # First insert without stored_path so we get an auto-generated id --
-    # the file is named after that id, so the row has to exist first.
+    # ---------------------------------------------------------
+    # 4. Build prepared_text from Title + Abstract + Keywords
+    # ---------------------------------------------------------
+    refresh_prepared_text(paper)
+
+    # ---------------------------------------------------------
+    # 5. Save the database record first to generate paper.id
+    # ---------------------------------------------------------
     db.add(paper)
     db.commit()
     db.refresh(paper)
 
-    paper.stored_path = save_paper_file(paper.id, pdf_path)
-    db.commit()
-    db.refresh(paper)
+    # ---------------------------------------------------------
+    # 6. Copy the physical PDF into storage/papers/{id}.pdf
+    # ---------------------------------------------------------
+    try:
+        paper.stored_path = save_paper_file(
+            paper.id,
+            str(source_path),
+        )
+
+        db.commit()
+        db.refresh(paper)
+
+    except Exception:
+        # If file storage fails, remove the database row that was
+        # just created so the database does not contain a paper
+        # without its corresponding PDF file.
+        db.rollback()
+        db.delete(paper)
+        db.commit()
+        raise
 
     return paper
 
 
-def complete_paper_manually(db: Session, paper_id: int, **field_updates) -> Paper:
+def complete_paper_manually(
+    db: Session,
+    paper_id: int,
+    **field_updates,
+) -> Paper:
     """
-    Fills in fields the user supplies by hand (e.g. after auto-extraction
-    left some blank), re-validates, and commits.
+    Complete or update missing paper metadata manually.
 
-    Usage:
-        complete_paper_manually(db, paper.id, title="...", abstract="...")
+    Example:
+        complete_paper_manually(
+            db,
+            paper_id=3,
+            title="Updated Paper Title",
+            abstract="Updated abstract...",
+            keywords="machine learning, recommendation",
+            publication_year=2024,
+        )
+
+    After updating the fields, the paper is revalidated and
+    prepared_text is rebuilt so it stays synchronized with:
+
+        Title + Abstract + Keywords
     """
-    paper = db.query(Paper).filter(Paper.id == paper_id).one()
 
+    paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .one()
+    )
+
+    # ---------------------------------------------------------
+    # 1. Apply the supplied field updates
+    # ---------------------------------------------------------
     for field_name, value in field_updates.items():
         if hasattr(paper, field_name):
             setattr(paper, field_name, value)
 
-    # Any paper that needed manual completion is no longer purely "auto".
-    paper.extraction_method = "manual" if paper.extraction_method == "auto" else paper.extraction_method
+    # ---------------------------------------------------------
+    # 2. Mark the record as manually completed
+    # ---------------------------------------------------------
+    if paper.extraction_method == "auto":
+        paper.extraction_method = "manual"
 
+    # ---------------------------------------------------------
+    # 3. Revalidate the updated metadata
+    # ---------------------------------------------------------
     validate_paper(paper)
+
+    # ---------------------------------------------------------
+    # 4. Rebuild prepared_text after metadata changes
+    # ---------------------------------------------------------
+    refresh_prepared_text(paper)
+
+    # ---------------------------------------------------------
+    # 5. Save changes
+    # ---------------------------------------------------------
     db.commit()
     db.refresh(paper)
+
     return paper
