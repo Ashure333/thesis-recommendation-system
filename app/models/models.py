@@ -19,7 +19,9 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
 )
+
 from sqlalchemy.orm import relationship, declarative_base
+
 
 Base = declarative_base()
 
@@ -27,81 +29,293 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    username = Column(String(100), unique=True, nullable=False, index=True)
-    email = Column(String(150), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    username = Column(
+        String(100),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    email = Column(
+        String(150),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    password_hash = Column(
+        String(255),
+        nullable=False,
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
 
     library_entries = relationship(
-        "PersonalLibrary", back_populates="user", cascade="all, delete-orphan"
+        "PersonalLibrary",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self):
-        return f"<User id={self.id} username={self.username!r}>"
+        return (
+            f"<User id={self.id} "
+            f"username={self.username!r}>"
+        )
 
 
 class Paper(Base):
     __tablename__ = "papers"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-
-    # ---- 9 core metadata fields (per thesis spec) ----
-    title = Column(String(500), nullable=False)
-    author = Column(String(300), nullable=True)
-    abstract = Column(Text, nullable=True)
-    keywords = Column(Text, nullable=True)          # comma-separated or JSON list
-    publication_year = Column(Integer, nullable=True)
-    doi = Column(String(100), nullable=True)
-    subject_category = Column(String(200), nullable=True)
-    document_type = Column(String(100), nullable=True)
-    citation_count = Column(Integer, nullable=True)
-
-    # ---- validation tracking ----
-    # A paper stays stored even if invalid; this just flags whether it can be
-    # used by the Recommendation Layer, and (via missing_fields) why not.
-    is_valid_for_recommendation = Column(Boolean, default=False, nullable=False, index=True)
-    missing_fields = Column(Text, nullable=True)     # e.g. "abstract, publication_year"
-
-    # ---- upload provenance (for the PDF auto-extraction flow) ----
-    source_filename = Column(String(300), nullable=True)   # original uploaded PDF filename, if any
-    extraction_method = Column(String(20), nullable=True)  # "auto" (from PDF) or "manual" (typed in)
-    stored_path = Column(String(500), nullable=True)        # where the PDF actually lives on disk, e.g. "papers/104.pdf"
-
-    # ---- text prep + precomputed vectors for the recommendation pipeline ----
-    # prepared_text = lowercased, whitespace-normalized, punctuation-stripped
-    # concatenation of Title + Abstract + Keywords (same text feeds both models).
-    prepared_text = Column(Text, nullable=True)
-    tfidf_vector = Column(Text, nullable=True)       # JSON-encoded list[float]
-    sbert_vector = Column(Text, nullable=True)       # JSON-encoded list[float]
-
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
     )
 
+    # ---------------------------------------------------------
+    # 9 core metadata fields
+    # ---------------------------------------------------------
+    # These fields follow the thesis specification.
+
+    title = Column(
+        String(500),
+        nullable=False,
+    )
+
+    author = Column(
+        String(300),
+        nullable=True,
+    )
+
+    abstract = Column(
+        Text,
+        nullable=True,
+    )
+
+    keywords = Column(
+        Text,
+        nullable=True,
+    )
+    # Stores author-provided or YAKE-generated keywords.
+    # Example:
+    # "machine learning, recommendation system, text mining"
+
+    publication_year = Column(
+        Integer,
+        nullable=True,
+    )
+
+    doi = Column(
+        String(100),
+        nullable=True,
+    )
+
+    subject_category = Column(
+        String(200),
+        nullable=True,
+    )
+
+    document_type = Column(
+        String(100),
+        nullable=True,
+    )
+
+    citation_count = Column(
+        Integer,
+        nullable=True,
+    )
+
+    # ---------------------------------------------------------
+    # Keyword extraction tracking
+    # ---------------------------------------------------------
+    # Indicates where the saved keywords came from:
+    #
+    # "author" -> extracted from the PDF's keyword section
+    # "yake"   -> generated automatically by YAKE
+    # None     -> no keywords were found or generated
+
+    keywords_source = Column(
+        String(20),
+        nullable=True,
+    )
+
+    # True when the keywords were generated by YAKE.
+    # False when the keywords came from the author or are absent.
+
+    keywords_generated = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    # ---------------------------------------------------------
+    # Validation tracking
+    # ---------------------------------------------------------
+    # A paper stays stored even if invalid.
+    # This field only determines whether the paper can be used
+    # by the Recommendation Layer.
+
+    is_valid_for_recommendation = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+    )
+
+    missing_fields = Column(
+        Text,
+        nullable=True,
+    )
+    # Example:
+    # "abstract, publication_year"
+
+    # ---------------------------------------------------------
+    # Upload provenance
+    # ---------------------------------------------------------
+    # Used by the PDF automatic extraction workflow.
+
+    source_filename = Column(
+        String(300),
+        nullable=True,
+    )
+    # Original uploaded PDF filename.
+
+    extraction_method = Column(
+        String(20),
+        nullable=True,
+    )
+    # Possible values:
+    # "auto"   -> extracted from PDF
+    # "manual" -> entered or corrected manually
+
+    stored_path = Column(
+        String(500),
+        nullable=True,
+    )
+    # Example:
+    # "papers/104.pdf"
+
+    # ---------------------------------------------------------
+    # Text preparation and recommendation vectors
+    # ---------------------------------------------------------
+    # prepared_text contains:
+    #
+    # Title + Abstract + Keywords
+    #
+    # It is normalized before being used by TF-IDF and SBERT.
+
+    prepared_text = Column(
+        Text,
+        nullable=True,
+    )
+
+    tfidf_vector = Column(
+        Text,
+        nullable=True,
+    )
+    # JSON-encoded list[float].
+
+    sbert_vector = Column(
+        Text,
+        nullable=True,
+    )
+    # JSON-encoded list[float].
+
+    # ---------------------------------------------------------
+    # Timestamps
+    # ---------------------------------------------------------
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    # ---------------------------------------------------------
+    # Relationships
+    # ---------------------------------------------------------
+
     library_entries = relationship(
-        "PersonalLibrary", back_populates="paper", cascade="all, delete-orphan"
+        "PersonalLibrary",
+        back_populates="paper",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self):
-        return f"<Paper id={self.id} title={self.title[:40]!r}>"
+        return (
+            f"<Paper id={self.id} "
+            f"title={self.title[:40]!r}>"
+        )
 
 
 class PersonalLibrary(Base):
     __tablename__ = "personal_library"
+
     __table_args__ = (
-        # a user can only save the same paper once
-        UniqueConstraint("user_id", "paper_id", name="uq_user_paper"),
+        # A user can only save the same paper once.
+        UniqueConstraint(
+            "user_id",
+            "paper_id",
+            name="uq_user_paper",
+        ),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    paper_id = Column(Integer, ForeignKey("papers.id"), nullable=False, index=True)
-    saved_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
 
-    user = relationship("User", back_populates="library_entries")
-    paper = relationship("Paper", back_populates="library_entries")
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    paper_id = Column(
+        Integer,
+        ForeignKey("papers.id"),
+        nullable=False,
+        index=True,
+    )
+
+    saved_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    user = relationship(
+        "User",
+        back_populates="library_entries",
+    )
+
+    paper = relationship(
+        "Paper",
+        back_populates="library_entries",
+    )
 
     def __repr__(self):
-        return f"<PersonalLibrary user_id={self.user_id} paper_id={self.paper_id}>"
+        return (
+            f"<PersonalLibrary "
+            f"user_id={self.user_id} "
+            f"paper_id={self.paper_id}>"
+        )
