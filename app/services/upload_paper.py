@@ -1,18 +1,18 @@
 """
-Paper upload workflow: PDF or LaTeX -> auto-extraction -> classification
--> validation -> storage.
+Paper upload workflow: PDF or BibTeX -> auto-extraction ->
+classification -> validation -> storage.
 
 Flow:
-    1. Receive an uploaded PDF or .tex file.
+    1. Receive an uploaded PDF or .bib file.
     2. Automatically extract Title, Abstract, Keywords, and Publication
-       Year (extraction.py for PDF, latex_extraction.py for .tex).
+       Year (extraction.py for PDF, bib_extraction.py for .bib).
     3. Automatically classify the paper into: Subject: Category
     4. Create the Paper database record.
     5. Validate the extracted metadata.
     6. Build and store prepared_text from:
        Title + Abstract + Keywords.
     7. Copy the source file into the permanent storage folder:
-       storage/papers/{paper_id}{.pdf or .tex}
+       storage/papers/{paper_id}{.pdf or .bib}
     8. Save the relative file path in Paper.stored_path.
 
 Papers with incomplete metadata are still saved in the database.
@@ -31,13 +31,13 @@ from sqlalchemy.orm import Session
 from app.models.models import Paper
 
 from app.services.extraction import extract_metadata_from_pdf
-from app.services.latex_extraction import extract_metadata_from_tex
+from app.services.bib_extraction import extract_metadata_from_bib
 from app.services.validation import validate_paper
 from app.services.storage import save_paper_file
 from app.services.text_preparation import refresh_prepared_text
 from app.services.classification import classify_paper
 
-SUPPORTED_EXTENSIONS = {".pdf", ".tex"}
+SUPPORTED_EXTENSIONS = {".pdf", ".bib"}
 
 
 def upload_paper_from_file(
@@ -46,7 +46,7 @@ def upload_paper_from_file(
     source_filename: str,
 ) -> Paper:
     """
-    Upload a PDF or LaTeX (.tex) file, extract its metadata, classify
+    Upload a PDF or BibTeX (.bib) file, extract its metadata, classify
     it, create a database record, prepare its recommendation text, and
     save the physical file.
 
@@ -59,7 +59,7 @@ def upload_paper_from_file(
 
         source_filename:
             Original filename of the upload (used to detect .pdf vs
-            .tex, and stored for reference).
+            .bib, and stored for reference).
 
     Returns:
         The saved Paper database object.
@@ -71,8 +71,8 @@ def upload_paper_from_file(
         Example:
             Database ID: 12
             subject_category: Mathematics: Graph Theory
-            stored_path: papers/12.tex
-            Physical file: storage/papers/12.tex
+            stored_path: papers/12.pdf
+            Physical file: storage/papers/12.pdf
     """
 
     source_path = Path(file_path).resolve()
@@ -89,7 +89,7 @@ def upload_paper_from_file(
 
     extension = source_path.suffix.lower()
     if extension not in SUPPORTED_EXTENSIONS:
-        raise ValueError("Only PDF and LaTeX (.tex) files are allowed.")
+        raise ValueError("Only PDF and BibTeX (.bib) files are allowed.")
 
     # ---------------------------------------------------------
     # 1. Automatically extract metadata, using the extractor
@@ -97,8 +97,8 @@ def upload_paper_from_file(
     # ---------------------------------------------------------
     if extension == ".pdf":
         extracted = extract_metadata_from_pdf(str(source_path))
-    else:  # .tex
-        extracted = extract_metadata_from_tex(str(source_path))
+    else:  # .bib
+        extracted = extract_metadata_from_bib(str(source_path))
 
     # ---------------------------------------------------------
     # 2. Create the Paper object

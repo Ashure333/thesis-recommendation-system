@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listPapers, saveToLibrary, Paper } from "../../api";
+import { listPapers, saveToLibrary, deletePaper, Paper } from "../../api";
 
 const subjects = ["All Subjects", "Computer Science", "Mathematics"];
 const documentTypes = ["All", "Journal Article", "Conference Paper", "Thesis", "Technical Report"];
@@ -56,6 +56,17 @@ export default function Repository() {
   async function handleSave(paperId: number) {
     await saveToLibrary(paperId);
     setSavedIds((prev) => new Set(prev).add(paperId));
+  }
+
+  async function handleDelete(paperId: number, title: string) {
+    const confirmed = window.confirm(
+      `Delete "${title}" permanently? This removes it from the repository, ` +
+        `any library it's saved in, and deletes its stored file. This can't be undone.`
+    );
+    if (!confirmed) return;
+
+    await deletePaper(paperId);
+    setPapers((prev) => prev.filter((p) => p.id !== paperId));
   }
 
   return (
@@ -193,6 +204,12 @@ export default function Repository() {
                       className="rounded border border-line px-3 py-1.5 text-xs text-ink hover:border-gold"
                     >
                       {savedIds.has(paper.id) ? "✓ Saved" : "+ Save"}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(paper.id, paper.title)}
+                      className="rounded border border-sbert/40 px-3 py-1.5 text-xs text-sbert hover:border-sbert"
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>

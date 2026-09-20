@@ -103,6 +103,13 @@ export function removeFromLibrary(paperId: number): Promise<void> {
   return fetch(`${API_URL}/api/library/${paperId}`, { method: "DELETE" }).then(handle<void>);
 }
 
+// Permanently deletes a paper (database record, library links, and
+// stored file). Distinct from removeFromLibrary, which only unlinks a
+// paper from one user's library without touching the paper itself.
+export function deletePaper(paperId: number): Promise<void> {
+  return fetch(`${API_URL}/api/papers/${paperId}`, { method: "DELETE" }).then(handle<void>);
+}
+
 export interface RecommendationParams {
   pipeline: string;
   query?: string;

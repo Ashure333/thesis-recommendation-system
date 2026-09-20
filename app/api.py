@@ -37,6 +37,7 @@ from app.database import init_db, get_session
 from app.models.models import Paper, PersonalLibrary
 from app.repositories.queries import filter_papers
 from app.services.upload_paper import upload_paper_from_pdf, complete_paper_manually
+from app.services.storage import delete_paper_file
 from app.services.local_user import get_or_create_default_user
 from app.services.recommendation.search_service import search_papers as run_search
 from app.schemas import PaperOut, PaperUpdate, RepositoryStats, LibraryEntryOut, SearchResultOut
@@ -131,6 +132,31 @@ def update_paper(paper_id: int, updates: PaperUpdate, db: Session = Depends(get_
         raise HTTPException(status_code=404, detail="Paper not found")
 
 
+@app.delete("/api/papers/{paper_id}", status_code=204)
+def delete_paper(paper_id: int, db: Session = Depends(get_session)):
+    """
+    Permanently removes a paper: its database record, any
+    personal_library entries pointing at it (from any user), and its
+    stored file on disk. This is a real delete -- distinct from the
+    Library "Remove" action, which only unlinks a paper from one
+    user's library without touching the paper itself.
+    """
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Remove library links first (explicit, rather than relying on
+    # ORM cascade config) so this can't fail on a foreign-key
+    # constraint regardless of how SQLite's FK enforcement is set up.
+    db.query(PersonalLibrary).filter(PersonalLibrary.paper_id == paper_id).delete()
+
+    if paper.stored_path:
+        delete_paper_file(paper.stored_path)
+
+    db.delete(paper)
+    db.commit()
+
+
 # ---------------------------------------------------------------------
 # Upload
 # ---------------------------------------------------------------------
@@ -138,8 +164,8 @@ def update_paper(paper_id: int, updates: PaperUpdate, db: Session = Depends(get_
 @app.post("/api/papers/upload", response_model=PaperOut)
 def upload_paper(file: UploadFile = File(...), db: Session = Depends(get_session)):
     suffix = os.path.splitext(file.filename)[1].lower()
-    if suffix not in (".pdf", ".tex"):
-        raise HTTPException(status_code=400, detail="Only PDF and LaTeX (.tex) files are accepted")
+    if suffix not in (".pdf", ".bib"):
+        raise HTTPException(status_code=400, detail="Only PDF and BibTeX (.bib) files are accepted")
 
     # upload_paper_from_pdf reads from a real file path (and needs the
     # correct extension to pick the right extractor), so the uploaded
