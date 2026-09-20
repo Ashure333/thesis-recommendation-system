@@ -137,13 +137,15 @@ def update_paper(paper_id: int, updates: PaperUpdate, db: Session = Depends(get_
 
 @app.post("/api/papers/upload", response_model=PaperOut)
 def upload_paper(file: UploadFile = File(...), db: Session = Depends(get_session)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+    suffix = os.path.splitext(file.filename)[1].lower()
+    if suffix not in (".pdf", ".tex"):
+        raise HTTPException(status_code=400, detail="Only PDF and LaTeX (.tex) files are accepted")
 
-    # upload_paper_from_pdf reads from a real file path, so the uploaded
+    # upload_paper_from_pdf reads from a real file path (and needs the
+    # correct extension to pick the right extractor), so the uploaded
     # bytes are written to a temp file first, then cleaned up after --
     # the permanent copy it makes lives in storage/papers/.
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
 
