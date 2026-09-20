@@ -1,997 +1,110 @@
-# Academic Paper Repository & Recommendation System
+# PaperRec — Frontend
 
-## Thesis Prototype — Backend Data Layer, PDF Ingestion, Text Representation, and Recommendation Pipelines
+React + TypeScript + Tailwind CSS UI for the academic paper repository
+and recommendation system (BulSU BSMCS), built with Vite.
 
-This repository contains the backend data layer, PDF-ingestion pipeline, text-representation components, and recommendation utilities for a locally deployed academic paper repository and recommendation system.
+## Dependencies
 
-The project is a research prototype for comparing **six recommendation configurations** based on:
+- Node.js 18+ (includes npm) — separate install from Python, get it at nodejs.org
+- React 18, React Router 6, TypeScript 5, Tailwind CSS 3, Vite 5
 
-- TF-IDF
-- S-BERT
-- TF-IDF + S-BERT
-- TF-IDF + Metadata
-- S-BERT + Metadata
-- Full Hybrid Recommendation Scoring
+## Running this alongside the backend
 
-The system also includes metadata-based similarity as a component of the hybrid recommendation pipelines.
-
-> **Note:** The React frontend and API routes are separate parts of the complete system and may be integrated with this backend later.
-
----
-
-## Current Features
-
-The current repository includes:
-
-- SQLite database using SQLAlchemy
-- Academic paper storage and browsing
-- PDF upload and automatic metadata extraction
-- PDF file storage
-- Title, abstract, keywords, and publication-year extraction
-- Explicit keyword extraction from academic PDFs
-- YAKE-based automatic keyword generation when explicit keywords are unavailable
-- Keyword cleaning and redundancy filtering
-- Paper validation for recommendation eligibility
-- Prepared-text generation
-- TF-IDF vector generation
-- S-BERT semantic embeddings
-- Cosine similarity computation
-- Score normalization
-- Repository search and sorting
-- Filtering of zero-score search results
-- Database inspection through a terminal script
-- Recommendation-index rebuilding
-- PDF upload-flow testing
-- Metadata extraction testing
-- Support for viewing database records without printing large vector arrays
-
----
-
-## Requirements
-
-The project requires:
-
-- Python 3.10 or newer
-- Windows PowerShell, macOS Terminal, or Linux Terminal
-- Internet connection during the first installation or download of the S-BERT model
-- Sufficient disk space for the S-BERT model and generated vectors
-- A virtual environment for installing project dependencies
-
-### Main Dependencies
-
-- [SQLAlchemy](https://www.sqlalchemy.org/) — SQLite ORM
-- [pdfplumber](https://github.com/jsvine/pdfplumber) — PDF text and layout extraction
-- [scikit-learn](https://scikit-learn.org/) — TF-IDF vectorization and numerical utilities
-- [sentence-transformers](https://www.sbert.net/) — S-BERT embeddings
-- [joblib](https://joblib.readthedocs.io/) — Saving and loading the TF-IDF vectorizer
-- [NumPy](https://numpy.org/) — Numerical processing
-- [YAKE](https://github.com/LIAAD/yake) — Automatic keyword extraction
-- [FastAPI](https://fastapi.tiangolo.com/) — Future backend API integration, if enabled
-- [Uvicorn](https://www.uvicorn.org/) — Future ASGI server, if enabled
-
-The complete Python dependency list is stored in:
-
-```text
-requirements.txt
-```
-
----
-
-## Project Structure
-
-```text
-Academic-Paper-Repository/
-│
-├── app/
-│   ├── __init__.py
-│   │
-│   ├── database.py
-│   │   └── Database engine and SQLAlchemy session setup
-│   │
-│   ├── data/
-│   │   ├── academic_repository.db
-│   │   │   └── SQLite database
-│   │   │
-│   │   └── tfidf_vectorizer.joblib
-│   │       └── Saved TF-IDF vectorizer
-│   │
-│   ├── models/
-│   │   ├── __init__.py
-│   │   └── models.py
-│   │       └── User, Paper, and PersonalLibrary models
-│   │
-│   └── services/
-│       ├── __init__.py
-│       │
-│       ├── extraction.py
-│       │   └── PDF metadata extraction and YAKE keyword generation
-│       │
-│       ├── validation.py
-│       │   └── Paper validation and recommendation eligibility
-│       │
-│       ├── storage.py
-│       │   └── Saves PDFs to storage/papers/
-│       │
-│       ├── text_preparation.py
-│       │   └── Creates normalized prepared text
-│       │
-│       ├── upload_paper.py
-│       │   └── Coordinates extraction, validation, storage, and saving
-│       │
-│       └── recommendation/
-│           ├── __init__.py
-│           │
-│           ├── similarity.py
-│           │   └── Cosine similarity and score normalization
-│           │
-│           ├── tfidf_pipeline.py
-│           │   └── TF-IDF vector generation and storage
-│           │
-│           └── sbert_pipeline.py
-│               └── S-BERT embedding generation and storage
-│
-├── scripts/
-│   ├── __init__.py
-│   │
-│   ├── init_script.py
-│   │   └── Creates database tables
-│   │
-│   ├── migrate_add_stored_path.py
-│   │   └── Adds stored_path to an existing database
-│   │
-│   ├── rebuild_recommendation_index.py
-│   │   └── Rebuilds prepared text, TF-IDF vectors, and S-BERT embeddings
-│   │
-│   ├── search_papers.py
-│   │   └── Searches papers using TF-IDF, S-BERT, or supported pipelines
-│   │
-│   └── view_database.py
-│       └── Displays database contents while hiding large vectors by default
-│
-├── test/
-│   ├── __init__.py
-│   ├── test_upload_flow.py
-│   │   └── Tests the complete PDF upload flow
-│   │
-│   └── test_extraction.py
-│       └── Tests PDF metadata extraction
-│
-├── storage/
-│   └── papers/
-│       └── Stored PDFs named using their paper ID
-│
-├── requirements.txt
-├── sample.pdf
-└── README.md
-```
-
-> The exact project structure may change as the hybrid recommendation pipelines, API routes, and React frontend are integrated.
-
----
-
-## Setup — First Time
-
-Open a terminal in the project root:
-
-```powershell
-cd "G:\OJT files\TFIDF-SBERT-Metadata-RecommendationSystem"
-```
-
-### 1. Create a virtual environment
-
-```powershell
-python -m venv .venv
-```
-
-### 2. Activate the virtual environment
-
-For Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-If activation is successful, the terminal should show:
-
-```text
-(.venv)
-```
-
-For macOS/Linux:
+Two servers run at once during development:
 
 ```bash
-source .venv/bin/activate
+# Terminal 1 -- backend, from your project root
+python -m scripts.rebuild_recommendation_index   # once, before first use (and after big batches of uploads)
+python -m uvicorn app.api:app --reload --port 8000
+
+# Terminal 2 -- frontend, from this frontend/ folder
+npm install
+npm run dev
 ```
 
-### 3. Install `requirements.txt`
+Open the frontend URL (usually http://localhost:5173) and go to
+`/search`. `.env` sets `VITE_API_URL=http://localhost:8000` — change
+this if your backend runs somewhere else. `src/api.ts` is the one file
+that knows how to talk to the backend; every page imports from there
+rather than calling `fetch` directly.
 
-Upgrade pip:
+## Pages and their current status
 
-```powershell
-python -m pip install --upgrade pip
+| Route              | File                                   | Status                                                                             |
+| ------------------ | -------------------------------------- | ---------------------------------------------------------------------------------- |
+| `/`                | `pages/auth/Login.tsx`                 | UI only — no auth backend yet                                                      |
+| `/register`        | `pages/auth/Register.tsx`              | UI only — no auth backend yet                                                      |
+| `/search`          | `pages/main/Search.tsx`                | **Wired** — real stats, recent additions, and search hands off to Recommendations  |
+| `/repository`      | `pages/repository/Repository.tsx`      | **Wired** — real search/filter/sort/save                                           |
+| `/recommendations` | `pages/evaluation/Recommendations.tsx` | **Wired for TF-IDF and S-BERT only** — see below                                   |
+| `/upload`          | `pages/repository/Upload.tsx`          | **Wired** — real PDF upload, auto-extraction, manual completion, save              |
+| `/library`         | `pages/repository/MyLibrary.tsx`       | **Wired** — real save/remove, working "Find Similar" (single-user mode, see below) |
+| `/evaluation`      | `pages/evaluation/Evaluation.tsx`      | Placeholder — no design yet                                                        |
+
+**Recommendation pipelines:** of the six configurations from Chapter 3
+(§3.6), only **TF-IDF** and **S-BERT** have a working implementation
+behind them. The other four (TF-IDF+S-BERT, TF-IDF+Metadata,
+S-BERT+Metadata, Full Hybrid) are visible in the pipeline selector,
+marked "· soon," and disabled — shown honestly as planned rather than
+hidden or silently redirected to a different pipeline.
+
+## Single-user mode (no real auth yet)
+
+Since Login/Register don't have backend logic, the API uses one
+default "local" user for every Library action, created automatically
+on first save. When real auth gets built, only
+`app/services/local_user.py` needs to change.
+
+## A schema note worth knowing
+
+Your database has one `subject_category` column, but Upload's UI has
+two dropdowns (Subject: CS/Math, Category: Machine Learning/etc.). The
+API stores both combined as `"Subject: Category"` in that one column;
+Repository's Subject/Category filters both substring-match against it.
+Flag it if you'd rather split this into two real columns instead.
+
+## Not yet built
+
+- **Paper detail view** — still undecided (drawer vs. page)
+- **Evaluation page** — no design provided yet
+- **Metadata component + the 4 combined pipelines** — the recommendation
+  engine (`app/services/recommendation/`) only has `tfidf_pipeline.py`
+  and `sbert_pipeline.py` implemented so far
+- **Real auth** — Login/Register forms don't submit anywhere yet
+
+## Shared pieces worth knowing about
+
+- `data/pipelineConfigs.ts` — the six recommendation configurations
+  with their weight splits, used by Search and Recommendations so the
+  two pages can't drift out of sync on this list.
+- `components/WeightBar.tsx` — the small colored bar showing a
+  config's weight split.
+- `src/api.ts` — every backend call goes through here (`listPapers`,
+  `getRecommendations`, `uploadPaper`, `saveToLibrary`, etc.).
+
+## Structure
+
+```
+index.html                        Entry HTML
+src/main.tsx                      React entry point
+src/App.tsx                       Router — all routes defined here
+src/api.ts                        Backend API client
+src/index.css                     Tailwind directives + base typography
+src/layouts/                      AuthLayout, AppLayout
+src/pages/auth/                   Login, Register
+src/pages/main/                   Search
+src/pages/repository/             Repository, Upload, MyLibrary
+src/pages/evaluation/             Recommendations, Evaluation
+src/components/                   Shared UI (WeightBar)
+src/data/                         Shared data (pipelineConfigs)
+tailwind.config.js                Theme: navy/panel/gold palette, fonts
+vite.config.ts                    Vite + React plugin
 ```
 
-Install all backend dependencies:
-
-```powershell
-pip install -r requirements.txt
-```
-
-> **Important:** Run `pip install -r requirements.txt` after creating and activating the virtual environment. The requirements file contains the packages needed for PDF extraction, YAKE keyword generation, TF-IDF, S-BERT, database operations, testing, and other backend updates.
-
-If a new Python package is added to the project, update `requirements.txt` so other developers can install the same dependencies.
-
-### 4. Initialize the database
-
-If the database does not exist yet:
-
-```powershell
-python -m scripts.init_script
-```
-
-This creates the required database tables.
-
-> If `app/data/academic_repository.db` already exists and contains the team dataset, do not run the initialization script unnecessarily.
-
-### 5. Run the database migration if needed
-
-If the existing database does not contain the `stored_path` column:
-
-```powershell
-python -m scripts.migrate_add_stored_path
-```
-
-Run this only when the migration is required.
-
----
-
-## Database Location
-
-The current database is stored at:
-
-```text
-app/data/academic_repository.db
-```
-
-The TF-IDF vectorizer is stored at:
-
-```text
-app/data/tfidf_vectorizer.joblib
-```
-
-Uploaded PDF files are stored at:
-
-```text
-storage/papers/
-```
-
-The database stores the relative path of each uploaded PDF, for example:
-
-```text
-papers/61.pdf
-```
-
-The corresponding file is located at:
-
-```text
-storage/papers/61.pdf
-```
-
----
-
-## Running the Services and Scripts
-
-The backend currently consists mainly of Python services and command-line scripts. FastAPI routes may be integrated later.
-
-### Run the PDF Upload Test
-
-From the project root:
-
-```powershell
-python -m test.test_upload_flow sample.pdf
-```
-
-Use the module format above instead of:
-
-```powershell
-python test/test_upload_flow.py sample.pdf
-```
-
-The module format helps Python correctly locate the `app` package.
-
-### Run the Metadata Extraction Test
-
-```powershell
-python -m test.test_extraction
-```
-
-This test checks whether the PDF extraction module can extract metadata from the sample PDF.
-
-The test output may include:
-
-```text
-TITLE:
-Online Low Rank Matrix Completion
-
-ABSTRACT:
-...
-
-KEYWORDS:
-...
-
-KEYWORDS SOURCE:
-yake
-
-KEYWORDS GENERATED:
-True
-
-PUBLICATION YEAR:
-2020
-```
-
-A successful test confirms that the extraction pipeline can process the sample PDF and generate metadata.
-
-> A passing test confirms that the extraction process works technically. It does not necessarily mean that every generated keyword is semantically perfect. Keyword quality may still require additional filtering or domain-specific improvements.
-
-### View the Database
-
-```powershell
-python -m scripts.view_database
-```
-
-This displays the database tables, columns, and records.
-
-Large vector columns such as:
-
-- `tfidf_vector`
-- `sbert_vector`
-
-are hidden by default to prevent the terminal from being flooded with long numerical arrays.
-
-To display the vectors intentionally:
-
-```powershell
-python -m scripts.view_database --show-vectors
-```
-
-> Hiding the vectors only affects terminal output. The vector data remains stored in the database and is still available to the recommendation pipelines.
-
-### Rebuild the Recommendation Index
-
-```powershell
-python -m scripts.rebuild_recommendation_index
-```
-
-This command:
-
-1. Loads papers from the database.
-2. Refreshes each paper’s `prepared_text`.
-3. Generates TF-IDF vectors.
-4. Saves the TF-IDF vectorizer.
-5. Generates S-BERT embeddings.
-6. Stores the updated representations for recommendation.
-
-Run this command when:
-
-- The dataset is initially imported.
-- New papers are added.
-- Prepared-text logic changes.
-- TF-IDF settings change.
-- The S-BERT model changes.
-- Existing vectors are missing or outdated.
-- Metadata or keyword extraction is updated.
-
-The first S-BERT run may download the selected model and may take longer than later runs.
-
----
-
-## Repository Search
-
-The repository includes a command-line search script for testing recommendation pipelines.
-
-### Search Using S-BERT
-
-```powershell
-python -m scripts.search_papers --pipeline sbert --query "neural networks"
-```
-
-### Search Using TF-IDF
-
-```powershell
-python -m scripts.search_papers --pipeline tfidf --query "neural networks"
-```
-
-### Search with a Custom Number of Results
-
-```powershell
-python -m scripts.search_papers --pipeline sbert --query "neural networks" --top-k 10
-```
-
-The search script displays:
-
-- Ranking number
-- Paper title
-- Paper ID
-- Similarity score
-- Publication year
-- Author
-- Subject category
-
-Results with zero similarity scores are filtered from the displayed results.
-
-Example output format:
-
-```text
-================================================================================
-
-Pipeline: SBERT
-
-Results: 8
-
-================================================================================
-
-1. Example Academic Paper
-
-   Paper ID: 18
-   Score: 0.097877
-   Publication Year: 2000
-   Author: N/A
-   Subject Category: N/A
-```
-
-### Interpreting Search Scores
-
-Search scores represent the similarity between the query and the paper representation used by the selected pipeline.
-
-- Higher scores indicate stronger similarity.
-- Lower positive scores indicate weaker similarity.
-- A score of `0.0` indicates no measurable similarity for that representation.
-- Search results are ordered from highest to lowest score.
-
-The scores should be interpreted as ranking values, not as percentages or guaranteed measures of research relevance.
-
----
-
-## PDF Upload and Extraction
-
-To upload a PDF through the complete pipeline:
-
-```powershell
-python -m test.test_upload_flow sample.pdf
-```
-
-The upload flow performs the following general steps:
-
-```text
-PDF file
-   ↓
-PDF text extraction
-   ↓
-Title, Abstract, Keywords, and Publication Year extraction
-   ↓
-Keyword cleaning and redundancy filtering
-   ↓
-Paper validation
-   ↓
-Prepared-text generation
-   ↓
-Database record creation
-   ↓
-PDF file storage
-   ↓
-TF-IDF/S-BERT indexing when rebuilt
-```
-
-The uploaded PDF is stored using its paper ID:
-
-```text
-storage/papers/<paper_id>.pdf
-```
-
-For example:
-
-```text
-storage/papers/61.pdf
-```
-
-The database stores the relative path:
-
-```text
-papers/61.pdf
-```
-
----
-
-## Automatically Extracted Fields
-
-The PDF extraction pipeline currently attempts to extract:
-
-- Title
-- Abstract
-- Keywords
-- Publication year
-
-The extraction uses heuristic and regular-expression-based methods, including:
-
-- Page-one title detection
-- Abstract-heading detection
-- Keyword-label detection
-- Publication-year matching
-- Text normalization
-- Keyword cleaning
-- YAKE keyword generation when explicit keywords are unavailable
-
-### Keyword Extraction Behavior
-
-The keyword extraction process follows this general order:
-
-1. Search the PDF for an explicit keyword section.
-2. Use the paper’s provided keywords when they can be detected.
-3. If explicit keywords cannot be found, generate keywords using YAKE.
-4. Clean and normalize the keyword phrases.
-5. Remove highly redundant keyword phrases.
-6. Store the resulting keywords in the paper metadata.
-
-The metadata may also record whether keywords were automatically generated.
-
-Example:
-
-```text
-KEYWORDS SOURCE:
-yake
-
-KEYWORDS GENERATED:
-True
-```
-
-YAKE-generated keywords are intended to provide useful terms when a paper does not contain an explicit keyword list. However, keyword quality may vary depending on:
-
-- PDF text quality
-- Academic writing style
-- Repeated terminology
-- Document layout
-- Abstract completeness
-- The number of meaningful concepts in the paper
-
-### Current PDF Extraction Limitations
-
-This is a prototype approach and may not work perfectly with:
-
-- Scanned PDFs
-- Image-only PDFs
-- Unusual academic layouts
-- Missing section headings
-- Poorly formatted documents
-- PDFs with unusual text encoding
-- Multi-column documents
-- Documents with embedded or nonstandard fonts
-- PDFs with broken word spacing
-- PDFs where words are joined together during extraction
-
-A paper record may still be created when extraction is incomplete.
-
-If required fields are missing, the paper is marked as:
-
-```text
-is_valid_for_recommendation = False
-```
-
-The missing fields are stored in:
-
-```text
-missing_fields
-```
-
-The current recommendation-validity requirements are:
-
-- Title
-- Abstract
-- Keywords
-- Publication year
-
----
-
-## Fields Not Automatically Extracted
-
-The following fields are currently outside the automatic PDF-extraction scope:
-
-- Author
-- DOI
-- Subject/Category
-- Document Type
-- Citation Count
-
-These fields are intended to be completed manually during dataset curation or through a future metadata-completion interface.
-
-The `Subject/Category` field may be used for:
-
-- Dataset organization
-- Filtering
-- Metadata analysis
-- Future hybrid recommendation scoring
-
-It should not be assumed to be automatically available for every uploaded paper.
-
----
-
-## Text Representation
-
-The recommendation system uses the following text-preparation process:
-
-```text
-Title + Abstract + Keywords
-           ↓
-Text normalization
-           ↓
-prepared_text
-           ↓
-TF-IDF vector and S-BERT embedding
-```
-
-### Prepared Text
-
-The `text_preparation.py` service combines the paper’s title, abstract, and keywords into one normalized text string.
-
-The text is generally:
-
-- Converted to lowercase
-- Cleaned of punctuation
-- Normalized for whitespace
-- Combined into one text representation
-- Stored in the `prepared_text` field
-
-### TF-IDF Representation
-
-TF-IDF converts each paper’s prepared text into a numerical vector based on word importance across the dataset.
-
-The fitted vectorizer is saved for later use by the recommendation system:
-
-```text
-app/data/tfidf_vectorizer.joblib
-```
-
-### S-BERT Representation
-
-S-BERT converts the prepared text into a semantic embedding.
-
-This representation is intended to capture meaning and contextual similarity between papers, even when they do not use exactly the same words.
-
-The generated embedding is stored in the paper record through the:
-
-```text
-sbert_vector
-```
-
-field.
-
----
-
-## Recommendation Pipelines
-
-The current system supports the development and testing of the following recommendation configurations:
-
-| Pipeline          | Description                                           |
-| ----------------- | ----------------------------------------------------- |
-| TF-IDF            | Uses lexical similarity based on word importance      |
-| S-BERT            | Uses semantic similarity based on text embeddings     |
-| TF-IDF + S-BERT   | Combines lexical and semantic similarity              |
-| TF-IDF + Metadata | Combines lexical similarity with metadata similarity  |
-| S-BERT + Metadata | Combines semantic similarity with metadata similarity |
-| Full Hybrid       | Combines TF-IDF, S-BERT, and metadata similarity      |
-
-Metadata-based similarity is intended to be used as part of a hybrid configuration rather than as an independent text-representation pipeline.
-
-The exact weighting scheme for each hybrid configuration should remain consistent with the current thesis methodology and implementation.
-
----
-
-## Unit Testing and Smoke Testing
-
-### Test the PDF Upload Flow
-
-```powershell
-python -m test.test_upload_flow sample.pdf
-```
-
-The test checks:
-
-- Whether the PDF can be read
-- Whether metadata can be extracted
-- Whether the database record is created
-- Whether the PDF is copied to `storage/papers/`
-- Whether the file exists on disk
-- Whether the paper is valid for recommendation
-- Whether repository queries work
-
-### Test Metadata Extraction
-
-```powershell
-python -m test.test_extraction
-```
-
-The extraction test checks:
-
-- Title extraction
-- Abstract extraction
-- Keyword extraction
-- YAKE keyword generation
-- Publication-year extraction
-- Metadata extraction completion
-
-### Check Stored PDFs
-
-```powershell
-Get-ChildItem .\storage\papers
-```
-
-### Search for All PDFs in the Project
-
-```powershell
-Get-ChildItem -Recurse -Filter *.pdf
-```
-
-### Check the Storage Paths
-
-```powershell
-python -c "from app.services.storage import BASE_DIR, STORAGE_ROOT, PAPERS_DIR; print('BASE_DIR:', BASE_DIR); print('STORAGE_ROOT:', STORAGE_ROOT); print('PAPERS_DIR:', PAPERS_DIR)"
-```
-
-The expected output should point to the project root:
-
-```text
-BASE_DIR: ...\TFIDF-SBERT-Metadata-RecommendationSystem
-STORAGE_ROOT: ...\TFIDF-SBERT-Metadata-RecommendationSystem\storage
-PAPERS_DIR: ...\TFIDF-SBERT-Metadata-RecommendationSystem\storage\papers
-```
-
-### Test the Recommendation-Index Rebuild
-
-```powershell
-python -m scripts.rebuild_recommendation_index
-```
-
-A successful run should complete without import, dependency, or model errors and should update the paper representations.
-
-### Test Repository Search
-
-```powershell
-python -m scripts.search_papers --pipeline sbert --query "neural networks"
-```
-
-```powershell
-python -m scripts.search_papers --pipeline tfidf --query "neural networks"
-```
-
-These commands verify that:
-
-- The selected pipeline can load.
-- The query can be processed.
-- Stored representations can be accessed.
-- Similarity scores can be calculated.
-- Results can be sorted.
-- Zero-score results can be filtered from the output.
-
----
-
-## Common Terminal Issues
-
-### `ModuleNotFoundError: No module named 'app'`
-
-Run scripts from the project root using the module format:
-
-```powershell
-python -m test.test_upload_flow sample.pdf
-```
-
-Do not run:
-
-```powershell
-python test/test_upload_flow.py sample.pdf
-```
-
-### `ModuleNotFoundError` for `tfidf_pipeline`
-
-Check that the file is named:
-
-```text
-tfidf_pipeline.py
-```
-
-Not:
-
-```text
-tf-idf_pipeline.py
-```
-
-Python module filenames should not contain the hyphen used in `tf-idf_pipeline.py`.
-
-### `ModuleNotFoundError` for `text_preparation`
-
-Confirm that this file exists:
-
-```text
-app/services/text_preparation.py
-```
-
-Also confirm that the virtual environment is activated and that the dependencies were installed:
-
-```powershell
-pip install -r requirements.txt
-```
-
-### S-BERT Model Download or Installation Problems
-
-Ensure that:
-
-- The virtual environment is activated.
-- `requirements.txt` has been installed.
-- Internet access is available during the first model download.
-- Sufficient disk space is available.
-- The selected S-BERT model can be downloaded from Hugging Face.
-
-A warning such as the following is not necessarily an error:
-
-```text
-Warning: You are sending unauthenticated requests to the HF Hub.
-```
-
-The model may still load successfully. An HF token is mainly useful for higher rate limits and authenticated access.
-
-### Search Returns Unrelated Papers
-
-Possible causes include:
-
-- The dataset contains few papers related to the query.
-- The prepared text is incomplete.
-- Abstracts or keywords are missing.
-- The embedding was generated before the latest text changes.
-- The dataset contains broad mathematical or technical terminology.
-- The paper’s content is semantically related but not directly related to the query.
-
-Rebuild the recommendation index after correcting paper text or metadata:
-
-```powershell
-python -m scripts.rebuild_recommendation_index
-```
-
-### Duplicate Papers Appear in Search Results
-
-If multiple paper IDs have the same title and similarity score, inspect the records using:
-
-```powershell
-python -m scripts.view_database
-```
-
-Repeated upload tests or repeated dataset imports may create duplicate records.
-
-Duplicate detection and cleanup should be handled before final recommendation evaluation.
-
-### Large TF-IDF or S-BERT Vectors Flood the Terminal
-
-Use the database viewer normally:
-
-```powershell
-python -m scripts.view_database
-```
-
-The viewer hides vector columns by default.
-
-Only use this when the vectors themselves need to be inspected:
-
-```powershell
-python -m scripts.view_database --show-vectors
-```
-
----
-
-## Important Development Notes
-
-- This is a research prototype, not a production system.
-- Each developer should create their own `.venv`.
-- Always install backend dependencies using `pip install -r requirements.txt`.
-- Do not commit `.venv/` or `__pycache__/`.
-- The SQLite database is shared by the team.
-- Coordinate database changes before pushing or pulling.
-- SQLite database files do not merge like normal text files.
-- Repeatedly running the upload test adds another paper record each time.
-- Duplicate detection should be added before final evaluation.
-- Recommendation vectors should be rebuilt after major dataset or pipeline changes.
-- The current PDF extractor is heuristic-based and is not a complete machine-learning document parser.
-- YAKE keyword generation is a fallback when explicit keywords cannot be extracted.
-- Automatically generated keywords may require additional quality checking.
-- Scanned-PDF OCR support is not yet included in the current extraction pipeline.
-- Metadata fields that are not automatically extracted may contain `None` or `N/A`.
-- Hiding vectors in the database viewer does not remove them from the database.
-- Search scores are used for ranking and should not automatically be interpreted as percentages.
-- The first S-BERT execution may take longer because the model needs to load or download.
-- The database should be backed up before migrations, bulk imports, or duplicate cleanup.
-- The frontend and API routes are separate components and are not assumed to be fully integrated yet.
-
----
-
-## Quick Command Reference
-
-Run these commands from the project root:
-
-```powershell
-# Activate virtual environment
-.\.venv\Scripts\Activate.ps1
-
-# Upgrade pip
-python -m pip install --upgrade pip
-
-# Install all backend requirements
-pip install -r requirements.txt
-
-# Initialize database
-python -m scripts.init_script
-
-# Run database migration if required
-python -m scripts.migrate_add_stored_path
-
-# Run PDF upload test
-python -m test.test_upload_flow sample.pdf
-
-# Run metadata extraction test
-python -m test.test_extraction
-
-# View database without large vectors
-python -m scripts.view_database
-
-# View database including vector columns
-python -m scripts.view_database --show-vectors
-
-# Search using S-BERT
-python -m scripts.search_papers --pipeline sbert --query "neural networks"
-
-# Search using TF-IDF
-python -m scripts.search_papers --pipeline tfidf --query "neural networks"
-
-# Search and request 10 results
-python -m scripts.search_papers --pipeline sbert --query "neural networks" --top-k 10
-
-# Rebuild TF-IDF and S-BERT representations
-python -m scripts.rebuild_recommendation_index
-
-# Check stored PDFs
-Get-ChildItem .\storage\papers
-
-# Search for all PDFs
-Get-ChildItem -Recurse -Filter *.pdf
-```
-
----
-
-## Current Development Status
-
-| Component                                 | Status                |
-| ----------------------------------------- | --------------------- |
-| SQLite database                           | Implemented           |
-| SQLAlchemy models                         | Implemented           |
-| PDF upload                                | Implemented           |
-| PDF storage                               | Implemented           |
-| Metadata extraction                       | Prototype implemented |
-| YAKE keyword generation                   | Implemented           |
-| Keyword cleaning and redundancy filtering | Implemented           |
-| Paper validation                          | Implemented           |
-| Prepared text                             | Implemented           |
-| TF-IDF pipeline                           | Implemented           |
-| S-BERT pipeline                           | Implemented           |
-| Cosine similarity                         | Implemented           |
-| Score normalization                       | Implemented           |
-| Recommendation-index rebuild              | Implemented           |
-| Database viewer                           | Implemented           |
-| Vector-column hiding in database viewer   | Implemented           |
-| TF-IDF repository search                  | Implemented           |
-| S-BERT repository search                  | Implemented           |
-| Zero-score result filtering               | Implemented           |
-| PDF upload-flow testing                   | Implemented           |
-| Metadata extraction testing               | Implemented           |
-| Hybrid recommendation scoring             | In development        |
-| Metadata similarity                       | In development        |
-| FastAPI/Flask routes                      | To be integrated      |
-| React frontend                            | To be integrated      |
-| Duplicate-paper detection                 | Future improvement    |
-| Scanned-PDF OCR support                   | Future improvement    |
-| Automated metadata completion             | Future improvement    |
-| Recommendation evaluation scripts         | Planned               |
+## Next steps
+
+- Build the Metadata component and the 4 combined pipelines, then
+  enable them in `Recommendations.tsx`'s `IMPLEMENTED` set
+- Decide the Paper Detail treatment (drawer vs. page) and build it
+- Get the Evaluation design and replace the placeholder
+- Build real auth (Login/Register submit + redirect-if-signed-out)
