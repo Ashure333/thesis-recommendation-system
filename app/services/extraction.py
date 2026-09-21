@@ -1,187 +1,811 @@
 """
-PDF metadata auto-extraction.
+PDF metadata auto-extraction with hybrid keyword extraction.
 
-Extracts the four recommendation-signal fields (Title, Abstract, Keywords,
-Publication Year) from an uploaded PDF using text-layout heuristics and
-regex pattern matching -- not a full ML-based parser like GROBID. This
-fits the prototype scope of the thesis: it will get typical, well-formed
-academic paper layouts right most of the time, but atypical layouts
-(scanned images, unusual section naming, non-standard title pages) may
-fail to extract one or more fields. That is expected and handled -- a
-failed field is simply left as None, and validate_paper() (in
-validation.py) will flag the paper invalid-for-recommendation and record
-which field(s) need manual entry.
+Extraction order:
+1. Explicit author-provided keywords:
+   - Keywords:
+   - Index Terms:
+   - Key words:
+   - Subject terms:
+2. YAKE-generated keywords from title + abstract.
+3. None if no usable source text is available.
 
-Requires: pdfplumber (pip install pdfplumber)
+The keyword extraction uses two redundancy-control layers:
+
+1. YAKE's built-in deduplication.
+2. Additional normalized-word comparison to remove:
+   - Singular/plural duplicates
+   - Inflectional duplicates
+   - Phrase containment
+   - Highly overlapping keyword phrases
+
+Requires:
+    pip install pdfplumber yake
 """
+
+from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Any
 
 import pdfplumber
+import yake
 
-YEAR_PATTERN = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
 
-ABSTRACT_HEADER = re.compile(r"^\s*abstract\b", re.IGNORECASE | re.MULTILINE)
-# Section/front-matter headers that mark where the abstract text should stop.
-# Table of Contents, List of Figures, etc. commonly sit between the Abstract
-# and the Introduction in thesis-style documents, so they need to be
-# recognized as stop points too, not just "Keywords"/"Introduction".
+# ---------------------------------------------------------------------
+# Regular expressions
+# ---------------------------------------------------------------------
+
+YEAR_PATTERN = re.compile(
+    r"\b(19[5-9]\d|20[0-4]\d)\b"
+)
+
+ABSTRACT_HEADER = re.compile(
+    r"^\s*abstract\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 NEXT_SECTION_HEADER = re.compile(
-    r"\b(keywords|index terms|1\.?\s+introduction|i\.\s+introduction|introduction|"
-    r"table of contents|list of figures|list of tables|acknowledge?ments?)\b",
+    r"\b("
+    r"keywords|index terms|key words|subject terms|"
+    r"1\.?\s+introduction|i\.\s+introduction|introduction|"
+    r"table of contents|list of figures|list of tables|"
+    r"acknowledge?ments?"
+    r")\b",
     re.IGNORECASE,
 )
+
 KEYWORDS_LINE = re.compile(
-    r"(?:keywords|index terms)\s*[:\-]\s*(.+)", re.IGNORECASE
+    r"^\s*(?:"
+    r"keywords?|"
+    r"index\s+terms?|"
+    r"key\s+words?|"
+    r"subject\s+terms?"
+    r")\s*"
+    r"[:\-–—]\s*"
+    r"(.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
-# A line like "Methodology . . . . . . . . 8" or "Methodology........8" -- the
-# dot-leader pattern used in Tables of Contents (PDF text extraction usually
-# keeps the dots space-separated, so this allows an optional space between
-# each dot). Seeing this on the same line as a header match means that
-# "header" is actually a TOC entry, not the real section heading.
-DOT_LEADER_PATTERN = re.compile(r"(?:\.[ \t]?){4,}\d+")
+
+DOT_LEADER_PATTERN = re.compile(
+    r"(?:\.[ \t]?){4,}\d+"
+)
 
 
-def _extract_full_text(pdf_path: str, max_pages: int = 5) -> list[str]:
-    """Returns a list of per-page text strings for the first max_pages pages."""
-    pages_text = []
+# ---------------------------------------------------------------------
+# Keyword cleaning configuration
+# ---------------------------------------------------------------------
+
+STOP_KEYWORD_PHRASES = {
+    "keywords",
+    "keyword",
+    "index terms",
+    "index term",
+    "key words",
+    "key word",
+    "subject terms",
+    "subject term",
+    "abstract",
+    "introduction",
+    "references",
+    "conclusion",
+    "acknowledgment",
+    "acknowledgement",
+}
+
+
+# Ordered suffix rules used only for redundancy comparison.
+_SUFFIX_RULES: tuple[tuple[str, str], ...] = (
+    ("ational", "ate"),
+    ("tional", "tion"),
+    ("ization", "ize"),
+    ("iveness", "ive"),
+    ("fulness", "ful"),
+    ("ousness", "ous"),
+    ("ies", "y"),
+    ("ing", ""),
+    ("ed", ""),
+    ("es", ""),
+    ("s", ""),
+)
+
+
+# Two phrases are considered redundant when their normalized
+# word-root sets have at least this much Jaccard similarity.
+_OVERLAP_REDUNDANCY_THRESHOLD = 0.75
+
+
+# Common English words that usually indicate a sentence fragment rather than
+# a meaningful academic keyword. These are used for YAKE output only.
+_YAKE_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "in", "into", "is", "it", "of", "on", "or", "that", "the", "their",
+    "this", "to", "using", "we", "with", "our", "study", "studies",
+    "paper", "propose", "proposed", "show", "shows", "based",
+}
+
+
+# ---------------------------------------------------------------------
+# PDF text extraction
+# ---------------------------------------------------------------------
+
+def _extract_full_text(
+    pdf_path: str,
+    max_pages: int = 5,
+) -> list[str]:
+    """
+    Return text from the first max_pages pages.
+
+    Note:
+        Scanned/image-only PDFs require OCR because pdfplumber
+        cannot extract text from image-only pages.
+    """
+    pages_text: list[str] = []
+
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages[:max_pages]:
-            pages_text.append(page.extract_text() or "")
+            pages_text.append(
+                page.extract_text() or ""
+            )
+
     return pages_text
 
 
-def _extract_title(pdf_path: str, first_page_text: str) -> str | None:
+# ---------------------------------------------------------------------
+# Title extraction
+# ---------------------------------------------------------------------
+
+def _extract_title(
+    pdf_path: str,
+    first_page_text: str,
+) -> str | None:
     """
-    Heuristic: the title is usually the largest-font text block near the
-    top of page 1. Falls back to the first non-empty line of text if font
-    size data is unavailable or inconclusive.
+    Heuristic title extraction.
+
+    Uses the largest text near the top of page 1.
+    Falls back to the first substantial non-empty line.
     """
     try:
         with pdfplumber.open(pdf_path) as pdf:
+            if not pdf.pages:
+                return None
+
             page = pdf.pages[0]
-            words = page.extract_words(extra_attrs=["size"])
+
+            words = page.extract_words(
+                extra_attrs=["size"]
+            )
+
             if words:
-                # Only look at the top third of the page -- titles don't
-                # appear halfway down.
                 top_cutoff = page.height / 3
-                candidates = [w for w in words if w["top"] <= top_cutoff]
+
+                candidates = [
+                    word
+                    for word in words
+                    if word["top"] <= top_cutoff
+                ]
+
                 if candidates:
-                    max_size = max(w["size"] for w in candidates)
-                    # Collect words at (near) the largest font size, in
-                    # reading order, and join them into the title.
+                    max_size = max(
+                        word["size"]
+                        for word in candidates
+                    )
+
                     title_words = [
-                        w["text"] for w in candidates if w["size"] >= max_size - 0.5
+                        word["text"]
+                        for word in candidates
+                        if word["size"] >= max_size - 0.5
                     ]
-                    title = " ".join(title_words).strip()
-                    if len(title) >= 8:  # sanity check, not just a stray heading
+
+                    title = " ".join(
+                        title_words
+                    ).strip()
+
+                    if len(title) >= 8:
                         return title
+
     except Exception:
+        # Fall back to text-based extraction if the
+        # font-size heuristic fails.
         pass
 
-    # Fallback: first substantial non-empty line of the page text.
     for line in first_page_text.splitlines():
         line = line.strip()
+
         if len(line) >= 8:
             return line
+
     return None
 
 
-def _is_toc_entry_line(text: str, position: int) -> bool:
+# ---------------------------------------------------------------------
+# Abstract extraction
+# ---------------------------------------------------------------------
+
+def _is_toc_entry_line(
+    text: str,
+    position: int,
+) -> bool:
     """
-    Checks whether the line containing `position` looks like a Table of
-    Contents entry (i.e. it has a dot-leader followed by a page number
-    on the same line) rather than an actual section heading.
+    Detect whether a matched heading is a Table of Contents entry.
     """
-    line_start = text.rfind("\n", 0, position) + 1
-    line_end = text.find("\n", position)
+    line_start = text.rfind(
+        "\n",
+        0,
+        position,
+    ) + 1
+
+    line_end = text.find(
+        "\n",
+        position,
+    )
+
     if line_end == -1:
         line_end = len(text)
+
     line = text[line_start:line_end]
-    return bool(DOT_LEADER_PATTERN.search(line))
+
+    return bool(
+        DOT_LEADER_PATTERN.search(line)
+    )
 
 
-def _extract_abstract(full_text: str) -> str | None:
+def _extract_abstract(
+    full_text: str,
+) -> str | None:
     """
-    Heuristic: grabs the text between an "Abstract" header and the next
-    recognizable section/front-matter header (Keywords / Introduction /
-    Table of Contents / etc.).
-
-    Thesis-style documents often have their own Table of Contents entry
-    that reads "Abstract . . . . . ii" -- this looks like a header match
-    but is really just a TOC line. Each candidate match is checked against
-    its own line for a dot-leader + page-number pattern and skipped if so,
-    so the search keeps going until it finds the real heading (or runs out
-    of candidates).
+    Extract text between the Abstract heading
+    and the next section heading.
     """
     for match in ABSTRACT_HEADER.finditer(full_text):
-        if _is_toc_entry_line(full_text, match.start()):
-            continue  # this "Abstract" is a TOC listing, not the real heading
-
-        after_header = full_text[match.end():]
-        next_match = NEXT_SECTION_HEADER.search(after_header)
-        abstract_block = after_header[: next_match.start()] if next_match else after_header[:2000]
-
-        # Extra safety net: if the candidate block still contains TOC-style
-        # dot-leader lines, we've captured front matter rather than prose --
-        # skip this match rather than store garbage.
-        if len(DOT_LEADER_PATTERN.findall(abstract_block)) >= 2:
+        if _is_toc_entry_line(
+            full_text,
+            match.start(),
+        ):
             continue
 
-        abstract = " ".join(abstract_block.split())  # collapse whitespace/newlines
-        abstract = abstract.strip(" :.-")
-        if len(abstract) >= 40:  # too short = probably a mis-match
+        after_header = full_text[
+            match.end():
+        ]
+
+        next_match = NEXT_SECTION_HEADER.search(
+            after_header
+        )
+
+        abstract_block = (
+            after_header[:next_match.start()]
+            if next_match
+            else after_header[:2000]
+        )
+
+        # Skip likely Table of Contents content.
+        if len(
+            DOT_LEADER_PATTERN.findall(
+                abstract_block
+            )
+        ) >= 2:
+            continue
+
+        abstract = " ".join(
+            abstract_block.split()
+        )
+
+        abstract = abstract.strip(
+            " :.-"
+        )
+
+        if len(abstract) >= 40:
             return abstract
 
     return None
 
 
-def _extract_keywords(full_text: str) -> str | None:
-    """Heuristic: looks for a 'Keywords:' or 'Index Terms:' line."""
-    match = KEYWORDS_LINE.search(full_text)
-    if not match:
-        return None
-    raw = match.group(1)
-    # Stop at the next blank line / obvious section break.
-    raw = raw.split("\n\n")[0].split("\n")[0]
-    keywords = raw.strip(" .")
-    return keywords if keywords else None
+# ---------------------------------------------------------------------
+# Keyword cleaning
+# ---------------------------------------------------------------------
 
-
-def _extract_publication_year(full_text: str) -> int | None:
+def _clean_keyword_phrase(
+    keyword: str,
+    *,
+    reject_stopwords: bool = False,
+) -> str | None:
     """
-    Heuristic: collects plausible 4-digit years from the text and picks
-    the most frequent one, since copyright lines, references, and
-    footers often repeat the actual publication year more than once.
-    Ignores years in the future (typos / OCR artifacts).
+    Clean one keyword phrase.
+
+    Explicit author keywords keep the original permissive behavior. YAKE
+    keywords additionally reject sentence fragments and generic stopwords.
+    """
+    keyword = keyword.strip().lower()
+
+    # Normalize hyphens/dashes so equivalent phrases compare consistently.
+    keyword = re.sub(r"[-‐-‒–—―]", " ", keyword)
+
+    # Remove punctuation from the beginning/end and normalize whitespace.
+    keyword = keyword.strip(" \t\r\n:;,.•·()[]{}")
+    keyword = re.sub(r"\s+", " ", keyword)
+
+    if keyword in STOP_KEYWORD_PHRASES:
+        return None
+
+    if len(keyword) < 2 or len(keyword) > 100:
+        return None
+
+    alphabetic_count = sum(character.isalpha() for character in keyword)
+    if alphabetic_count < 2:
+        return None
+
+    if reject_stopwords:
+        words = keyword.split()
+
+        # Reject sentence-like YAKE fragments such as ``completion we study``.
+        if any(word in _YAKE_STOPWORDS for word in words):
+            return None
+
+        # YAKE phrases should contain at least two meaningful words.
+        meaningful_words = [
+            word for word in words
+            if word not in _YAKE_STOPWORDS and len(word) > 1
+        ]
+        if len(meaningful_words) < 2 or len(meaningful_words) > 6:
+            return None
+
+    return keyword
+
+
+def _normalize_word(
+    word: str,
+) -> str:
+    """
+    Apply light, dependency-free normalization.
+
+    This is used only to compare keyword phrases for redundancy.
+    It is not used for the final displayed/stored keyword text.
+    """
+    word = word.lower()
+
+    # Avoid over-stemming short words.
+    if len(word) <= 4:
+        return word
+
+    for suffix, replacement in _SUFFIX_RULES:
+        if (
+            word.endswith(suffix)
+            and len(word) - len(suffix) >= 3
+        ):
+            return (
+                word[: -len(suffix)]
+                + replacement
+            )
+
+    return word
+
+
+def _normalized_word_set(
+    phrase: str,
+) -> frozenset[str]:
+    """
+    Return normalized word roots for a keyword phrase.
+    """
+    return frozenset(
+        _normalize_word(word)
+        for word in phrase.split()
+    )
+
+
+def _is_redundant_keyword(
+    candidate: str,
+    selected_keywords: list[str],
+) -> bool:
+    """
+    Detect redundant or overlapping keyword phrases.
+
+    A candidate is considered redundant when:
+
+    1. Its normalized word set is identical to a selected keyword.
+    2. Its normalized word set is contained in a selected keyword.
+    3. A selected keyword's normalized word set is contained
+       in the candidate.
+    4. Jaccard similarity is at least 0.6.
+    """
+    candidate_words = _normalized_word_set(
+        candidate
+    )
+
+    if not candidate_words:
+        return False
+
+    for selected in selected_keywords:
+        selected_words = _normalized_word_set(
+            selected
+        )
+
+        if not selected_words:
+            continue
+
+        # Exact normalized match.
+        if candidate_words == selected_words:
+            return True
+
+        # Phrase containment.
+        if (
+            candidate_words <= selected_words
+            or selected_words <= candidate_words
+        ):
+            return True
+
+        # Jaccard similarity.
+        union = candidate_words | selected_words
+        intersection = candidate_words & selected_words
+
+        if union:
+            similarity = (
+                len(intersection)
+                / len(union)
+            )
+
+            if (
+                similarity
+                >= _OVERLAP_REDUNDANCY_THRESHOLD
+            ):
+                return True
+
+    return False
+
+
+# ---------------------------------------------------------------------
+# Explicit author-provided keywords
+# ---------------------------------------------------------------------
+
+def _split_explicit_keywords(
+    raw: str,
+) -> list[str]:
+    """
+    Split author-provided keywords.
+
+    Supports:
+    - Commas
+    - Semicolons
+    - Vertical bars
+    - Bullets
+    - New lines
+    """
+    parts = re.split(
+        r"[,;|•·\n]+",
+        raw,
+    )
+
+    cleaned: list[str] = []
+
+    for part in parts:
+        keyword = _clean_keyword_phrase(
+            part
+        )
+
+        if not keyword:
+            continue
+
+        if _is_redundant_keyword(
+            keyword,
+            cleaned,
+        ):
+            continue
+
+        cleaned.append(keyword)
+
+    return cleaned
+
+
+def _extract_explicit_keywords(
+    full_text: str,
+) -> list[str]:
+    """
+    Extract explicit author-provided keywords.
+
+    Returns an empty list if no recognized keyword label
+    is found.
+    """
+    match = KEYWORDS_LINE.search(
+        full_text
+    )
+
+    if not match:
+        return []
+
+    raw = match.group(1)
+
+    # Avoid capturing a large following paragraph.
+    raw = raw.split(
+        "\n\n"
+    )[0]
+
+    raw = raw.split(
+        "\n"
+    )[0]
+
+    return _split_explicit_keywords(
+        raw
+    )
+
+
+# ---------------------------------------------------------------------
+# YAKE keyword extraction
+# ---------------------------------------------------------------------
+
+def _build_keyword_source_text(
+    title: str | None,
+    abstract: str | None,
+) -> str:
+    """
+    Build the text used by YAKE.
+
+    The title is repeated once to give it slightly more importance.
+    """
+    parts: list[str] = []
+
+    if title:
+        parts.append(title)
+        parts.append(title)
+
+    if abstract:
+        parts.append(abstract)
+
+    return " ".join(
+        parts
+    ).strip()
+
+
+def _extract_yake_keywords(
+    text: str,
+    max_keywords: int = 8,
+    max_ngram_size: int = 3,
+) -> list[str]:
+    """
+    Generate cleaner keywords using YAKE.
+
+    YAKE's built-in deduplication handles near-identical
+    surface forms. The additional redundancy check handles:
+
+    - Singular/plural variants
+    - Inflectional variants
+    - Phrase containment
+    - Highly overlapping phrases
+    """
+    if not text.strip():
+        return []
+
+    extractor = yake.KeywordExtractor(
+        lan="en",
+        n=max_ngram_size,
+        top=max(30, max_keywords * 8),
+        dedupLim=0.85,
+        dedupFunc="seqm",
+        windowsSize=2,
+    )
+
+    ranked_keywords = extractor.extract_keywords(
+        text
+    )
+
+    selected_keywords: list[str] = []
+    seen: set[str] = set()
+
+    for keyword, _score in ranked_keywords:
+        cleaned_keyword = _clean_keyword_phrase(
+            keyword,
+            reject_stopwords=True,
+        )
+
+        if not cleaned_keyword:
+            continue
+
+        if cleaned_keyword in seen:
+            continue
+
+        if _is_redundant_keyword(
+            cleaned_keyword,
+            selected_keywords,
+        ):
+            continue
+
+        selected_keywords.append(
+            cleaned_keyword
+        )
+
+        seen.add(
+            cleaned_keyword
+        )
+
+        if len(selected_keywords) >= max_keywords:
+            break
+
+    return selected_keywords
+
+
+# ---------------------------------------------------------------------
+# Hybrid keyword extraction
+# ---------------------------------------------------------------------
+
+def _keywords_to_string(
+    keywords: list[str],
+) -> str | None:
+    """
+    Convert a keyword list to database string format.
+    """
+    if not keywords:
+        return None
+
+    return ", ".join(
+        keywords
+    )
+
+
+def _extract_keywords_hybrid(
+    full_text: str,
+    title: str | None,
+    abstract: str | None,
+) -> dict[str, Any]:
+    """
+    Hybrid keyword extraction.
+
+    Priority:
+
+    1. Explicit author-provided keywords.
+    2. YAKE-generated keywords.
+    3. None if no usable keywords are available.
+
+    Returns:
+        {
+            "keywords": str | None,
+            "keywords_source": "author" | "yake" | None,
+            "keywords_generated": bool,
+        }
+    """
+
+    # ---------------------------------------------------------
+    # 1. Prefer explicit author-provided keywords
+    # ---------------------------------------------------------
+    explicit_keywords = _extract_explicit_keywords(
+        full_text
+    )
+
+    if explicit_keywords:
+        return {
+            "keywords": _keywords_to_string(
+                explicit_keywords
+            ),
+            "keywords_source": "author",
+            "keywords_generated": False,
+        }
+
+    # ---------------------------------------------------------
+    # 2. Fall back to YAKE using title + abstract
+    # ---------------------------------------------------------
+    source_text = _build_keyword_source_text(
+        title=title,
+        abstract=abstract,
+    )
+
+    yake_keywords = _extract_yake_keywords(
+        text=source_text,
+        max_keywords=8,
+        max_ngram_size=3,
+    )
+
+    if yake_keywords:
+        return {
+            "keywords": _keywords_to_string(
+                yake_keywords
+            ),
+            "keywords_source": "yake",
+            "keywords_generated": True,
+        }
+
+    # ---------------------------------------------------------
+    # 3. No usable keywords could be generated
+    # ---------------------------------------------------------
+    return {
+        "keywords": None,
+        "keywords_source": None,
+        "keywords_generated": False,
+    }
+
+
+# ---------------------------------------------------------------------
+# Publication year extraction
+# ---------------------------------------------------------------------
+
+def _extract_publication_year(
+    full_text: str,
+) -> int | None:
+    """
+    Extract the most frequent plausible publication year.
+
+    Only years from 1950 through 2049 are considered.
+    Future years beyond the current year are ignored.
     """
     current_year = datetime.now().year
-    years = [int(y) for y in YEAR_PATTERN.findall(full_text) if int(y) <= current_year]
+
+    years = [
+        int(year)
+        for year in YEAR_PATTERN.findall(
+            full_text
+        )
+        if int(year) <= current_year
+    ]
+
     if not years:
         return None
-    return max(set(years), key=years.count)
+
+    return max(
+        set(years),
+        key=years.count,
+    )
 
 
-def extract_metadata_from_pdf(pdf_path: str) -> dict:
+# ---------------------------------------------------------------------
+# Public extraction function
+# ---------------------------------------------------------------------
+
+def extract_metadata_from_pdf(
+    pdf_path: str,
+) -> dict[str, Any]:
     """
-    Runs all four extractors and returns a dict:
+    Extract metadata from a PDF.
+
+    Returns:
         {
             "title": str | None,
             "abstract": str | None,
             "keywords": str | None,
+            "keywords_source": "author" | "yake" | None,
+            "keywords_generated": bool,
             "publication_year": int | None,
         }
-    A None value means that field could not be confidently extracted and
-    will need manual entry.
     """
-    pages_text = _extract_full_text(pdf_path)
-    first_page_text = pages_text[0] if pages_text else ""
-    full_text = "\n".join(pages_text)
+    pages_text = _extract_full_text(
+        pdf_path=pdf_path,
+        max_pages=5,
+    )
+
+    first_page_text = (
+        pages_text[0]
+        if pages_text
+        else ""
+    )
+
+    full_text = "\n".join(
+        pages_text
+    )
+
+    title = _extract_title(
+        pdf_path=pdf_path,
+        first_page_text=first_page_text,
+    )
+
+    abstract = _extract_abstract(
+        full_text=full_text,
+    )
+
+    keyword_result = _extract_keywords_hybrid(
+        full_text=full_text,
+        title=title,
+        abstract=abstract,
+    )
 
     return {
-        "title": _extract_title(pdf_path, first_page_text),
-        "abstract": _extract_abstract(full_text),
-        "keywords": _extract_keywords(full_text),
-        "publication_year": _extract_publication_year(full_text),
+        "title": title,
+        "abstract": abstract,
+        "keywords": keyword_result[
+            "keywords"
+        ],
+        "keywords_source": keyword_result[
+            "keywords_source"
+        ],
+        "keywords_generated": keyword_result[
+            "keywords_generated"
+        ],
+        "publication_year": _extract_publication_year(
+            full_text
+        ),
     }
