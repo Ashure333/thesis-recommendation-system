@@ -54,7 +54,7 @@ def classify_all_papers(db) -> tuple[int, int]:
         This follows the existing classify_existing_papers.py behavior,
         where classification is rebuilt for every paper.
 
-        python -m scripts.rebuild_recommendation
+        TO RUN: python -m scripts.rebuild_recommendation
     """
 
     papers = db.query(Paper).all()
