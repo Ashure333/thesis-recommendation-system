@@ -1,13 +1,15 @@
 """
-File storage for uploaded academic paper PDFs.
+File storage for uploaded academic paper source files (PDF or BibTeX).
 
 Physical files are stored in:
 
     project_root/storage/papers/
 
-Each PDF is named using its database paper ID:
+Each file is named using its database paper ID, keeping its original
+extension:
 
     storage/papers/3.pdf
+    storage/papers/4.bib
 
 The database stores only the relative path:
 
@@ -29,8 +31,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # Correct root storage directory
 STORAGE_ROOT = BASE_DIR / "storage"
 
-# Correct PDF directory
+# Correct papers directory
 PAPERS_DIR = STORAGE_ROOT / "papers"
+
+ALLOWED_EXTENSIONS = {".pdf", ".bib"}
 
 
 def ensure_storage_ready() -> None:
@@ -42,13 +46,13 @@ def ensure_storage_ready() -> None:
 
 def save_paper_file(paper_id: int, source_path: str) -> str:
     """
-    Copy an uploaded PDF into:
+    Copy an uploaded PDF or BibTeX file into:
 
-        project_root/storage/papers/{paper_id}.pdf
+        project_root/storage/papers/{paper_id}{original extension}
 
     Returns the relative path saved in the database:
 
-        papers/{paper_id}.pdf
+        papers/{paper_id}{original extension}
     """
 
     ensure_storage_ready()
@@ -57,7 +61,7 @@ def save_paper_file(paper_id: int, source_path: str) -> str:
 
     if not source.exists():
         raise FileNotFoundError(
-            f"Source PDF does not exist: {source}"
+            f"Source file does not exist: {source}"
         )
 
     if not source.is_file():
@@ -65,22 +69,23 @@ def save_paper_file(paper_id: int, source_path: str) -> str:
             f"Source path is not a file: {source}"
         )
 
-    if source.suffix.lower() != ".pdf":
-        raise ValueError("Only PDF files are allowed.")
+    extension = source.suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        raise ValueError("Only PDF and BibTeX (.bib) files are allowed.")
 
-    destination = PAPERS_DIR / f"{paper_id}.pdf"
+    destination = PAPERS_DIR / f"{paper_id}{extension}"
 
-    print(f"Source PDF:      {source}")
-    print(f"Destination PDF: {destination}")
+    print(f"Source file:      {source}")
+    print(f"Destination file: {destination}")
 
     shutil.copy2(source, destination)
 
     if not destination.exists():
         raise IOError(
-            f"PDF was not copied successfully: {destination}"
+            f"File was not copied successfully: {destination}"
         )
 
-    print(f"PDF saved successfully: {destination}")
+    print(f"File saved successfully: {destination}")
 
     # This is the path stored in Paper.stored_path.
     # It is relative to the root storage directory.
