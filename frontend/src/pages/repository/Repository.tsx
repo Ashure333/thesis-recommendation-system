@@ -503,6 +503,16 @@ export default function Repository() {
         paper={selectedPaper}
         open={isViewerOpen}
         onClose={handleClosePaper}
+        canEdit={true}
+        onPaperUpdated={(updatedPaper) => {
+          setPapers((previousPapers) =>
+            previousPapers.map((paper) =>
+              paper.id === updatedPaper.id ? updatedPaper : paper
+            )
+          );
+
+          setSelectedPaper(updatedPaper);
+        }}
       />
     </div>
   );
