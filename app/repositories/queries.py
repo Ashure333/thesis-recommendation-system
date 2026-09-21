@@ -52,3 +52,45 @@ def search_papers(db: Session, query: str, sort_by: str = "alphabetical"):
 
     column, default_direction = SORT_OPTIONS.get(sort_by, SORT_OPTIONS["alphabetical"])
     return q.order_by(default_direction(column)).all()
+
+
+def filter_papers(
+    db: Session,
+    search: str | None = None,
+    subject: str | None = None,
+    category: str | None = None,
+    document_type: str | None = None,
+    min_year: int | None = None,
+    max_year: int | None = None,
+    sort_by: str = "date_added",
+):
+    """
+    Combined search + sidebar-filter query for the Repository page.
+
+    `subject` and `category` both match against Paper.subject_category
+    (substring match) since that's currently one field storing both --
+    e.g. a row with subject_category "Computer Science: Machine Learning"
+    matches subject="Computer Science" and also category="Machine Learning".
+    """
+    q = db.query(Paper)
+
+    if search:
+        like = f"%{search}%"
+        q = q.filter(
+            (Paper.title.ilike(like))
+            | (Paper.author.ilike(like))
+            | (Paper.keywords.ilike(like))
+        )
+    if subject and subject.lower() != "all subjects":
+        q = q.filter(Paper.subject_category.ilike(f"%{subject}%"))
+    if category and category.lower() != "all categories":
+        q = q.filter(Paper.subject_category.ilike(f"%{category}%"))
+    if document_type and document_type.lower() != "all":
+        q = q.filter(Paper.document_type == document_type)
+    if min_year is not None:
+        q = q.filter(Paper.publication_year >= min_year)
+    if max_year is not None:
+        q = q.filter(Paper.publication_year <= max_year)
+
+    column, default_direction = SORT_OPTIONS.get(sort_by, SORT_OPTIONS["date_added"])
+    return q.order_by(default_direction(column)).all()
