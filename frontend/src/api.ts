@@ -39,11 +39,15 @@ export interface SearchResult {
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Request failed (${res.status})`);
+
+    throw new Error(
+      body.detail ?? `Request failed (${res.status})`
+    );
   }
 
-  // 204 No Content has no body to parse
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) {
+    return undefined as T;
+  }
 
   return res.json();
 }
@@ -70,9 +74,9 @@ export function listPapers(
     }
   });
 
-  return fetch(`${API_URL}/api/papers?${params}`).then(
-    handle<Paper[]>
-  );
+  return fetch(
+    `${API_URL}/api/papers?${params.toString()}`
+  ).then(handle<Paper[]>);
 }
 
 export function getRepositoryStats(): Promise<RepositoryStats> {
@@ -82,15 +86,11 @@ export function getRepositoryStats(): Promise<RepositoryStats> {
 }
 
 export function getPaper(id: number): Promise<Paper> {
-  return fetch(`${API_URL}/api/papers/${id}`).then(handle<Paper>);
+  return fetch(`${API_URL}/api/papers/${id}`).then(
+    handle<Paper>
+  );
 }
 
-/**
- * Returns the URL used to display a paper's PDF.
- *
- * This does not download the PDF itself.
- * The URL can be used directly by an iframe, embed, or browser tab.
- */
 export function getPaperPdfUrl(paperId: number): string {
   return `${API_URL}/api/papers/${paperId}/pdf`;
 }
@@ -101,7 +101,9 @@ export function updatePaper(
 ): Promise<Paper> {
   return fetch(`${API_URL}/api/papers/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(updates),
   }).then(handle<Paper>);
 }
@@ -116,21 +118,23 @@ export function uploadPaper(file: File): Promise<Paper> {
   }).then(handle<Paper>);
 }
 
-/**
- * Imports a BibTeX citation from a remote URL.
- *
- * Used for Google Scholar's "BibTeX" citation link.
- */
-export function importPaperFromUrl(url: string): Promise<Paper> {
-  const params = new URLSearchParams();
-  params.set("url", url);
+export async function importBibtex(
+  bibtex: string,
+  filename = "google-scholar.bib"
+): Promise<Paper> {
+  const blob = new Blob([bibtex], {
+    type: "application/x-bibtex",
+  });
 
-  return fetch(
-    `${API_URL}/api/papers/import-url?${params.toString()}`,
+  const file = new File(
+    [blob],
+    filename,
     {
-      method: "POST",
+      type: "application/x-bibtex",
     }
-  ).then(handle<Paper>);
+  );
+
+  return uploadPaper(file);
 }
 
 export function getLibrary(): Promise<LibraryEntry[]> {
@@ -155,10 +159,9 @@ export function removeFromLibrary(
   }).then(handle<void>);
 }
 
-// Permanently deletes a paper (database record, library links, and
-// stored file). Distinct from removeFromLibrary, which only unlinks a
-// paper from one user's library without touching the paper itself.
-export function deletePaper(paperId: number): Promise<void> {
+export function deletePaper(
+  paperId: number
+): Promise<void> {
   return fetch(`${API_URL}/api/papers/${paperId}`, {
     method: "DELETE",
   }).then(handle<void>);
@@ -171,9 +174,6 @@ export interface RecommendationParams {
   topK?: number;
 }
 
-// Only "tfidf" and "sbert" have a real implementation behind them right
-// now -- the API returns a 400 (which handle() turns into a thrown
-// Error) for any other pipeline id.
 export function getRecommendations(
   params: RecommendationParams
 ): Promise<SearchResult[]> {
@@ -186,14 +186,20 @@ export function getRecommendations(
   }
 
   if (params.seedPaperId !== undefined) {
-    search.set("seed_paper_id", String(params.seedPaperId));
+    search.set(
+      "seed_paper_id",
+      String(params.seedPaperId)
+    );
   }
 
   if (params.topK !== undefined) {
-    search.set("top_k", String(params.topK));
+    search.set(
+      "top_k",
+      String(params.topK)
+    );
   }
 
   return fetch(
-    `${API_URL}/api/recommendations?${search}`
+    `${API_URL}/api/recommendations?${search.toString()}`
   ).then(handle<SearchResult[]>);
 }
