@@ -1,42 +1,12 @@
-"""
-FastAPI application -- the Application Layer's Repository and
-Recommendation Routes.
-
-Wraps the existing services/repositories over HTTP so the React
-frontend can reach them:
-
-  - queries.py                    -> Repository browse/search/filter
-  - upload_paper.py               -> Upload
-  - recommendation/search_service.py -> Recommendations (TF-IDF, S-BERT)
-
-Two things are NOT built yet:
-
-  - The Metadata component and the four combined pipelines
-    (TF-IDF+S-BERT, TF-IDF+Metadata, S-BERT+Metadata, Full Hybrid) --
-    search_service.py currently only supports "tfidf" and "sbert".
-    /api/recommendations returns a clear 400 for the others rather than
-    silently falling back to one of the two that exist.
-
-  - Real /api/auth/login or /api/auth/register -- every request acts as
-    a single local user in the meantime (see app/services/local_user.py).
-
-Before recommendations will return anything, the recommendation index
-needs to be built at least once:
-
-    python -m scripts.rebuild_recommendation
-
-Run the API with:
-
-    python -m uvicorn app.api:app --reload --port 8000
-"""
-
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+import requests
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -66,9 +36,9 @@ from app.schemas import (
 app = FastAPI(title="PaperRec API")
 
 
-# ---------------------------------------------------------------------
+# ============================================================
 # CORS
-# ---------------------------------------------------------------------
+# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,106 +46,69 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ---------------------------------------------------------------------
-# Startup
-# ---------------------------------------------------------------------
+# ============================================================
+# STARTUP
+# ============================================================
 
 @app.on_event("startup")
-def on_startup():
+def startup():
     init_db()
 
 
-# ---------------------------------------------------------------------
-# Storage helpers
-# ---------------------------------------------------------------------
+# ============================================================
+# HELPERS
+# ============================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-STORAGE_ROOT = (PROJECT_ROOT / "storage").resolve()
-
-
-def resolve_stored_file(stored_path: str) -> Path:
+def resolve_stored_file(stored_path: str | None) -> Path:
     """
-    Resolve a database stored_path safely inside the storage directory.
+    Resolve a stored paper path safely.
     """
-    normalized_path = stored_path.replace("\\", "/")
-    relative_path = Path(*normalized_path.split("/"))
-    resolved_path = (STORAGE_ROOT / relative_path).resolve()
+    if not stored_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper file not found.",
+        )
+
+    path = Path(stored_path)
+
+    if not path.exists() or not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Paper file not found.",
+        )
+
+    return path
+
+
+def rebuild_recommendation_data():
+    """
+    Rebuild recommendation/index data after repository changes.
+    """
+    script_path = Path("scripts") / "rebuild_recommendation.py"
+
+    if not script_path.exists():
+        print("Recommendation rebuild script not found.")
+        return
 
     try:
-        resolved_path.relative_to(STORAGE_ROOT)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid stored file path.",
+        subprocess.run(
+            [sys.executable, str(script_path)],
+            check=True,
         )
-
-    return resolved_path
-
-
-# ---------------------------------------------------------------------
-# Recommendation rebuild helper
-# ---------------------------------------------------------------------
-
-def rebuild_recommendation_data() -> None:
-    """
-    Rebuild all recommendation data using the master rebuild script.
-    """
-    rebuild_script = (
-        PROJECT_ROOT
-        / "scripts"
-        / "rebuild_recommendation.py"
-    )
-
-    if not rebuild_script.exists():
-        raise RuntimeError(
-            f"Recommendation rebuild script not found: "
-            f"{rebuild_script}"
-        )
-
-    print()
-    print("=" * 60)
-    print("STARTING RECOMMENDATION REBUILD")
-    print("=" * 60)
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(rebuild_script),
-        ],
-        cwd=str(PROJECT_ROOT),
-        capture_output=True,
-        text=True,
-    )
-
-    if result.stdout:
-        print(result.stdout)
-
-    if result.returncode != 0:
-        if result.stderr:
-            print(result.stderr)
-
-        print("=" * 60)
-        print("RECOMMENDATION REBUILD FAILED")
-        print("=" * 60)
-
-        raise RuntimeError(
-            "Recommendation data rebuild failed."
-        )
-
-    print("=" * 60)
-    print("RECOMMENDATION REBUILD COMPLETED")
-    print("=" * 60)
-    print()
+    except subprocess.CalledProcessError as error:
+        print("Recommendation rebuild failed:")
+        print(error)
 
 
-# ---------------------------------------------------------------------
-# Repository
-# ---------------------------------------------------------------------
+# ============================================================
+# PAPERS
+# ============================================================
 
 @app.get(
     "/api/papers",
@@ -188,8 +121,7 @@ def list_papers(
     document_type: str | None = None,
     min_year: int | None = None,
     max_year: int | None = None,
-    sort_by: str = "date_added",
-    limit: int | None = None,
+    sort_by: str | None = None,
     db: Session = Depends(get_session),
 ):
     papers = filter_papers(
@@ -203,49 +135,32 @@ def list_papers(
         sort_by=sort_by,
     )
 
-    return papers[:limit] if limit else papers
+    return papers
 
 
 @app.get(
     "/api/papers/stats",
     response_model=RepositoryStats,
 )
-def repository_stats(
+def get_repository_stats(
     db: Session = Depends(get_session),
 ):
-    all_papers = db.query(Paper).all()
+    papers = db.query(Paper).all()
 
     by_subject: dict[str, int] = {}
-    categories = set()
 
-    for paper in all_papers:
-        if not paper.subject_category:
-            continue
-
-        parts = [
-            p.strip()
-            for p in paper.subject_category.split(":", 1)
-        ]
-
-        subject = parts[0]
-
+    for paper in papers:
+        subject = paper.subject_category or "Uncategorized"
         by_subject[subject] = (
             by_subject.get(subject, 0) + 1
         )
 
-        if len(parts) > 1:
-            categories.add(parts[1])
-
     return RepositoryStats(
-        total_papers=len(all_papers),
+        total_papers=len(papers),
         by_subject=by_subject,
-        category_count=len(categories),
+        category_count=len(by_subject),
     )
 
-
-# ---------------------------------------------------------------------
-# PDF Viewer
-# ---------------------------------------------------------------------
 
 @app.get("/api/papers/{paper_id}/pdf")
 def get_paper_pdf(
@@ -258,45 +173,20 @@ def get_paper_pdf(
         .first()
     )
 
-    if paper is None:
+    if not paper:
         raise HTTPException(
             status_code=404,
             detail="Paper not found.",
         )
 
-    if not paper.stored_path:
-        raise HTTPException(
-            status_code=404,
-            detail="PDF file is not available for this paper.",
-        )
-
-    stored_path = paper.stored_path
-
-    if Path(stored_path).suffix.lower() != ".pdf":
-        raise HTTPException(
-            status_code=400,
-            detail="Stored file is not a PDF.",
-        )
-
-    pdf_path = resolve_stored_file(stored_path)
-
-    if not pdf_path.exists() or not pdf_path.is_file():
-        raise HTTPException(
-            status_code=404,
-            detail="PDF file not found.",
-        )
+    path = resolve_stored_file(paper.stored_path)
 
     return FileResponse(
-        path=str(pdf_path),
+        path,
         media_type="application/pdf",
-        filename=pdf_path.name,
-        content_disposition_type="inline",
+        filename=paper.source_filename or path.name,
     )
 
-
-# ---------------------------------------------------------------------
-# Individual Paper
-# ---------------------------------------------------------------------
 
 @app.get(
     "/api/papers/{paper_id}",
@@ -312,10 +202,10 @@ def get_paper(
         .first()
     )
 
-    if paper is None:
+    if not paper:
         raise HTTPException(
             status_code=404,
-            detail="Paper not found",
+            detail="Paper not found.",
         )
 
     return paper
@@ -336,103 +226,40 @@ def update_paper(
         .first()
     )
 
-    if paper is None:
+    if not paper:
         raise HTTPException(
             status_code=404,
-            detail="Paper not found",
+            detail="Paper not found.",
         )
 
-    recommendation_fields_changed = False
+    changed_recommendation_fields = False
 
-    if (
-        "title" in updates.model_fields_set
-        and updates.title != paper.title
-    ):
-        recommendation_fields_changed = True
+    update_data = updates.model_dump(
+        exclude_unset=True
+    )
 
-    if (
-        "abstract" in updates.model_fields_set
-        and updates.abstract != paper.abstract
-    ):
-        recommendation_fields_changed = True
+    for field, value in update_data.items():
+        if field in {
+            "title",
+            "abstract",
+            "keywords",
+            "publication_year",
+        }:
+            changed_recommendation_fields = True
 
-    if (
-        "keywords" in updates.model_fields_set
-        and updates.keywords != paper.keywords
-    ):
-        recommendation_fields_changed = True
+        if hasattr(paper, field):
+            setattr(paper, field, value)
 
-    if (
-        "publication_year" in updates.model_fields_set
-        and updates.publication_year != paper.publication_year
-    ):
-        recommendation_fields_changed = True
+    db.commit()
+    db.refresh(paper)
 
-    fields = {
-        key: value
-        for key, value in updates.model_dump(
-            exclude_unset=True
-        ).items()
-        if value is not None
-    }
+    if changed_recommendation_fields:
+        rebuild_recommendation_data()
 
-    try:
-        updated_paper = complete_paper_manually(
-            db,
-            paper_id,
-            **fields,
-        )
-
-    except Exception as error:
-        print()
-        print("PAPER UPDATE FAILED")
-        print(error)
-
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to update paper metadata.",
-        )
-
-    if recommendation_fields_changed:
-        try:
-            print()
-            print(
-                f"Recommendation-related metadata changed "
-                f"for paper {paper_id}."
-            )
-
-            print(
-                "Starting recommendation rebuild..."
-            )
-
-            rebuild_recommendation_data()
-
-        except Exception as error:
-            print()
-            print(
-                "Paper metadata was saved, but the "
-                "recommendation rebuild failed."
-            )
-
-            print(error)
-
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "Paper metadata was saved, but the "
-                    "recommendation index could not be rebuilt."
-                ),
-            )
-
-        db.refresh(updated_paper)
-
-    return updated_paper
+    return paper
 
 
-@app.delete(
-    "/api/papers/{paper_id}",
-    status_code=204,
-)
+@app.delete("/api/papers/{paper_id}")
 def delete_paper(
     paper_id: int,
     db: Session = Depends(get_session),
@@ -443,28 +270,34 @@ def delete_paper(
         .first()
     )
 
-    if paper is None:
+    if not paper:
         raise HTTPException(
             status_code=404,
-            detail="Paper not found",
+            detail="Paper not found.",
         )
 
-    db.query(PersonalLibrary).filter(
-        PersonalLibrary.paper_id == paper_id
-    ).delete()
+    stored_path = paper.stored_path
 
-    if paper.stored_path:
-        delete_paper_file(
-            paper.stored_path
-        )
+    try:
+        delete_paper_file(paper)
+    except Exception as error:
+        print("Could not delete stored paper file:")
+        print(error)
 
     db.delete(paper)
     db.commit()
 
+    if stored_path:
+        rebuild_recommendation_data()
 
-# ---------------------------------------------------------------------
-# Upload
-# ---------------------------------------------------------------------
+    return {
+        "status": "deleted",
+    }
+
+
+# ============================================================
+# UPLOAD PDF / BIBTEX FILE
+# ============================================================
 
 @app.post(
     "/api/papers/upload",
@@ -477,8 +310,8 @@ def upload_paper(
     """
     Upload a PDF or BibTeX file.
 
-    The frontend can also convert a Google Scholar BibTeX response
-    into a .bib File and send it through this same endpoint.
+    Both PDF files and .bib files are passed through the
+    existing upload_paper_from_pdf() processing pipeline.
     """
 
     if not file.filename:
@@ -495,7 +328,8 @@ def upload_paper(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Only PDF and BibTeX (.bib) files are accepted."
+                "Only PDF and BibTeX (.bib) files "
+                "are accepted."
             ),
         )
 
@@ -503,10 +337,7 @@ def upload_paper(
         suffix=suffix,
         delete=False,
     ) as tmp:
-        shutil.copyfileobj(
-            file.file,
-            tmp,
-        )
+        shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
 
     try:
@@ -533,9 +364,188 @@ def upload_paper(
     return paper
 
 
-# ---------------------------------------------------------------------
-# Library
-# ---------------------------------------------------------------------
+# ============================================================
+# GOOGLE SCHOLAR IMPORT
+# ============================================================
+
+SCHOLAR_BIB_URL_PATTERN = re.compile(
+    r"^https://scholar\.googleusercontent\.com/scholar\.bib",
+    re.IGNORECASE,
+)
+
+
+@app.post(
+    "/api/papers/import-url",
+    response_model=PaperOut,
+)
+def import_paper_from_url(
+    url: str,
+    db: Session = Depends(get_session),
+):
+    """
+    Import a Google Scholar BibTeX citation from its URL.
+
+    The frontend sends the Google Scholar BibTeX URL here.
+    The backend retrieves the BibTeX content and passes it
+    through the existing paper import pipeline.
+    """
+
+    url = url.strip()
+
+    # --------------------------------------------------------
+    # Validate URL
+    # --------------------------------------------------------
+
+    if not SCHOLAR_BIB_URL_PATTERN.match(url):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Only Google Scholar BibTeX links are accepted. "
+                "The URL should start with "
+                "https://scholar.googleusercontent.com/scholar.bib"
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Retrieve BibTeX from Google Scholar
+    # --------------------------------------------------------
+
+    try:
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": (
+                    "text/plain, "
+                    "application/x-bibtex, "
+                    "*/*"
+                ),
+            },
+            timeout=10,
+        )
+
+    except requests.RequestException as error:
+        print()
+        print("GOOGLE SCHOLAR REQUEST FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not reach Google Scholar. "
+                "Please try again or download the BibTeX "
+                "citation as a .bib file instead."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Handle Google Scholar errors
+    # --------------------------------------------------------
+
+    if not response.ok:
+        status_code = response.status_code
+
+        print()
+        print("GOOGLE SCHOLAR RETURNED ERROR")
+        print(f"HTTP {status_code}")
+
+        if status_code in (429, 503):
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Google Scholar is temporarily blocking "
+                    "automated requests. Please download the "
+                    "BibTeX citation as a .bib file and drag "
+                    "that file into the upload area instead."
+                ),
+            )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Google Scholar returned HTTP {status_code}."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Validate BibTeX response
+    # --------------------------------------------------------
+
+    content = response.text.strip()
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Google Scholar returned an empty citation."
+            ),
+        )
+
+    if not re.search(
+        r"@\w+\s*\{",
+        content,
+        re.IGNORECASE,
+    ):
+        print()
+        print("INVALID GOOGLE SCHOLAR RESPONSE")
+        print(content[:500])
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The Google Scholar link did not return "
+                "a valid BibTeX citation."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Save temporary BibTeX file
+    # --------------------------------------------------------
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".bib",
+        delete=False,
+        mode="w",
+        encoding="utf-8",
+    ) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    # --------------------------------------------------------
+    # Use existing import pipeline
+    # --------------------------------------------------------
+
+    try:
+        paper = upload_paper_from_pdf(
+            db,
+            tmp_path,
+            "google-scholar.bib",
+        )
+
+    except Exception as error:
+        print()
+        print("SCHOLAR IMPORT FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to import the citation.",
+        )
+
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    return paper
+
+
+# ============================================================
+# PERSONAL LIBRARY
+# ============================================================
 
 @app.get(
     "/api/library",
@@ -551,42 +561,30 @@ def get_library(
         .filter(
             PersonalLibrary.user_id == user.id
         )
-        .order_by(
-            PersonalLibrary.saved_at.desc()
-        )
         .all()
     )
 
-    return [
-        LibraryEntryOut(
-            paper=e.paper,
-            saved_at=e.saved_at,
-        )
-        for e in entries
-    ]
+    return entries
 
 
-@app.post(
-    "/api/library/{paper_id}",
-    status_code=201,
-)
+@app.post("/api/library/{paper_id}")
 def save_to_library(
     paper_id: int,
     db: Session = Depends(get_session),
 ):
-    user = get_or_create_default_user(db)
-
     paper = (
         db.query(Paper)
         .filter(Paper.id == paper_id)
         .first()
     )
 
-    if paper is None:
+    if not paper:
         raise HTTPException(
             status_code=404,
-            detail="Paper not found",
+            detail="Paper not found.",
         )
+
+    user = get_or_create_default_user(db)
 
     existing = (
         db.query(PersonalLibrary)
@@ -598,24 +596,24 @@ def save_to_library(
     )
 
     if existing:
-        return {"status": "already saved"}
+        return {
+            "status": "already_saved",
+        }
 
-    db.add(
-        PersonalLibrary(
-            user_id=user.id,
-            paper_id=paper_id,
-        )
+    entry = PersonalLibrary(
+        user_id=user.id,
+        paper_id=paper_id,
     )
 
+    db.add(entry)
     db.commit()
 
-    return {"status": "saved"}
+    return {
+        "status": "saved",
+    }
 
 
-@app.delete(
-    "/api/library/{paper_id}",
-    status_code=204,
-)
+@app.delete("/api/library/{paper_id}")
 def remove_from_library(
     paper_id: int,
     db: Session = Depends(get_session),
@@ -631,14 +629,23 @@ def remove_from_library(
         .first()
     )
 
-    if entry:
-        db.delete(entry)
-        db.commit()
+    if not entry:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper is not in the library.",
+        )
+
+    db.delete(entry)
+    db.commit()
+
+    return {
+        "status": "removed",
+    }
 
 
-# ---------------------------------------------------------------------
-# Recommendations
-# ---------------------------------------------------------------------
+# ============================================================
+# RECOMMENDATIONS
+# ============================================================
 
 IMPLEMENTED_PIPELINES = {
     "tfidf",
@@ -651,7 +658,7 @@ IMPLEMENTED_PIPELINES = {
     response_model=list[SearchResultOut],
 )
 def get_recommendations(
-    pipeline: str = "tfidf",
+    pipeline: str,
     query: str | None = None,
     seed_paper_id: int | None = None,
     top_k: int = 10,
@@ -661,31 +668,51 @@ def get_recommendations(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Pipeline '{pipeline}' isn't built yet -- only "
-                f"{sorted(IMPLEMENTED_PIPELINES)} are implemented "
-                f"so far."
+                f"Unsupported recommendation pipeline: "
+                f"{pipeline}"
             ),
         )
 
+    if not query and seed_paper_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Provide either a query or seed_paper_id."
+            ),
+        )
+
+    seed_paper = None
+
+    if seed_paper_id is not None:
+        seed_paper = (
+            db.query(Paper)
+            .filter(Paper.id == seed_paper_id)
+            .first()
+        )
+
+        if not seed_paper:
+            raise HTTPException(
+                status_code=404,
+                detail="Seed paper not found.",
+            )
+
     try:
         results = run_search(
-            db,
-            query=query,
-            seed_paper_id=seed_paper_id,
+            db=db,
             pipeline=pipeline,
+            query=query,
+            seed_paper=seed_paper,
             top_k=top_k,
         )
 
-    except ValueError as error:
+    except Exception as error:
+        print()
+        print("RECOMMENDATION SEARCH FAILED")
+        print(error)
+
         raise HTTPException(
-            status_code=400,
-            detail=str(error),
+            status_code=500,
+            detail="Recommendation search failed.",
         )
 
-    return [
-        SearchResultOut(
-            paper=result.paper,
-            score=result.score,
-        )
-        for result in results
-    ]
+    return results
