@@ -1,4 +1,3 @@
-
 """
 FastAPI application -- the Application Layer's Repository and
 Recommendation Routes.
@@ -6,9 +5,9 @@ Recommendation Routes.
 Wraps the existing services/repositories over HTTP so the React
 frontend can reach them:
 
-  - queries.py                         -> Repository browse/search/filter
-  - upload_paper.py                   -> Upload
-  - recommendation/search_service.py  -> Recommendations (TF-IDF, S-BERT)
+  - queries.py                    -> Repository browse/search/filter
+  - upload_paper.py               -> Upload
+  - recommendation/search_service.py -> Recommendations (TF-IDF, S-BERT)
 
 Two things are NOT built yet:
 
@@ -71,9 +70,6 @@ app = FastAPI(title="PaperRec API")
 # CORS
 # ---------------------------------------------------------------------
 
-# Vite's development server runs on port 5173 by default.
-# Browsers block cross-origin requests unless the API explicitly allows
-# the frontend origin.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -105,24 +101,11 @@ STORAGE_ROOT = (PROJECT_ROOT / "storage").resolve()
 def resolve_stored_file(stored_path: str) -> Path:
     """
     Resolve a database stored_path safely inside the storage directory.
-
-    Database paths are stored like:
-
-        papers\\2.pdf
-
-    Actual files are located at:
-
-        storage/papers/2.pdf
     """
-
-    # Normalize Windows backslashes so the path works consistently.
     normalized_path = stored_path.replace("\\", "/")
-
     relative_path = Path(*normalized_path.split("/"))
-
     resolved_path = (STORAGE_ROOT / relative_path).resolve()
 
-    # Prevent path traversal outside storage/.
     try:
         resolved_path.relative_to(STORAGE_ROOT)
     except ValueError:
@@ -141,27 +124,7 @@ def resolve_stored_file(stored_path: str) -> Path:
 def rebuild_recommendation_data() -> None:
     """
     Rebuild all recommendation data using the master rebuild script.
-
-    The master script performs:
-
-        1. Paper classification
-        2. Recommendation metadata validation
-        3. prepared_text rebuilding
-        4. TF-IDF rebuilding
-        5. S-BERT rebuilding
-
-    This function is called after recommendation-related metadata
-    changes such as:
-
-        - title
-        - abstract
-        - keywords
-        - publication_year
-
-    The rebuild script is executed using the same Python interpreter
-    currently running FastAPI.
     """
-
     rebuild_script = (
         PROJECT_ROOT
         / "scripts"
@@ -189,8 +152,6 @@ def rebuild_recommendation_data() -> None:
         text=True,
     )
 
-    # Print the script's output so it is visible in the FastAPI
-    # terminal while developing.
     if result.stdout:
         print(result.stdout)
 
@@ -261,12 +222,6 @@ def repository_stats(
         if not paper.subject_category:
             continue
 
-        # subject_category is stored as:
-        #
-        #     Subject: Category
-        #
-        # Split defensively in case a row was saved without that
-        # convention.
         parts = [
             p.strip()
             for p in paper.subject_category.split(":", 1)
@@ -297,17 +252,6 @@ def get_paper_pdf(
     paper_id: int,
     db: Session = Depends(get_session),
 ):
-    """
-    Returns the stored PDF for a paper.
-
-    The response uses Content-Disposition: inline so the browser can
-    display the PDF instead of forcing a download.
-
-    Example:
-
-        GET /api/papers/2/pdf
-    """
-
     paper = (
         db.query(Paper)
         .filter(Paper.id == paper_id)
@@ -328,7 +272,6 @@ def get_paper_pdf(
 
     stored_path = paper.stored_path
 
-    # This endpoint is specifically for PDFs.
     if Path(stored_path).suffix.lower() != ".pdf":
         raise HTTPException(
             status_code=400,
@@ -387,34 +330,6 @@ def update_paper(
     updates: PaperUpdate,
     db: Session = Depends(get_session),
 ):
-    """
-    Manually update paper metadata.
-
-    Recommendation-related fields:
-
-        - title
-        - abstract
-        - keywords
-        - publication_year
-
-    If one of those fields changes, the complete recommendation
-    representation is rebuilt.
-
-    Other metadata fields:
-
-        - author
-        - DOI
-        - subject/category
-        - document type
-        - citation count
-
-    do not trigger a recommendation rebuild.
-    """
-
-    # ---------------------------------------------------------
-    # Find the existing paper.
-    # ---------------------------------------------------------
-
     paper = (
         db.query(Paper)
         .filter(Paper.id == paper_id)
@@ -426,10 +341,6 @@ def update_paper(
             status_code=404,
             detail="Paper not found",
         )
-
-    # ---------------------------------------------------------
-    # Determine whether recommendation data changed.
-    # ---------------------------------------------------------
 
     recommendation_fields_changed = False
 
@@ -453,19 +364,9 @@ def update_paper(
 
     if (
         "publication_year" in updates.model_fields_set
-        and (
-            updates.publication_year
-            != paper.publication_year
-        )
+        and updates.publication_year != paper.publication_year
     ):
         recommendation_fields_changed = True
-
-    # ---------------------------------------------------------
-    # Collect only fields actually supplied by the frontend.
-    #
-    # None values are ignored here to preserve the existing
-    # complete_paper_manually behavior.
-    # ---------------------------------------------------------
 
     fields = {
         key: value
@@ -474,10 +375,6 @@ def update_paper(
         ).items()
         if value is not None
     }
-
-    # ---------------------------------------------------------
-    # Update the paper.
-    # ---------------------------------------------------------
 
     try:
         updated_paper = complete_paper_manually(
@@ -496,10 +393,6 @@ def update_paper(
             detail="Failed to update paper metadata.",
         )
 
-    # ---------------------------------------------------------
-    # Rebuild recommendation representations if necessary.
-    # ---------------------------------------------------------
-
     if recommendation_fields_changed:
         try:
             print()
@@ -507,6 +400,7 @@ def update_paper(
                 f"Recommendation-related metadata changed "
                 f"for paper {paper_id}."
             )
+
             print(
                 "Starting recommendation rebuild..."
             )
@@ -519,6 +413,7 @@ def update_paper(
                 "Paper metadata was saved, but the "
                 "recommendation rebuild failed."
             )
+
             print(error)
 
             raise HTTPException(
@@ -529,9 +424,6 @@ def update_paper(
                 ),
             )
 
-        # The rebuild script uses its own SQLAlchemy session.
-        # Refresh the current object so its values are synchronized
-        # with the database after the external rebuild.
         db.refresh(updated_paper)
 
     return updated_paper
@@ -545,17 +437,6 @@ def delete_paper(
     paper_id: int,
     db: Session = Depends(get_session),
 ):
-    """
-    Permanently removes a paper:
-
-      - its database record
-      - any personal_library entries pointing at it
-      - its stored file on disk
-
-    This is a real delete -- distinct from the Library "Remove"
-    action, which only unlinks a paper from one user's library.
-    """
-
     paper = (
         db.query(Paper)
         .filter(Paper.id == paper_id)
@@ -568,8 +449,6 @@ def delete_paper(
             detail="Paper not found",
         )
 
-    # Remove library links first rather than relying on ORM
-    # cascade configuration.
     db.query(PersonalLibrary).filter(
         PersonalLibrary.paper_id == paper_id
     ).delete()
@@ -595,6 +474,19 @@ def upload_paper(
     file: UploadFile = File(...),
     db: Session = Depends(get_session),
 ):
+    """
+    Upload a PDF or BibTeX file.
+
+    The frontend can also convert a Google Scholar BibTeX response
+    into a .bib File and send it through this same endpoint.
+    """
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="A filename is required.",
+        )
+
     suffix = os.path.splitext(
         file.filename
     )[1].lower()
@@ -603,15 +495,10 @@ def upload_paper(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Only PDF and BibTeX (.bib) files are accepted"
+                "Only PDF and BibTeX (.bib) files are accepted."
             ),
         )
 
-    # upload_paper_from_pdf reads from a real file path and needs
-    # the correct extension to select the appropriate extractor.
-    #
-    # Uploaded bytes are written to a temporary file first.
-    # The permanent copy lives in storage/papers/.
     with tempfile.NamedTemporaryFile(
         suffix=suffix,
         delete=False,
@@ -628,6 +515,17 @@ def upload_paper(
             tmp_path,
             file.filename,
         )
+
+    except Exception as error:
+        print()
+        print("PAPER UPLOAD FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to import the paper.",
+        )
+
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -742,11 +640,6 @@ def remove_from_library(
 # Recommendations
 # ---------------------------------------------------------------------
 
-# Only these two pipelines have a working implementation in
-# search_service.py right now.
-#
-# The other four configurations from Chapter 3 (§3.6) exist in the
-# UI's pipeline selector but are not runnable yet.
 IMPLEMENTED_PIPELINES = {
     "tfidf",
     "sbert",

@@ -1,4 +1,5 @@
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_URL =
+  import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 export interface Paper {
   id: number;
@@ -58,7 +59,9 @@ export interface PaperFilters {
   limit?: number;
 }
 
-export function listPapers(filters: PaperFilters = {}): Promise<Paper[]> {
+export function listPapers(
+  filters: PaperFilters = {}
+): Promise<Paper[]> {
   const params = new URLSearchParams();
 
   Object.entries(filters).forEach(([key, value]) => {
@@ -67,7 +70,9 @@ export function listPapers(filters: PaperFilters = {}): Promise<Paper[]> {
     }
   });
 
-  return fetch(`${API_URL}/api/papers?${params}`).then(handle<Paper[]>);
+  return fetch(`${API_URL}/api/papers?${params}`).then(
+    handle<Paper[]>
+  );
 }
 
 export function getRepositoryStats(): Promise<RepositoryStats> {
@@ -111,8 +116,27 @@ export function uploadPaper(file: File): Promise<Paper> {
   }).then(handle<Paper>);
 }
 
+/**
+ * Imports a BibTeX citation from a remote URL.
+ *
+ * Used for Google Scholar's "BibTeX" citation link.
+ */
+export function importPaperFromUrl(url: string): Promise<Paper> {
+  const params = new URLSearchParams();
+  params.set("url", url);
+
+  return fetch(
+    `${API_URL}/api/papers/import-url?${params.toString()}`,
+    {
+      method: "POST",
+    }
+  ).then(handle<Paper>);
+}
+
 export function getLibrary(): Promise<LibraryEntry[]> {
-  return fetch(`${API_URL}/api/library`).then(handle<LibraryEntry[]>);
+  return fetch(`${API_URL}/api/library`).then(
+    handle<LibraryEntry[]>
+  );
 }
 
 export function saveToLibrary(
@@ -123,7 +147,9 @@ export function saveToLibrary(
   }).then(handle<{ status: string }>);
 }
 
-export function removeFromLibrary(paperId: number): Promise<void> {
+export function removeFromLibrary(
+  paperId: number
+): Promise<void> {
   return fetch(`${API_URL}/api/library/${paperId}`, {
     method: "DELETE",
   }).then(handle<void>);
