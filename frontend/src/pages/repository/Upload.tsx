@@ -15,6 +15,7 @@ export default function Upload() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
 
   const [authors, setAuthors] = useState("");
   const [doi, setDoi] = useState("");
@@ -30,6 +31,7 @@ export default function Upload() {
   async function handleFile(file: File) {
     setUploading(true);
     setError(null);
+    setJustSaved(false);
     try {
       const result = await uploadPaper(file);
       setPaper(result);
@@ -48,8 +50,9 @@ export default function Upload() {
     if (!paper) return;
     setSaving(true);
     setError(null);
+    setJustSaved(false);
     try {
-      await updatePaper(paper.id, {
+      const updated = await updatePaper(paper.id, {
         title,
         abstract,
         keywords,
@@ -60,6 +63,8 @@ export default function Upload() {
         document_type: docType,
         citation_count: citations ? Number(citations) : null,
       });
+      setPaper(updated); // refresh validity checklist with the real saved state
+      setJustSaved(true);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -86,7 +91,7 @@ export default function Upload() {
       <input
         ref={fileInput}
         type="file"
-        accept="application/pdf,.tex"
+        accept="application/pdf,.bib"
         className="hidden"
         onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
       />
@@ -101,7 +106,7 @@ export default function Upload() {
         className="mb-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-line bg-panel px-6 py-10 text-center hover:border-gold"
       >
         <p className="text-sm text-ink">
-          {uploading ? "Extracting…" : "Drop a PDF or LaTeX (.tex) file here, or click to browse"}
+          {uploading ? "Extracting…" : "Drop a PDF or BibTeX (.bib) file here, or click to browse"}
         </p>
         <p className="mt-1 text-xs text-muted">
           System uses Title, Abstract, Keywords, and Publication Year for recommendation
@@ -307,6 +312,14 @@ export default function Upload() {
           >
             {saving ? "Saving…" : "Save paper"}
           </button>
+
+          {justSaved && (
+            <p className="mt-3 rounded border border-tfidf/40 bg-tfidf/10 px-3 py-2 text-center text-sm text-tfidf">
+              {paper?.is_valid_for_recommendation
+                ? "Saved — this paper is valid for recommendation."
+                : `Saved — but still missing: ${paper?.missing_fields ?? "some required fields"}.`}
+            </p>
+          )}
         </>
       )}
     </div>
