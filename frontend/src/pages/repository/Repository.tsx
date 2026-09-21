@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { listPapers, saveToLibrary, deletePaper, Paper } from "../../api";
+import {
+  listPapers,
+  saveToLibrary,
+  deletePaper,
+  Paper,
+} from "../../api";
+import PaperViewerModal from "../../components/PaperViewerModal";
 
 const subjects = ["All Subjects", "Computer Science", "Mathematics"];
 
@@ -48,6 +54,13 @@ export default function Repository() {
   const [maxYear, setMaxYear] = useState(2023);
   const [sortBy, setSortBy] = useState("date_added");
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
+
+  // --------------------------------------------------
+  // PDF viewer
+  // --------------------------------------------------
+
+  const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   // --------------------------------------------------
   // Seed-document selection navigation state
@@ -109,6 +122,20 @@ export default function Repository() {
   }
 
   // --------------------------------------------------
+  // PDF viewer
+  // --------------------------------------------------
+
+  function handleOpenPaper(paper: Paper) {
+    setSelectedPaper(paper);
+    setIsViewerOpen(true);
+  }
+
+  function handleClosePaper() {
+    setIsViewerOpen(false);
+    setSelectedPaper(null);
+  }
+
+  // --------------------------------------------------
   // Select seed document
   // --------------------------------------------------
 
@@ -135,6 +162,12 @@ export default function Repository() {
     if (!confirmed) return;
 
     await deletePaper(paperId);
+
+    // If the deleted paper is currently open in the viewer,
+    // close the viewer as well.
+    if (selectedPaper?.id === paperId) {
+      handleClosePaper();
+    }
 
     setPapers((prev) => prev.filter((p) => p.id !== paperId));
   }
@@ -369,7 +402,7 @@ export default function Repository() {
                     </div>
 
                     {/* --------------------------------------------------
-                        Clickable paper title when selecting seed
+                        Paper title
                         -------------------------------------------------- */}
 
                     {isSelectingSeed ? (
@@ -387,9 +420,14 @@ export default function Repository() {
                         {paper.title}
                       </button>
                     ) : (
-                      <p className="text-sm font-medium text-gold">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPaper(paper)}
+                        title="Open paper"
+                        className="block max-w-full text-left text-sm font-medium text-gold hover:underline"
+                      >
                         {paper.title}
-                      </p>
+                      </button>
                     )}
 
                     <p className="mt-1 text-xs text-muted">
@@ -397,12 +435,13 @@ export default function Repository() {
                     </p>
 
                     {/* Recommendation validity information */}
-                    {isSelectingSeed && !paper.is_valid_for_recommendation && (
-                      <p className="mt-1 text-xs text-sbert">
-                        Cannot be used as a seed: required recommendation
-                        fields are missing.
-                      </p>
-                    )}
+                    {isSelectingSeed &&
+                      !paper.is_valid_for_recommendation && (
+                        <p className="mt-1 text-xs text-sbert">
+                          Cannot be used as a seed: required recommendation
+                          fields are missing.
+                        </p>
+                      )}
                   </div>
 
                   {/* --------------------------------------------------
@@ -441,7 +480,9 @@ export default function Repository() {
 
                     {/* Delete */}
                     <button
-                      onClick={() => handleDelete(paper.id, paper.title)}
+                      onClick={() =>
+                        handleDelete(paper.id, paper.title)
+                      }
                       className="rounded border border-sbert/40 px-3 py-1.5 text-xs text-sbert hover:border-sbert"
                     >
                       Delete
@@ -453,6 +494,26 @@ export default function Repository() {
           </div>
         )}
       </div>
+
+      {/* ==================================================
+          PDF VIEWER MODAL
+          ================================================== */}
+
+      <PaperViewerModal
+        paper={selectedPaper}
+        open={isViewerOpen}
+        onClose={handleClosePaper}
+        canEdit={true}
+        onPaperUpdated={(updatedPaper) => {
+          setPapers((previousPapers) =>
+            previousPapers.map((paper) =>
+              paper.id === updatedPaper.id ? updatedPaper : paper
+            )
+          );
+
+          setSelectedPaper(updatedPaper);
+        }}
+      />
     </div>
   );
 }

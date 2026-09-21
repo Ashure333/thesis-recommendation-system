@@ -74,15 +74,15 @@ export default function Search() {
         <div className="mb-3 flex gap-2">
           {queryMode === "seed" ? (
             <Link
-  to="/repository"
-  state={{
-    selectSeed: true,
-    pipeline: activeConfig,
-  }}
-  className="flex-1 rounded border border-line bg-navy px-3 py-2 text-sm text-muted hover:text-ink"
->
-  Choose a paper from your repository →
-</Link>
+            to="/repository"
+            state={{
+              selectSeed: true,
+              pipeline: activeConfig,
+            }}
+            className="flex-1 rounded border border-line bg-navy px-3 py-2 text-sm text-muted hover:text-ink"
+          >
+            Choose a paper from your repository →
+          </Link>
           ) : (
             <input
               type="text"
