@@ -329,8 +329,9 @@ def find_pdf(
 ):
     """
     Search-only step: looks for a legal open-access PDF matching this
-    paper (Unpaywall, Semantic Scholar, arXiv) and returns candidates
-    for the user to review. Nothing is downloaded here.
+    paper (Unpaywall, Crossref, Semantic Scholar, arXiv, OpenAlex) and
+    returns candidates for the user to review. Nothing is downloaded
+    here.
     """
 
     paper = (
@@ -365,6 +366,14 @@ def find_pdf(
             detail="Could not search for a PDF right now.",
         )
 
+    # find_pdf_candidates() may resolve and set paper.doi via Crossref
+    # when the paper had none on file. Persist it so future searches
+    # (and attach_pdf's verification step) don't re-resolve it every
+    # time -- a GET request's session otherwise discards the change
+    # when it closes.
+    if db.is_modified(paper):
+        db.commit()
+
     return [
         PdfCandidateOut(**candidate.to_dict())
         for candidate in candidates
@@ -382,8 +391,10 @@ def attach_pdf(
 ):
     """
     Confirm step: downloads the PDF at the given URL (a candidate the
-    user picked from /find-pdf) and attaches it to the paper, the same
-    way an uploaded PDF is stored.
+    user picked from /find-pdf), verifies it actually matches this
+    paper (by DOI-in-text if we have a DOI, otherwise by re-extracted
+    title similarity), and attaches it the same way an uploaded PDF
+    is stored.
     """
 
     paper = (
@@ -402,6 +413,8 @@ def attach_pdf(
         stored_path = download_and_attach_pdf(
             paper_id,
             payload.url,
+            paper.title,
+            paper.doi,
         )
 
     except ValueError as error:
@@ -972,37 +985,6 @@ def remove_from_library(
     }
 
 
-from app.services.pdf_finder import find_pdf_candidates, download_and_attach_pdf
-from app.schemas import PdfCandidateOut, AttachPdfRequest
-
-@app.get("/api/papers/{paper_id}/find-pdf", response_model=list[PdfCandidateOut])
-def find_pdf(paper_id: int, db: Session = Depends(get_session)):
-    paper = db.query(Paper).filter(Paper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found.")
-
-    return [c.to_dict() for c in find_pdf_candidates(paper)]
-
-
-@app.post("/api/papers/{paper_id}/attach-pdf", response_model=PaperOut)
-def attach_pdf(
-    paper_id: int,
-    payload: AttachPdfRequest,
-    db: Session = Depends(get_session),
-):
-    paper = db.query(Paper).filter(Paper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found.")
-
-    try:
-        stored_path = download_and_attach_pdf(paper_id, payload.url, paper.title, paper.doi)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
-
-    paper.stored_path = stored_path
-    db.commit()
-    db.refresh(paper)
-    return paper
 # ============================================================
 # RECOMMENDATIONS
 # ============================================================
