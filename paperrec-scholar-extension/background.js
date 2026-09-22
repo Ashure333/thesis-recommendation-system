@@ -57,7 +57,7 @@ async function fetchScholarBibtex(url) {
   const response = await fetch(url, {
     method: "GET",
     redirect: "follow",
-    credentials: "omit",
+    credentials: "include",
     headers: {
       "Accept": "text/plain, application/x-bibtex, */*"
     }

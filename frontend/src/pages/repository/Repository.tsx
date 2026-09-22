@@ -1,11 +1,15 @@
+
 import { useEffect, useState } from "react";
+
 import { useLocation, useNavigate } from "react-router-dom";
+
 import {
   listPapers,
   saveToLibrary,
   deletePaper,
   Paper,
 } from "../../api";
+
 import PaperViewerModal from "../../components/PaperViewerModal";
 
 const subjects = ["All Subjects", "Computer Science", "Mathematics"];
@@ -33,7 +37,9 @@ const categories = [
 ];
 
 function categoryOf(paper: Paper) {
-  const parts = paper.subject_category?.split(":", 2).map((p) => p.trim());
+  const parts = paper.subject_category
+    ?.split(":", 2)
+    .map((p) => p.trim());
 
   return {
     subject: parts?.[0] ?? "",
@@ -112,13 +118,23 @@ export default function Repository() {
   // --------------------------------------------------
 
   async function handleSave(paperId: number) {
-    await saveToLibrary(paperId);
+    try {
+      await saveToLibrary(paperId);
 
-    setSavedIds((prev) => {
-      const next = new Set(prev);
-      next.add(paperId);
-      return next;
-    });
+      setSavedIds((prev) => {
+        const next = new Set(prev);
+        next.add(paperId);
+        return next;
+      });
+    } catch (e) {
+      console.error("SAVE PAPER FAILED:", e);
+
+      setError(
+        e instanceof Error
+          ? `Couldn't save paper: ${e.message}`
+          : "Couldn't save paper."
+      );
+    }
   }
 
   // --------------------------------------------------
@@ -159,17 +175,41 @@ export default function Repository() {
         `any library it's saved in, and deletes its stored file. This can't be undone.`
     );
 
-    if (!confirmed) return;
-
-    await deletePaper(paperId);
-
-    // If the deleted paper is currently open in the viewer,
-    // close the viewer as well.
-    if (selectedPaper?.id === paperId) {
-      handleClosePaper();
+    if (!confirmed) {
+      return;
     }
 
-    setPapers((prev) => prev.filter((p) => p.id !== paperId));
+    try {
+      setError(null);
+
+      console.log(
+        `Deleting paper ${paperId}: "${title}"`
+      );
+
+      await deletePaper(paperId);
+
+      console.log(
+        `Paper ${paperId} deleted successfully.`
+      );
+
+      // Close the viewer if this paper is currently open.
+      if (selectedPaper?.id === paperId) {
+        handleClosePaper();
+      }
+
+      // Remove the paper from the visible repository immediately.
+      setPapers((prev) =>
+        prev.filter((paper) => paper.id !== paperId)
+      );
+    } catch (e) {
+      console.error("DELETE PAPER FAILED:", e);
+
+      setError(
+        e instanceof Error
+          ? `Couldn't delete "${title}": ${e.message}`
+          : `Couldn't delete "${title}".`
+      );
+    }
   }
 
   return (
@@ -188,6 +228,7 @@ export default function Repository() {
           <div className="space-y-1">
             {subjects.map((s) => (
               <button
+                type="button"
                 key={s}
                 onClick={() => setSubject(s)}
                 className={`block w-full rounded px-2 py-1.5 text-left ${
@@ -211,6 +252,7 @@ export default function Repository() {
           <div className="space-y-1">
             {documentTypes.map((d) => (
               <button
+                type="button"
                 key={d}
                 onClick={() => setDocumentType(d)}
                 className={`block w-full rounded px-2 py-1.5 text-left ${
@@ -234,6 +276,7 @@ export default function Repository() {
           <div className="space-y-1">
             {categories.map((c) => (
               <button
+                type="button"
                 key={c}
                 onClick={() => setCategory(c)}
                 className={`block w-full rounded px-2 py-1.5 text-left ${
@@ -258,7 +301,9 @@ export default function Repository() {
             <input
               type="number"
               value={minYear}
-              onChange={(e) => setMinYear(Number(e.target.value))}
+              onChange={(e) =>
+                setMinYear(Number(e.target.value))
+              }
               className="w-full rounded border border-line bg-navy px-2 py-1 text-xs text-ink focus:border-gold focus:outline-none"
             />
 
@@ -267,7 +312,9 @@ export default function Repository() {
             <input
               type="number"
               value={maxYear}
-              onChange={(e) => setMaxYear(Number(e.target.value))}
+              onChange={(e) =>
+                setMaxYear(Number(e.target.value))
+              }
               className="w-full rounded border border-line bg-navy px-2 py-1 text-xs text-ink focus:border-gold focus:outline-none"
             />
           </div>
@@ -279,9 +326,7 @@ export default function Repository() {
           ================================================== */}
 
       <div className="flex-1">
-        {/* --------------------------------------------------
-            Seed selection banner
-            -------------------------------------------------- */}
+        {/* Seed selection banner */}
 
         {isSelectingSeed && (
           <div className="mb-5 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3">
@@ -308,9 +353,7 @@ export default function Repository() {
           </div>
         )}
 
-        {/* --------------------------------------------------
-            Search + Sort
-            -------------------------------------------------- */}
+        {/* Search + Sort */}
 
         <div className="mb-4 flex items-center gap-3">
           <input
@@ -326,50 +369,51 @@ export default function Repository() {
             onChange={(e) => setSortBy(e.target.value)}
             className="rounded border border-line bg-panel px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
           >
-            <option value="date_added">Sort: Newest First</option>
-            <option value="alphabetical">Sort: Alphabetical</option>
+            <option value="date_added">
+              Sort: Newest First
+            </option>
+
+            <option value="alphabetical">
+              Sort: Alphabetical
+            </option>
+
             <option value="publication_year">
               Sort: Publication Year
             </option>
           </select>
         </div>
 
-        {/* --------------------------------------------------
-            Error
-            -------------------------------------------------- */}
+        {/* Error */}
 
         {error && (
           <p className="mb-3 rounded border border-sbert/40 bg-sbert/10 px-3 py-2 text-sm text-sbert">
-            Couldn't load papers: {error}. Is the backend running on port
-            8000?
+            {error}
           </p>
         )}
 
-        {/* --------------------------------------------------
-            Paper count
-            -------------------------------------------------- */}
+        {/* Paper count */}
 
         <p className="mb-3 text-sm text-muted">
           {loading ? "Loading…" : `${papers.length} papers`}
         </p>
 
-        {/* --------------------------------------------------
-            Empty state
-            -------------------------------------------------- */}
+        {/* Empty state */}
 
         {!loading && papers.length === 0 && !error ? (
           <div className="rounded-lg border border-dashed border-line py-16 text-center text-sm text-muted">
             No papers match the current filters.
           </div>
         ) : (
-          /* --------------------------------------------------
-             Paper list
-             -------------------------------------------------- */
+          /* Paper list */
 
           <div className="divide-y divide-line rounded-lg border border-line bg-panel">
             {papers.map((paper) => {
-              const { subject: paperSubject } = categoryOf(paper);
-              const isCS = paperSubject.toLowerCase().includes("computer");
+              const { subject: paperSubject } =
+                categoryOf(paper);
+
+              const isCS = paperSubject
+                .toLowerCase()
+                .includes("computer");
 
               return (
                 <div
@@ -380,9 +424,7 @@ export default function Repository() {
                       : ""
                   }`}
                 >
-                  {/* --------------------------------------------------
-                      Paper information
-                      -------------------------------------------------- */}
+                  {/* Paper information */}
 
                   <div className="min-w-0">
                     <div className="mb-1 flex items-center gap-2 text-xs">
@@ -401,15 +443,17 @@ export default function Repository() {
                       </span>
                     </div>
 
-                    {/* --------------------------------------------------
-                        Paper title
-                        -------------------------------------------------- */}
+                    {/* Paper title */}
 
                     {isSelectingSeed ? (
                       <button
                         type="button"
-                        onClick={() => handleSelectSeed(paper.id)}
-                        disabled={!paper.is_valid_for_recommendation}
+                        onClick={() =>
+                          handleSelectSeed(paper.id)
+                        }
+                        disabled={
+                          !paper.is_valid_for_recommendation
+                        }
                         title={
                           paper.is_valid_for_recommendation
                             ? "Use this paper as the seed document"
@@ -422,7 +466,9 @@ export default function Repository() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => handleOpenPaper(paper)}
+                        onClick={() =>
+                          handleOpenPaper(paper)
+                        }
                         title="Open paper"
                         className="block max-w-full text-left text-sm font-medium text-gold hover:underline"
                       >
@@ -434,19 +480,16 @@ export default function Repository() {
                       {paper.publication_year ?? "—"}
                     </p>
 
-                    {/* Recommendation validity information */}
                     {isSelectingSeed &&
                       !paper.is_valid_for_recommendation && (
                         <p className="mt-1 text-xs text-sbert">
-                          Cannot be used as a seed: required recommendation
-                          fields are missing.
+                          Cannot be used as a seed: required
+                          recommendation fields are missing.
                         </p>
                       )}
                   </div>
 
-                  {/* --------------------------------------------------
-                      Actions
-                      -------------------------------------------------- */}
+                  {/* Actions */}
 
                   <div className="flex shrink-0 items-center gap-3">
                     <span className="text-xs text-muted">
@@ -454,11 +497,16 @@ export default function Repository() {
                     </span>
 
                     {/* Choose Seed */}
+
                     {isSelectingSeed && (
                       <button
                         type="button"
-                        onClick={() => handleSelectSeed(paper.id)}
-                        disabled={!paper.is_valid_for_recommendation}
+                        onClick={() =>
+                          handleSelectSeed(paper.id)
+                        }
+                        disabled={
+                          !paper.is_valid_for_recommendation
+                        }
                         title={
                           paper.is_valid_for_recommendation
                             ? "Use this paper as the seed document"
@@ -471,17 +519,28 @@ export default function Repository() {
                     )}
 
                     {/* Save */}
+
                     <button
-                      onClick={() => handleSave(paper.id)}
+                      type="button"
+                      onClick={() =>
+                        handleSave(paper.id)
+                      }
                       className="rounded border border-line px-3 py-1.5 text-xs text-ink hover:border-gold"
                     >
-                      {savedIds.has(paper.id) ? "✓ Saved" : "+ Save"}
+                      {savedIds.has(paper.id)
+                        ? "✓ Saved"
+                        : "+ Save"}
                     </button>
 
                     {/* Delete */}
+
                     <button
+                      type="button"
                       onClick={() =>
-                        handleDelete(paper.id, paper.title)
+                        handleDelete(
+                          paper.id,
+                          paper.title
+                        )
                       }
                       className="rounded border border-sbert/40 px-3 py-1.5 text-xs text-sbert hover:border-sbert"
                     >
@@ -507,7 +566,9 @@ export default function Repository() {
         onPaperUpdated={(updatedPaper) => {
           setPapers((previousPapers) =>
             previousPapers.map((paper) =>
-              paper.id === updatedPaper.id ? updatedPaper : paper
+              paper.id === updatedPaper.id
+                ? updatedPaper
+                : paper
             )
           );
 
