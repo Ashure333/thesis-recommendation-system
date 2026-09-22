@@ -63,3 +63,26 @@ class SearchResultOut(BaseModel):
 
     paper: PaperOut
     score: float
+
+
+class PdfCandidateOut(BaseModel):
+    """One candidate PDF returned by GET /api/papers/{id}/find-pdf.
+
+    Nothing has been downloaded yet at this point -- these are just
+    search results (title, source, confidence, links) for the user to
+    review and confirm before anything is attached.
+    """
+
+    url: str
+    source: str  # "unpaywall" | "semantic_scholar" | "arxiv"
+    title: str | None = None
+    confidence: float
+    landing_page_url: str | None = None
+    license: str | None = None
+
+
+class AttachPdfRequest(BaseModel):
+    """Body for POST /api/papers/{id}/attach-pdf -- the URL the user
+    confirmed from a PdfCandidateOut."""
+
+    url: str

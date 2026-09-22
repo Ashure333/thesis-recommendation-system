@@ -36,6 +36,15 @@ export interface SearchResult {
   score: number;
 }
 
+export interface PdfCandidate {
+  url: string;
+  source: string; // "unpaywall" | "semantic_scholar" | "arxiv"
+  title: string | null;
+  confidence: number;
+  landing_page_url: string | null;
+  license: string | null;
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -202,4 +211,32 @@ export function getRecommendations(
   return fetch(
     `${API_URL}/api/recommendations?${search.toString()}`
   ).then(handle<SearchResult[]>);
+}
+
+// ============================================================
+// FIND PDF ONLINE
+// ============================================================
+
+export function findPdfOnline(
+  paperId: number
+): Promise<PdfCandidate[]> {
+  return fetch(
+    `${API_URL}/api/papers/${paperId}/find-pdf`
+  ).then(handle<PdfCandidate[]>);
+}
+
+export function attachPdf(
+  paperId: number,
+  url: string
+): Promise<Paper> {
+  return fetch(
+    `${API_URL}/api/papers/${paperId}/attach-pdf`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+    }
+  ).then(handle<Paper>);
 }
