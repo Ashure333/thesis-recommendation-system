@@ -9,6 +9,7 @@ import {
   importBibtex,
   uploadPaper,
   updatePaper,
+  notifyRecommendationIndexStale,
   type Paper,
 } from "../../api";
 import FindPdfPanel from "../../components/FindPdfPanel";
@@ -103,7 +104,7 @@ export default function Upload() {
         setUploading(false);
         setError(
           data.error ||
-          "The Google Scholar citation could not be retrieved."
+            "The Google Scholar citation could not be retrieved."
         );
       }
     }
@@ -148,6 +149,15 @@ export default function Upload() {
     try {
       const result = await uploadPaper(file);
 
+      /*
+       * The backend marks the recommendation index as stale
+       * after a successful upload.
+       *
+       * Notify AppLayout immediately so the alert appears
+       * without requiring a page refresh.
+       */
+      notifyRecommendationIndexStale();
+
       populatePaper(result);
     } catch (e) {
       setError(
@@ -178,6 +188,14 @@ export default function Upload() {
         trimmed,
         "google-scholar.bib"
       );
+
+      /*
+       * The backend marks the recommendation index as stale
+       * after a successful BibTeX import.
+       *
+       * Notify AppLayout immediately.
+       */
+      notifyRecommendationIndexStale();
 
       populatePaper(result);
     } catch (e) {
@@ -311,6 +329,15 @@ export default function Upload() {
             : null,
         }
       );
+
+      /*
+       * updatePaper() causes the backend to mark the
+       * recommendation index stale when recommendation
+       * signal fields are changed.
+       *
+       * Notify AppLayout immediately.
+       */
+      notifyRecommendationIndexStale();
 
       setPaper(updated);
       setJustSaved(true);
