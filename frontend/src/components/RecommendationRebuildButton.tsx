@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { rebuildRecommendationIndex } from "../api";
 
 interface RecommendationRebuildButtonProps {
   onRebuilt?: () => void;
@@ -13,20 +14,14 @@ export default function RecommendationRebuildButton({
     try {
       setIsRebuilding(true);
 
-      const response = await fetch(
-        "http://127.0.0.1:8000/api/recommendations/rebuild",
-        {
-          method: "POST",
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to rebuild recommendation index.");
-      }
+      await rebuildRecommendationIndex();
 
       onRebuilt?.();
     } catch (error) {
-      console.error("Recommendation rebuild failed:", error);
+      console.error(
+        "Recommendation rebuild failed:",
+        error
+      );
     } finally {
       setIsRebuilding(false);
     }
@@ -37,8 +32,11 @@ export default function RecommendationRebuildButton({
       type="button"
       onClick={handleRebuild}
       disabled={isRebuilding}
+      className="shrink-0 rounded border border-gold/40 bg-gold/10 px-3 py-1.5 text-xs font-medium text-gold hover:border-gold hover:bg-gold/20 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      {isRebuilding ? "Rebuilding..." : "Rebuild Index"}
+      {isRebuilding
+        ? "Rebuilding..."
+        : "Rebuild Index"}
     </button>
   );
 }

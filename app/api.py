@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -42,6 +43,63 @@ from app.schemas import (
 
 
 app = FastAPI(title="PaperRec API")
+
+
+# ============================================================
+# RECOMMENDATION INDEX STATUS
+# ============================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+RECOMMENDATION_STATUS_PATH = (
+    PROJECT_ROOT
+    / "storage"
+    / "recommendation_index_status.json"
+)
+
+
+def get_recommendation_index_status() -> bool:
+    """
+    Returns True when the recommendation index needs to be rebuilt.
+    """
+
+    if not RECOMMENDATION_STATUS_PATH.exists():
+        return False
+
+    try:
+        with open(
+            RECOMMENDATION_STATUS_PATH,
+            "r",
+            encoding="utf-8",
+        ) as file:
+            data = json.load(file)
+
+        return bool(data.get("stale", False))
+
+    except Exception:
+        return False
+
+
+def set_recommendation_index_stale(stale: bool):
+    """
+    Persist whether the recommendation index is stale.
+    """
+
+    RECOMMENDATION_STATUS_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with open(
+        RECOMMENDATION_STATUS_PATH,
+        "w",
+        encoding="utf-8",
+    ) as file:
+        json.dump(
+            {"stale": stale},
+            file,
+            indent=2,
+        )
 
 
 # ============================================================
@@ -118,21 +176,28 @@ def rebuild_recommendation_data():
     )
 
     if not script_path.exists():
-        print("Recommendation rebuild script not found.")
-        return
-
-    try:
-        subprocess.run(
-            [
-                sys.executable,
-                str(script_path),
-            ],
-            check=True,
+        raise FileNotFoundError(
+            "Recommendation rebuild script not found."
         )
 
-    except subprocess.CalledProcessError as error:
-        print("Recommendation rebuild failed:")
-        print(error)
+    subprocess.run(
+        [
+            sys.executable,
+            str(script_path),
+        ],
+        check=True,
+    )
+
+
+# ============================================================
+# RECOMMENDATION INDEX STATUS
+# ============================================================
+
+@app.get("/api/recommendations/status")
+def recommendation_status():
+    return {
+        "stale": get_recommendation_index_status(),
+    }
 
 
 # ============================================================
@@ -322,6 +387,8 @@ def update_paper(
     db.refresh(paper)
 
     if changed_recommendation_fields:
+        set_recommendation_index_stale(True)
+
         print(
             f"Recommendation index is stale for paper {paper.id}. "
             "Rebuild required."
@@ -364,8 +431,7 @@ def delete_paper(
     db.delete(paper)
     db.commit()
 
-    if stored_path:
-        rebuild_recommendation_data()
+    set_recommendation_index_stale(True)
 
     return {
         "status": "deleted"
@@ -422,8 +488,6 @@ def upload_paper(
             file.filename,
         )
 
-
-
     except Exception as error:
 
         print()
@@ -436,20 +500,24 @@ def upload_paper(
         )
 
     finally:
-
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+    set_recommendation_index_stale(True)
 
     return paper
 
 
 # ============================================================
-# Manual Rebuild of Recommendation Index
+# MANUAL REBUILD OF RECOMMENDATION INDEX
 # ============================================================
+
 @app.post("/api/recommendations/rebuild")
 def rebuild_recommendations():
     try:
         rebuild_recommendation_data()
+
+        set_recommendation_index_stale(False)
 
         return {
             "success": True,
@@ -493,7 +561,6 @@ def import_paper_from_url(
         )
 
     try:
-
         response = requests.get(
             url,
             headers={
@@ -576,13 +643,11 @@ def import_paper_from_url(
         tmp_path = tmp.name
 
     try:
-
         paper = upload_paper_from_pdf(
             db,
             tmp_path,
             "google-scholar.bib",
         )
-
 
     except Exception as error:
 
@@ -595,9 +660,10 @@ def import_paper_from_url(
         )
 
     finally:
-
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+    set_recommendation_index_stale(True)
 
     return paper
 
@@ -647,7 +713,6 @@ def import_bibtex(
         tmp_path = tmp.name
 
     try:
-
         filename = "google-scholar.bib"
 
         if source_url:
@@ -658,8 +723,6 @@ def import_bibtex(
             tmp_path,
             filename,
         )
-
-        rebuild_recommendation_data()
 
     except Exception as error:
 
@@ -672,9 +735,10 @@ def import_bibtex(
         )
 
     finally:
-
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+    set_recommendation_index_stale(True)
 
     return paper
 

@@ -203,3 +203,50 @@ export function getRecommendations(
     `${API_URL}/api/recommendations?${search.toString()}`
   ).then(handle<SearchResult[]>);
 }
+
+/* ============================================================
+   RECOMMENDATION INDEX STATUS
+   ============================================================ */
+
+export interface RecommendationIndexStatus {
+  stale: boolean;
+}
+
+export function getRecommendationIndexStatus(): Promise<RecommendationIndexStatus> {
+  return fetch(
+    `${API_URL}/api/recommendations/status`
+  ).then(
+    handle<RecommendationIndexStatus>
+  );
+}
+
+/* ============================================================
+   RECOMMENDATION INDEX REBUILD
+   ============================================================ */
+
+export interface RecommendationIndexRebuildResponse {
+  success: boolean;
+  message: string;
+}
+
+export function rebuildRecommendationIndex(): Promise<RecommendationIndexRebuildResponse> {
+  return fetch(
+    `${API_URL}/api/recommendations/rebuild`,
+    {
+      method: "POST",
+    }
+  ).then(
+    handle<RecommendationIndexRebuildResponse>
+  );
+}
+
+
+/* ============================================================
+   RECOMMENDATION INDEX UI NOTIFICATION
+   ============================================================ */
+
+export function notifyRecommendationIndexStale(): void {
+  window.dispatchEvent(
+    new CustomEvent("recommendation-index-stale")
+  );
+}

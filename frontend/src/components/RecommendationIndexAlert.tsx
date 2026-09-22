@@ -16,19 +16,21 @@ export default function RecommendationIndexAlert({
   return (
     <div
       role="alert"
-      className="flex items-center justify-between gap-4 px-4 py-3"
+      className="border-b border-gold/30 bg-gold/10 px-6 py-3"
     >
-      <div>
-        <p className="font-medium">
-          Recommendation index needs updating
-        </p>
+      <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-gold">
+            Recommendation index needs updating
+          </p>
 
-        <p className="text-sm">
-          New or modified papers have been added since the last rebuild.
-        </p>
+          <p className="mt-0.5 text-xs text-muted">
+            New or modified papers have been added since the last rebuild.
+          </p>
+        </div>
+
+        <RecommendationRebuildButton onRebuilt={onRebuilt} />
       </div>
-
-      <RecommendationRebuildButton onRebuilt={onRebuilt} />
     </div>
   );
 }
