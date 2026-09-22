@@ -322,7 +322,10 @@ def update_paper(
     db.refresh(paper)
 
     if changed_recommendation_fields:
-        rebuild_recommendation_data()
+        print(
+            f"Recommendation index is stale for paper {paper.id}. "
+            "Rebuild required."
+        )
 
     return paper
 
@@ -419,7 +422,7 @@ def upload_paper(
             file.filename,
         )
 
-        rebuild_recommendation_data()
+
 
     except Exception as error:
 
@@ -438,6 +441,29 @@ def upload_paper(
             os.remove(tmp_path)
 
     return paper
+
+
+# ============================================================
+# Manual Rebuild of Recommendation Index
+# ============================================================
+@app.post("/api/recommendations/rebuild")
+def rebuild_recommendations():
+    try:
+        rebuild_recommendation_data()
+
+        return {
+            "success": True,
+            "message": "Recommendation index rebuilt successfully.",
+        }
+
+    except Exception as error:
+        print("RECOMMENDATION REBUILD FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to rebuild recommendation index.",
+        )
 
 
 # ============================================================
@@ -557,7 +583,6 @@ def import_paper_from_url(
             "google-scholar.bib",
         )
 
-        rebuild_recommendation_data()
 
     except Exception as error:
 
