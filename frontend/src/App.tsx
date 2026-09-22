@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import AuthLayout from "./layouts/AuthLayout";
 import AppLayout from "./layouts/AppLayout";
 
+import FAQ from "./pages/FAQ";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/upload" element={<Upload />} />
           <Route path="/library" element={<MyLibrary />} />
           <Route path="/evaluation" element={<Evaluation />} />
+          <Route path="/faq" element={<FAQ />} />
         </Route>
 
         {/* Unknown paths fall back to sign-in */}
