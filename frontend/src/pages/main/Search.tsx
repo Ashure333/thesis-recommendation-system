@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { pipelineConfigs } from "../../data/pipelineConfigs";
 import WeightBar from "../../components/WeightBar";
 import { getRepositoryStats, listPapers, RepositoryStats, Paper } from "../../api";
+import { Button, EmptyState, PageHeader, PageShell, SectionHeading } from "../../components/ui";
 
 type QueryMode = "keyword" | "title" | "seed";
 
@@ -17,16 +18,15 @@ export default function Search() {
   const [queryMode, setQueryMode] = useState<QueryMode>("keyword");
   const [queryText, setQueryText] = useState("");
   const [activeConfig, setActiveConfig] = useState("tfidf");
-
   const [stats, setStats] = useState<RepositoryStats | null>(null);
   const [recent, setRecent] = useState<Paper[]>([]);
 
   useEffect(() => {
     getRepositoryStats().then(setStats).catch(() => {});
-    listPapers({ sort_by: "date_added", limit: 4 })
-      .then(setRecent)
-      .catch(() => {});
+    listPapers({ sort_by: "date_added", limit: 4 }).then(setRecent).catch(() => {});
   }, []);
+
+  const selectedConfig = pipelineConfigs.find((c) => c.id === activeConfig) ?? pipelineConfigs[0];
 
   function handleSearch() {
     if (queryMode !== "seed" && !queryText.trim()) return;
@@ -36,164 +36,141 @@ export default function Search() {
   }
 
   return (
-    <div>
-      {/* Hero */}
-      <div className="mb-10 text-center">
-        <p className="mb-3 inline-block rounded border border-line px-3 py-1 text-xs uppercase tracking-wide text-muted">
-          Bulacan State University · BSMCS 4A
-        </p>
-        <h1 className="font-serif text-3xl text-ink">
-          Academic Paper Repository <br />
-          <span className="text-gold">&amp; Recommendation System</span>
-        </h1>
-        <p className="mx-auto mt-4 max-w-xl text-sm text-muted">
-          Discover related academic literature through hybrid content-based
-          recommendation pipelines integrating TF-IDF, S-BERT, and Metadata
-          signals.
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Academic paper repository"
+        title="Search the repository"
+        description="Search by keywords or title, or choose a paper to use as a seed document for recommendations."
+      />
 
-      {/* Query bar */}
-      <div className="mx-auto mb-10 max-w-2xl rounded-lg border border-line bg-panel p-5">
-        <div className="mb-3 flex gap-2">
-          {queryModes.map((mode) => (
-            <button
-              key={mode.id}
-              onClick={() => setQueryMode(mode.id)}
-              className={`rounded px-3 py-1.5 text-xs font-medium ${
-                queryMode === mode.id
-                  ? "bg-gold text-navy"
-                  : "bg-panelAlt text-muted hover:text-ink"
-              }`}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mb-3 flex gap-2">
-          {queryMode === "seed" ? (
-            <Link
-            to="/repository"
-            state={{
-              selectSeed: true,
-              pipeline: activeConfig,
-            }}
-            className="flex-1 rounded border border-line bg-navy px-3 py-2 text-sm text-muted hover:text-ink"
-          >
-            Choose a paper from your repository →
-          </Link>
-          ) : (
-            <input
-              type="text"
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="e.g. neural network text similarity…"
-              className="flex-1 rounded border border-line bg-navy px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
-            />
-          )}
-          {queryMode !== "seed" && (
-            <button
-              onClick={handleSearch}
-              className="rounded bg-gold px-5 text-sm font-medium text-navy hover:bg-gold/90"
-            >
-              Search
-            </button>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
-          <span>Pipeline:</span>
-          <select
-            value={activeConfig}
-            onChange={(e) => setActiveConfig(e.target.value)}
-            className="rounded border border-line bg-navy px-2 py-1 text-ink focus:border-gold focus:outline-none"
-          >
-            {pipelineConfigs.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
+      {/* Query Bar */}
+      <section className="surface mb-10">
+        <div className="border-b border-line px-5 py-4">
+          <div className="flex flex-wrap gap-1" role="tablist" aria-label="Search mode">
+            {queryModes.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                role="tab"
+                aria-selected={queryMode === mode.id}
+                onClick={() => setQueryMode(mode.id)}
+                className={`border-b-2 px-3 py-2 text-sm transition-colors ${
+                  queryMode === mode.id
+                    ? "border-gold text-ink"
+                    : "border-transparent text-muted hover:text-ink"
+                }`}
+              >
+                {mode.label}
+              </button>
             ))}
-          </select>
+          </div>
+        </div>
 
-          <div className="ml-auto flex gap-2">
-            {pipelineConfigs
-              .find((c) => c.id === activeConfig)
-              ?.weights.map((w) => (
-                <span key={w.name} className="rounded bg-panelAlt px-2 py-1">
-                  {w.name} {w.pct}%
-                </span>
+        <div className="px-5 py-5">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {queryMode === "seed" ? (
+              <Link
+                to="/repository"
+                state={{ selectSeed: true, pipeline: activeConfig }}
+                className="ui-input flex items-center text-muted hover:border-gold/60 hover:text-ink"
+              >
+                Choose a paper from the repository
+              </Link>
+            ) : (
+              <input
+                type="text"
+                value={queryText}
+                onChange={(e) => setQueryText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                placeholder={
+                  queryMode === "title"
+                    ? "Enter a paper title…"
+                    : "e.g. neural network text similarity"
+                }
+                aria-label={queryMode === "title" ? "Paper title" : "Search keywords"}
+                className="ui-input flex-1"
+              />
+            )}
+            {queryMode !== "seed" && (
+              <Button type="button" onClick={handleSearch} disabled={!queryText.trim()}>
+                Search
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center">
+            <label htmlFor="pipeline" className="text-xs text-muted">Pipeline</label>
+            <select
+              id="pipeline"
+              value={activeConfig}
+              onChange={(e) => setActiveConfig(e.target.value)}
+              className="min-h-9 rounded-md border border-line bg-navy px-3 text-sm text-ink focus:border-gold focus:outline-none"
+            >
+              {pipelineConfigs.map((config) => (
+                <option key={config.id} value={config.id}>{config.label}</option>
               ))}
+            </select>
+            <span className="text-xs text-muted">{selectedConfig.subtitle}</span>
+            <div className="sm:ml-auto sm:w-56">
+              <WeightBar weights={selectedConfig.weights} />
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Stats row */}
-      <div className="mb-12 grid grid-cols-2 gap-4 border-y border-line py-6 sm:grid-cols-4">
-        <div className="text-center">
-          <p className="font-serif text-2xl text-gold">{stats?.total_papers ?? "—"}</p>
-          <p className="mt-1 text-xs text-muted">Papers in Repository</p>
+      {/* Repository Stats */}
+      <section className="mb-10 border-y border-line py-5">
+        <div className="grid grid-cols-2 divide-x divide-line sm:grid-cols-4">
+          <Stat value={stats?.total_papers ?? "—"} label="Papers in repository" />
+          {Object.entries(stats?.by_subject ?? {}).slice(0, 2).map(([subject, count]) => (
+            <Stat key={subject} value={count} label={subject} />
+          ))}
+          <Stat value={stats?.category_count ?? "—"} label="Subject categories" />
         </div>
-        {Object.entries(stats?.by_subject ?? {}).map(([subject, count]) => (
-          <div key={subject} className="text-center">
-            <p className="font-serif text-2xl text-gold">{count}</p>
-            <p className="mt-1 text-xs text-muted">{subject}</p>
-          </div>
-        ))}
-        <div className="text-center">
-          <p className="font-serif text-2xl text-gold">{stats?.category_count ?? "—"}</p>
-          <p className="mt-1 text-xs text-muted">Subject Categories</p>
-        </div>
-      </div>
+      </section>
 
-      {/* Pipeline overview grid */}
-      <div className="mb-12">
-        <h2 className="mb-1 text-base font-medium text-ink">Recommendation Pipelines</h2>
-        <p className="mb-4 text-sm text-muted">
-          Six configurations built from three components — choose one before searching.
-        </p>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {/* Recommendation Pipelines */}
+      <section className="mb-10">
+        <SectionHeading
+          title="Recommendation pipelines"
+          description="The six configurations currently defined for the study."
+        />
+        <div className="overflow-hidden rounded-lg border border-line">
           {pipelineConfigs.map((config) => {
-            const isActive = config.id === activeConfig;
+            const active = config.id === activeConfig;
             return (
               <button
                 key={config.id}
+                type="button"
                 onClick={() => setActiveConfig(config.id)}
-                className={`rounded-lg border p-4 text-left ${
-                  isActive ? "border-gold bg-panelAlt" : "border-line bg-panel"
+                className={`grid w-full grid-cols-[1fr_auto] gap-4 border-b border-line px-4 py-4 text-left last:border-b-0 ${
+                  active ? "bg-panelAlt" : "bg-panel hover:bg-panelAlt/50"
                 }`}
               >
-                <div className="mb-1 flex items-center justify-between">
+                <div>
                   <p className="text-sm font-medium text-ink">{config.label}</p>
-                  {isActive && (
-                    <span className="rounded bg-gold/20 px-2 py-0.5 text-[10px] text-gold">
-                      active
-                    </span>
-                  )}
+                  <p className="mt-1 text-xs text-muted">{config.subtitle}</p>
                 </div>
-                <p className="mb-3 text-xs text-muted">{config.subtitle}</p>
-                <WeightBar weights={config.weights} />
+                <div className="w-40 self-center sm:w-56">
+                  <WeightBar weights={config.weights} />
+                </div>
               </button>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      {/* Recent additions */}
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-medium text-ink">Recent Additions</h2>
-          <Link to="/repository" className="text-sm text-gold hover:underline">
-            Browse all →
-          </Link>
-        </div>
-
+      {/* Recent Additions (Old Code Restored) */}
+      <section>
+        <SectionHeading
+          title="Recent additions"
+          action={<Link to="/repository" className="text-sm text-gold hover:underline">Browse repository →</Link>}
+        />
         {recent.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-line py-12 text-center text-sm text-muted">
-            No papers in the repository yet.
-          </div>
+          <EmptyState
+            title="No papers in the repository yet."
+            description="Upload a paper or import a Google Scholar BibTeX citation to add the first record."
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {recent.map((paper) => {
@@ -214,7 +191,16 @@ export default function Search() {
             })}
           </div>
         )}
-      </div>
+      </section>
+    </PageShell>
+  );
+}
+
+function Stat({ value, label }: { value: string | number; label: string }) {
+  return (
+    <div className="px-4 text-center first:pl-0 last:pr-0">
+      <p className="font-serif text-xl text-gold">{value}</p>
+      <p className="mt-1 text-xs text-muted">{label}</p>
     </div>
   );
 }
