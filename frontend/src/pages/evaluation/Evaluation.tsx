@@ -2,15 +2,20 @@
 // Once the recommendation pipelines are built, this is where the 6
 // configurations get compared against your evaluation metrics.
 
+import { PageHeader, PageShell, EmptyState } from "../../components/ui";
+
 export default function Evaluation() {
   return (
-    <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-line text-center">
-      <div>
-        <p className="text-sm text-ink">Evaluation</p>
-        <p className="mt-1 text-xs text-muted">
-          Design not finalized yet — placeholder route.
-        </p>
-      </div>
-    </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Evaluation"
+        title="Recommendation evaluation"
+        description="This route is reserved for the comparison of the study's recommendation configurations and evaluation metrics."
+      />
+      <EmptyState
+        title="Evaluation design is not finalized."
+        description="The current frontend keeps this route available without inventing metrics, charts, or results that are not yet implemented."
+      />
+    </PageShell>
   );
 }

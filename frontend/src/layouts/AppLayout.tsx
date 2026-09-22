@@ -1,149 +1,75 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-
-import {
-  getRecommendationIndexStatus,
-} from "../api";
-
+import { getRecommendationIndexStatus } from "../api";
 import RecommendationIndexAlert from "../components/RecommendationIndexAlert";
 
-// Placeholders -- in the wired-up version these come from shared state
-// (library count from the DB, active pipeline from wherever it was last
-// set on the Search or Recommendations page).
-const libraryCount = 4;
-const activePipelineLabel =
-  "TF-IDF + S-BERT + Metadata";
-
 const navItems = [
-  {
-    to: "/search",
-    label: "Search",
-  },
-  {
-    to: "/repository",
-    label: "Repository",
-  },
-  {
-    to: "/recommendations",
-    label: "Recommendations",
-  },
-  {
-    to: "/upload",
-    label: "Upload",
-  },
-  {
-    to: "/library",
-    label: "My Library",
-    badge: libraryCount,
-  },
-  {
-    to: "/evaluation",
-    label: "Evaluation",
-  },
+  { to: "/search", label: "Search" },
+  { to: "/repository", label: "Repository" },
+  { to: "/recommendations", label: "Recommendations" },
+  { to: "/upload", label: "Upload" },
+  { to: "/library", label: "My Library" },
+  { to: "/evaluation", label: "Evaluation" },
 ];
 
 export default function AppLayout() {
-  const [
-    recommendationIndexStale,
-    setRecommendationIndexStale,
-  ] = useState(false);
-
-  async function refreshRecommendationIndexStatus() {
-    try {
-      const status =
-        await getRecommendationIndexStatus();
-
-      setRecommendationIndexStale(status.stale);
-    } catch (error) {
-      console.error(
-        "Failed to get recommendation index status:",
-        error
-      );
-    }
-  }
+  const [recommendationIndexStale, setRecommendationIndexStale] = useState(false);
 
   useEffect(() => {
-    // Check the current status when the layout loads.
-    refreshRecommendationIndexStatus();
+    getRecommendationIndexStatus()
+      .then((status) => setRecommendationIndexStale(status.stale))
+      .catch((error) => console.error("Failed to get recommendation index status:", error));
 
-    // Listen for paper changes made anywhere in the app.
-    function handleRecommendationIndexStale() {
-      setRecommendationIndexStale(true);
-    }
-
-    window.addEventListener(
-      "recommendation-index-stale",
-      handleRecommendationIndexStale
-    );
-
-    return () => {
-      window.removeEventListener(
-        "recommendation-index-stale",
-        handleRecommendationIndexStale
-      );
-    };
+    const handleStale = () => setRecommendationIndexStale(true);
+    window.addEventListener("recommendation-index-stale", handleStale);
+    return () => window.removeEventListener("recommendation-index-stale", handleStale);
   }, []);
-
-  function handleRebuilt() {
-    setRecommendationIndexStale(false);
-  }
 
   return (
     <div className="min-h-screen bg-navy">
-      <header className="flex items-center justify-between border-b border-line bg-panel px-6 py-3">
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded bg-gold/20 font-serif text-sm text-gold">
+      <header className="border-b border-line bg-panel">
+        <div className="mx-auto flex min-h-16 max-w-[1400px] items-center gap-8 px-5 lg:px-6">
+          <NavLink to="/search" className="flex shrink-0 items-center gap-2.5" aria-label="PaperRec home">
+            <span className="flex h-8 w-8 items-center justify-center rounded-md border border-gold/40 text-sm font-semibold text-gold">
               R
             </span>
+            <span className="leading-tight">
+              <span className="block text-sm font-semibold text-ink">PaperRec</span>
+              <span className="block text-[10px] text-muted">BulSU BSMCS</span>
+            </span>
+          </NavLink>
 
-            <div className="leading-tight">
-              <p className="text-sm font-medium text-ink">
-                PaperRec
-              </p>
-
-              <p className="text-[10px] uppercase tracking-wide text-muted">
-                BulSU BSMCS
-              </p>
-            </div>
-          </div>
-
-          <nav className="flex gap-1">
+          <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" aria-label="Primary navigation">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `flex items-center gap-1.5 rounded px-3 py-1.5 text-sm ${
+                  `shrink-0 border-b-2 px-3 py-5 text-sm transition-colors ${
                     isActive
-                      ? "bg-panelAlt text-ink"
-                      : "text-muted hover:text-ink"
+                      ? "border-gold text-ink"
+                      : "border-transparent text-muted hover:text-ink"
                   }`
                 }
               >
                 {item.label}
-
-                {item.badge !== undefined && (
-                  <span className="rounded bg-gold/20 px-1.5 text-xs text-gold">
-                    {item.badge}
-                  </span>
-                )}
               </NavLink>
             ))}
           </nav>
-        </div>
 
-        <div className="rounded border border-gold/30 bg-gold/10 px-3 py-1 text-xs text-gold">
-          Pipeline: {activePipelineLabel}
+          <div className="hidden shrink-0 text-right sm:block">
+            <p className="text-[10px] uppercase tracking-[0.1em] text-muted">Current pipeline</p>
+            <p className="mt-0.5 text-xs text-gold">TF-IDF + S-BERT + Metadata</p>
+          </div>
         </div>
       </header>
 
       <RecommendationIndexAlert
         visible={recommendationIndexStale}
-        onRebuilt={handleRebuilt}
+        onRebuilt={() => setRecommendationIndexStale(false)}
       />
 
-      <main className="mx-auto max-w-[1400px] px-6 py-8">
+      <main className="mx-auto max-w-[1400px] px-5 py-7 lg:px-6 lg:py-9">
         <Outlet />
       </main>
     </div>
