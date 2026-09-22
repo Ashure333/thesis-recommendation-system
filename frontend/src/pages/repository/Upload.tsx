@@ -12,6 +12,7 @@ import {
   notifyRecommendationIndexStale,
   type Paper,
 } from "../../api";
+import FindPdfPanel from "../../components/FindPdfPanel";
 
 const signalFields = [
   "title",
@@ -60,6 +61,8 @@ export default function Upload() {
   const [abstract, setAbstract] = useState("");
   const [keywords, setKeywords] = useState("");
   const [year, setYear] = useState("");
+
+  const isPdf = paper?.stored_path?.toLowerCase().endsWith(".pdf") ?? false;
 
   /*
    * Listen for BibTeX returned by the Chrome extension.
@@ -705,6 +708,24 @@ export default function Upload() {
               recommendation pipelines.
             </p>
           </div>
+
+          {!isPdf && (
+            <div className="mt-6 rounded-lg border border-line bg-panel p-4">
+              <p className="text-sm font-medium text-ink">
+                No PDF attached
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted">
+                This paper was imported from a citation and has no
+                stored PDF. You can search for an open-access copy now.
+              </p>
+              <FindPdfPanel
+                paper={paper}
+                onAttached={(updated) => {
+                  setPaper(updated);
+                }}
+              />
+            </div>
+          )}
 
           <button
             onClick={handleSave}

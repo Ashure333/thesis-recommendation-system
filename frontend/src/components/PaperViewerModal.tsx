@@ -4,6 +4,7 @@ import {
   updatePaper,
 } from "../api";
 import type { Paper } from "../api";
+import FindPdfPanel from "./FindPdfPanel";
 
 
 interface PaperViewerModalProps {
@@ -219,6 +220,19 @@ export default function PaperViewerModal({
 
     setEditing(false);
     setError(null);
+  };
+
+
+  // --------------------------------------------------------
+  // Called by FindPdfPanel once a candidate PDF has been
+  // confirmed and successfully attached to this paper.
+  // --------------------------------------------------------
+  const handlePdfAttached = (updatedPaper: Paper) => {
+    setCurrentPaper(updatedPaper);
+
+    if (onPaperUpdated) {
+      onPaperUpdated(updatedPaper);
+    }
   };
 
 
@@ -474,6 +488,11 @@ export default function PaperViewerModal({
                     does not have a stored
                     PDF file.
                   </p>
+
+                  <FindPdfPanel
+                    paper={currentPaper}
+                    onAttached={handlePdfAttached}
+                  />
 
                 </div>
 

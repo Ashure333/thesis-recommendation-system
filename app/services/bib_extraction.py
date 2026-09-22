@@ -26,6 +26,10 @@ Supported fields:
         year = "..."
         year = 2020
 
+    DOI:
+        doi = {10.1234/abcd.5678}
+        doi = {https://doi.org/10.1234/abcd.5678}
+
 BibTeX is treated as the authoritative source for metadata that is
 already present in the file. Missing metadata can subsequently be
 filled by the optional Google Scholar enrichment step.
@@ -36,10 +40,103 @@ merged.
 """
 
 import re
+import unicodedata
 from datetime import datetime
 
 
 YEAR_PATTERN = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
+
+
+# ---------------------------------------------------------------------
+# LaTeX -> plain Unicode cleanup
+# ---------------------------------------------------------------------
+#
+# Google Scholar's BibTeX export (and most reference managers) escapes
+# accented characters and protects capitalization using LaTeX syntax,
+# e.g.:
+#
+#     title = {A {S}tudy of {\'{E}}tude and Caf{\'e} Culture}
+#     author = {M{\"u}ller, Hans and {\c{S}}ahin, Ay{\c{s}}e}
+#
+# The previous cleaner only stripped braces, which left the backslash
+# commands in place (turning "\'{e}" into the literal text "'e" or
+# similar garbage). A title like that will never match the same
+# paper's title on Unpaywall/Semantic Scholar/arXiv/OpenAlex/Crossref,
+# so PDF discovery for anything with an accented title or author name
+# silently returns nothing. _delatex() runs BEFORE brace-stripping to
+# fix this.
+
+_LATEX_ACCENT_COMBINING = {
+    "'": "\u0301",  # acute      -> e.g. \'e  => é
+    "`": "\u0300",  # grave      -> \`e       => è
+    "^": "\u0302",  # circumflex -> \^e       => ê
+    '"': "\u0308",  # diaeresis  -> \"o       => ö
+    "~": "\u0303",  # tilde      -> \~n       => ñ
+    "=": "\u0304",  # macron     -> \=a       => ā
+    ".": "\u0307",  # dot above  -> \.z       => ż
+    "v": "\u030C",  # caron      -> \vc       => č
+    "u": "\u0306",  # breve      -> \ug       => ğ
+    "H": "\u030B",  # double acute -> \Ho     => ő
+    "c": "\u0327",  # cedilla    -> \cc       => ç
+    "k": "\u0328",  # ogonek     -> \ka       => ą
+    "r": "\u030A",  # ring above -> \ra       => å
+    "d": "\u0323",  # dot below  -> \ds       => ṣ
+    "b": "\u0331",  # bar below  -> \bb       => ḇ
+}
+
+# Longest-first so e.g. "\ss" isn't mistaken for "\s" + "s".
+_LATEX_NO_ARG_COMMANDS = [
+    (r"\ss", "ß"), (r"\SS", "SS"),
+    (r"\aa", "å"), (r"\AA", "Å"),
+    (r"\ae", "æ"), (r"\AE", "Æ"),
+    (r"\oe", "œ"), (r"\OE", "Œ"),
+    (r"\dh", "ð"), (r"\DH", "Ð"),
+    (r"\th", "þ"), (r"\TH", "Þ"),
+    (r"\ng", "ŋ"), (r"\NG", "Ŋ"),
+    (r"\o", "ø"), (r"\O", "Ø"),
+    (r"\l", "ł"), (r"\L", "Ł"),
+    (r"\i", "ı"), (r"\j", "ȷ"),
+]
+
+_LATEX_ESCAPED_LITERALS = {
+    r"\&": "&", r"\%": "%", r"\_": "_",
+    r"\$": "$", r"\#": "#",
+}
+
+
+def _delatex(text: str) -> str:
+    """
+    Converts common LaTeX accent macros and escaped characters into
+    plain Unicode text. Idempotent and safe to call on text that has
+    no LaTeX in it at all.
+    """
+    if not text:
+        return text
+
+    for command, replacement in _LATEX_NO_ARG_COMMANDS:
+        text = re.sub(re.escape(command) + r"(?![a-zA-Z])", replacement, text)
+
+    for command, replacement in _LATEX_ESCAPED_LITERALS.items():
+        text = text.replace(command, replacement)
+
+    # Accent commands, with or without braces around the letter:
+    # \'e   \'{e}   {\'e}   {\'{e}}
+    for command, combining_mark in _LATEX_ACCENT_COMBINING.items():
+        pattern = re.compile(r"\\" + re.escape(command) + r"\s*\{?([a-zA-Z])\}?")
+        text = pattern.sub(
+            lambda m: unicodedata.normalize("NFC", m.group(1) + combining_mark),
+            text,
+        )
+
+    # "~" is a non-breaking-space tie in LaTeX (e.g. "Fig.~1").
+    text = text.replace("~", " ")
+
+    # Any backslash still left over at this point is LaTeX markup we
+    # don't specifically handle (\emph{}, \textbf{}, stray commands,
+    # etc.) -- drop the backslash rather than leave garbage in the text.
+    text = text.replace("\\", "")
+
+    return text
 
 
 def _find_first_entry(text: str) -> str | None:
@@ -150,14 +247,16 @@ def _find_field(entry_text: str, field_name: str) -> str | None:
 
 def _clean_bib_text(raw: str | None) -> str | None:
     """
-    Removes BibTeX capitalization-protection braces and normalizes
-    whitespace.
+    Removes LaTeX accent/escape markup and capitalization-protection
+    braces, then normalizes whitespace.
     """
 
     if raw is None:
         return None
 
-    text = raw.replace("{", "").replace("}", "")
+    text = _delatex(raw)
+
+    text = text.replace("{", "").replace("}", "")
 
     text = " ".join(text.split())
 
@@ -321,6 +420,41 @@ def _extract_publication_year(
     )
 
 
+def _extract_doi(entry: str) -> str | None:
+    """
+    Extract the BibTeX doi field, if present.
+
+    Handles both plain DOIs:
+        doi = {10.1234/abcd.5678}
+
+    and DOIs written as full URLs:
+        doi = {https://doi.org/10.1234/abcd.5678}
+
+    Populating this from the .bib file directly (rather than leaving
+    it for pdf_finder.py's Crossref-resolution fallback) matters: a
+    paper that already has a DOI on file goes straight to Unpaywall --
+    the strongest PDF source -- instead of needing a Crossref lookup
+    to guess one first.
+    """
+
+    doi = _clean_bib_text(
+        _find_field(entry, "doi")
+    )
+
+    if not doi:
+        return None
+
+    # Sometimes stored as a full URL
+    doi = re.sub(
+        r"^https?://(dx\.)?doi\.org/",
+        "",
+        doi,
+        flags=re.IGNORECASE,
+    )
+
+    return doi.strip() or None
+
+
 def extract_metadata_from_bib(bib_path: str) -> dict:
     """
     Extract metadata from the first BibTeX entry.
@@ -333,6 +467,7 @@ def extract_metadata_from_bib(bib_path: str) -> dict:
             "abstract": str | None,
             "keywords": str | None,
             "publication_year": int | None,
+            "doi": str | None,
         }
 
     Missing fields are returned as None.
@@ -358,6 +493,7 @@ def extract_metadata_from_bib(bib_path: str) -> dict:
             "abstract": None,
             "keywords": None,
             "publication_year": None,
+            "doi": None,
         }
 
     # ---------------------------------------------------------
@@ -372,4 +508,5 @@ def extract_metadata_from_bib(bib_path: str) -> dict:
             entry,
             raw_text,
         ),
+        "doi": _extract_doi(entry),
     }

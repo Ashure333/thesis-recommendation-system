@@ -36,6 +36,15 @@ export interface SearchResult {
   score: number;
 }
 
+export interface PdfCandidate {
+  url: string;
+  source: string; // "unpaywall" | "semantic_scholar" | "arxiv"
+  title: string | null;
+  confidence: number;
+  landing_page_url: string | null;
+  license: string | null;
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -204,49 +213,30 @@ export function getRecommendations(
   ).then(handle<SearchResult[]>);
 }
 
-/* ============================================================
-   RECOMMENDATION INDEX STATUS
-   ============================================================ */
+// ============================================================
+// FIND PDF ONLINE
+// ============================================================
 
-export interface RecommendationIndexStatus {
-  stale: boolean;
-}
-
-export function getRecommendationIndexStatus(): Promise<RecommendationIndexStatus> {
+export function findPdfOnline(
+  paperId: number
+): Promise<PdfCandidate[]> {
   return fetch(
-    `${API_URL}/api/recommendations/status`
-  ).then(
-    handle<RecommendationIndexStatus>
-  );
+    `${API_URL}/api/papers/${paperId}/find-pdf`
+  ).then(handle<PdfCandidate[]>);
 }
 
-/* ============================================================
-   RECOMMENDATION INDEX REBUILD
-   ============================================================ */
-
-export interface RecommendationIndexRebuildResponse {
-  success: boolean;
-  message: string;
-}
-
-export function rebuildRecommendationIndex(): Promise<RecommendationIndexRebuildResponse> {
+export function attachPdf(
+  paperId: number,
+  url: string
+): Promise<Paper> {
   return fetch(
-    `${API_URL}/api/recommendations/rebuild`,
+    `${API_URL}/api/papers/${paperId}/attach-pdf`,
     {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
     }
-  ).then(
-    handle<RecommendationIndexRebuildResponse>
-  );
-}
-
-
-/* ============================================================
-   RECOMMENDATION INDEX UI NOTIFICATION
-   ============================================================ */
-
-export function notifyRecommendationIndexStale(): void {
-  window.dispatchEvent(
-    new CustomEvent("recommendation-index-stale")
-  );
+  ).then(handle<Paper>);
 }
