@@ -240,3 +240,36 @@ export function attachPdf(
     }
   ).then(handle<Paper>);
 }
+
+// ============================================================
+// RECOMMENDATION INDEX STATUS
+// ============================================================
+
+export interface RecommendationIndexStatus {
+  stale: boolean;
+}
+
+export function getRecommendationIndexStatus(): Promise<RecommendationIndexStatus> {
+  return fetch(`${API_URL}/api/recommendations/status`).then(
+    handle<RecommendationIndexStatus>
+  );
+}
+
+export function rebuildRecommendationIndex(): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return fetch(`${API_URL}/api/recommendations/rebuild`, {
+    method: "POST",
+  }).then(handle<{ success: boolean; message: string }>);
+}
+// ============================================================
+// RECOMMENDATION INDEX STALE NOTIFICATION
+// ============================================================
+
+// Dispatches a browser event so AppLayout's listener can flip the
+// "recommendation index needs updating" banner on immediately,
+// without waiting for a page reload or the next status poll.
+export function notifyRecommendationIndexStale(): void {
+  window.dispatchEvent(new Event("recommendation-index-stale"));
+}
