@@ -1,35 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  getLibrary,
-  removeFromLibrary,
-  LibraryEntry,
-  Paper,
-} from "../../api";
+import { getLibrary, removeFromLibrary, LibraryEntry, Paper } from "../../api";
 import PaperViewerModal from "../../components/PaperViewerModal";
+import { Button, EmptyState, PageHeader, PageShell } from "../../components/ui";
 
 export default function MyLibrary() {
   const navigate = useNavigate();
-
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // --------------------------------------------------
-  // PDF viewer
-  // --------------------------------------------------
-
+  // PDF Viewer State
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
-
-  // --------------------------------------------------
-  // Load library
-  // --------------------------------------------------
 
   function load() {
     setLoading(true);
     setError(null);
-
     getLibrary()
       .then(setEntries)
       .catch((e) => setError(e.message))
@@ -38,25 +25,17 @@ export default function MyLibrary() {
 
   useEffect(load, []);
 
-  // --------------------------------------------------
-  // Remove from library
-  // --------------------------------------------------
-
   async function handleRemove(paperId: number) {
-    await removeFromLibrary(paperId);
-
-    // If the removed paper is currently being viewed,
-    // close the PDF viewer.
-    if (selectedPaper?.id === paperId) {
-      handleClosePaper();
+    try {
+      await removeFromLibrary(paperId);
+      if (selectedPaper?.id === paperId) {
+        handleClosePaper();
+      }
+      setEntries((prev) => prev.filter((entry) => entry.paper.id !== paperId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't remove paper from your library.");
     }
-
-    setEntries((prev) => prev.filter((e) => e.paper.id !== paperId));
   }
-
-  // --------------------------------------------------
-  // PDF viewer
-  // --------------------------------------------------
 
   function handleOpenPaper(paper: Paper) {
     setSelectedPaper(paper);
@@ -68,14 +47,7 @@ export default function MyLibrary() {
     setSelectedPaper(null);
   }
 
-  // --------------------------------------------------
-  // Find similar
-  // --------------------------------------------------
-
   function handleFindSimilar(paperId: number) {
-    // Only tfidf/sbert have a real implementation right now -- default
-    // to tfidf. The Recommendations page lets the user switch pipelines
-    // (among the implemented ones) from there.
     navigate("/recommendations", {
       state: {
         mode: "seed",
@@ -86,194 +58,155 @@ export default function MyLibrary() {
   }
 
   return (
-    <div>
-      {/* ==================================================
-          HEADER
-          ================================================== */}
-
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="mb-1 font-serif text-2xl text-ink">
-            My Library
-          </h1>
-
-          <p className="text-sm text-muted">
-            {loading ? "Loading…" : `${entries.length} saved papers`}
-          </p>
-        </div>
-
-        <Link
-          to="/repository"
-          className="text-sm text-gold hover:underline"
-        >
-          + Browse Repository
-        </Link>
-      </div>
-
-      {/* ==================================================
-          ERROR
-          ================================================== */}
+    <PageShell>
+      <PageHeader
+        eyebrow="Saved papers"
+        title="My Library"
+        description={
+          loading
+            ? "Loading your saved papers…"
+            : `${entries.length} saved paper${entries.length === 1 ? "" : "s"}.`
+        }
+        action={
+          <Link to="/repository" className="text-sm text-gold hover:underline">
+            + Browse Repository
+          </Link>
+        }
+      />
 
       {error && (
-        <p className="mb-4 rounded border border-sbert/40 bg-sbert/10 px-3 py-2 text-sm text-sbert">
-          Couldn't load your library: {error}. Is the backend running on
-          port 8000?
-        </p>
+        <div className="status-error mb-5 rounded border border-sbert/40 bg-sbert/10 px-3 py-2 text-sm text-sbert">
+          Couldn't load your library: {error}. Is the backend running on port 8000?
+        </div>
       )}
 
-      {/* ==================================================
-          EMPTY STATE
-          ================================================== */}
-
       {!loading && entries.length === 0 && !error ? (
-        <div className="rounded-lg border border-dashed border-line py-16 text-center text-sm text-muted">
-          You haven&apos;t saved any papers yet.
-        </div>
+        <EmptyState
+          title="Your library is empty."
+          description="Save papers from the repository or recommendation results to keep them here."
+          action={
+            <Link to="/repository" className="text-sm text-gold hover:underline">
+              Browse repository
+            </Link>
+          }
+        />
       ) : (
-        <>
-          {/* ==================================================
-              SAVED PAPERS
-              ================================================== */}
+        <section className="overflow-hidden rounded-lg border border-line bg-panel">
+          {entries.map(({ paper }) => {
+            const subject = paper.subject_category?.split(":")[0]?.trim() ?? "";
+            const isCS = subject.toLowerCase().includes("computer");
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {entries.map(({ paper }) => {
-              const subject =
-                paper.subject_category?.split(":")[0]?.trim() ?? "";
+            const keywordList =
+              paper.keywords
+                ?.split(",")
+                .map((k) => k.trim())
+                .filter(Boolean) ?? [];
 
-              const isCS = subject
-                .toLowerCase()
-                .includes("computer");
-
-              const keywordList =
-                paper.keywords
-                  ?.split(",")
-                  .map((k) => k.trim())
-                  .filter(Boolean) ?? [];
-
-              return (
-                <div
-                  key={paper.id}
-                  className="rounded-lg border border-line bg-panel p-4"
-                >
-                  {/* --------------------------------------------------
-                      Paper metadata
-                      -------------------------------------------------- */}
-
-                  <div className="mb-2 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
+            return (
+              <article key={paper.id} className="paper-row border-b border-line p-4 last:border-b-0">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    {/* Metadata Header with Tags */}
+                    <div className="mb-2 flex items-center gap-2 text-xs">
                       <span
                         className={`rounded px-1.5 py-0.5 ${
-                          isCS
-                            ? "bg-cs/20 text-cs"
-                            : "bg-math/20 text-math"
+                          isCS ? "bg-cs/20 text-cs" : "bg-math/20 text-math"
                         }`}
                       >
                         {isCS ? "CS" : "Math"}
                       </span>
-
                       <span className="text-muted">
                         {paper.publication_year ?? "—"}
                       </span>
+                      <span className="text-muted">·</span>
+                      <span className="text-muted">
+                        {paper.citation_count ?? 0} cited
+                      </span>
                     </div>
 
-                    <span className="text-muted">
-                      {paper.citation_count ?? 0} cited
-                    </span>
-                  </div>
-
-                  {/* --------------------------------------------------
-                      Clickable paper title
-                      -------------------------------------------------- */}
-
-                  <button
-                    type="button"
-                    onClick={() => handleOpenPaper(paper)}
-                    title="Open paper"
-                    className="block max-w-full text-left text-sm font-medium text-ink hover:text-gold hover:underline"
-                  >
-                    {paper.title}
-                  </button>
-
-                  <p className="mt-1 text-xs text-muted">
-                    {paper.author ?? "Unknown author"}
-                  </p>
-
-                  <p className="mt-2 line-clamp-2 text-xs text-muted">
-                    {paper.abstract ?? "No abstract available."}
-                  </p>
-
-                  {/* --------------------------------------------------
-                      Keywords
-                      -------------------------------------------------- */}
-
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {keywordList.slice(0, 2).map((k) => (
-                      <span
-                        key={k}
-                        className="rounded bg-panelAlt px-2 py-0.5 text-[11px] text-muted"
-                      >
-                        {k}
-                      </span>
-                    ))}
-
-                    {keywordList.length > 2 && (
-                      <span className="text-[11px] text-muted">
-                        +{keywordList.length - 2} more
-                      </span>
-                    )}
-                  </div>
-
-                  {/* --------------------------------------------------
-                      Actions
-                      -------------------------------------------------- */}
-
-                  <div className="mt-4 flex gap-2">
+                    {/* Clickable Title */}
                     <button
-                      onClick={() => handleFindSimilar(paper.id)}
+                      type="button"
+                      onClick={() => handleOpenPaper(paper)}
+                      title="Open paper"
+                      className="paper-title block text-left text-sm font-medium text-ink hover:text-gold hover:underline"
+                    >
+                      {paper.title}
+                    </button>
+
+                    <p className="mt-1 text-xs text-muted">
+                      {paper.author ?? "Unknown author"}
+                    </p>
+
+                    {paper.abstract && (
+                      <p className="mt-2 line-clamp-2 max-w-3xl text-xs leading-5 text-muted">
+                        {paper.abstract}
+                      </p>
+                    )}
+
+                    {/* Keywords List */}
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {keywordList.slice(0, 2).map((k) => (
+                        <span
+                          key={k}
+                          className="rounded bg-panelAlt px-2 py-0.5 text-[11px] text-muted"
+                        >
+                          {k}
+                        </span>
+                      ))}
+                      {keywordList.length > 2 && (
+                        <span className="text-[11px] text-muted">
+                          +{keywordList.length - 2} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions - Vertically centered */}
+                  <div className="paper-actions flex items-center gap-2 shrink-0 lg:mt-0 lg:justify-end">
+                    <Button
+                      variant="secondary"
+                      type="button"
                       disabled={!paper.is_valid_for_recommendation}
                       title={
                         paper.is_valid_for_recommendation
                           ? undefined
                           : "This paper is missing required fields for recommendation"
                       }
-                      className="flex-1 rounded border border-line py-1.5 text-xs text-ink hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={() => handleFindSimilar(paper.id)}
                     >
                       Find Similar
-                    </button>
+                    </Button>
+
+                    <Button
+                      variant="quiet"
+                      type="button"
+                      onClick={() => handleOpenPaper(paper)}
+                    >
+                      View
+                    </Button>
 
                     <button
+                      type="button"
                       onClick={() => handleRemove(paper.id)}
-                      className="flex-1 rounded border border-sbert/40 py-1.5 text-xs text-sbert hover:border-sbert"
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-sbert/40 px-3 text-xs font-medium text-sbert hover:border-sbert transition-colors"
                     >
                       Remove
                     </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-
-          {/* ==================================================
-              FOOTER HINT
-              ================================================== */}
-
-          <p className="mt-6 text-center text-xs text-muted">
-            Use{" "}
-            <span className="text-ink">&ldquo;Find Similar&rdquo;</span>{" "}
-            on any saved paper to run seed-document recommendations.
-          </p>
-        </>
+              </article>
+            );
+          })}
+        </section>
       )}
 
-      {/* ==================================================
-          PDF VIEWER MODAL
-          ================================================== */}
-
+      {/* PDF Viewer Modal */}
       <PaperViewerModal
         paper={selectedPaper}
         open={isViewerOpen}
         onClose={handleClosePaper}
       />
-    </div>
+    </PageShell>
   );
 }

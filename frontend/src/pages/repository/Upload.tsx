@@ -6,11 +6,12 @@ import {
 } from "react";
 
 import {
-  importBibtex,
   uploadPaper,
   updatePaper,
+  notifyRecommendationIndexStale,
   type Paper,
 } from "../../api";
+import FindPdfPanel from "../../components/FindPdfPanel";
 
 const signalFields = [
   "title",
@@ -39,10 +40,28 @@ interface ScholarErrorMessage {
   error: string;
 }
 
+interface PaperPreview {
+  title: string;
+  author: string | null;
+  abstract: string | null;
+  keywords: string | null;
+  publication_year: number | null;
+  doi: string | null;
+  subject_category: string | null;
+  document_type: string | null;
+  citation_count: number | null;
+  is_valid_for_recommendation: boolean;
+  missing_fields: string | null;
+  source_filename: string | null;
+  extraction_method: string | null;
+}
+
+
 export default function Upload() {
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const [paper, setPaper] = useState<Paper | null>(null);
+  const [paper, setPaper] = useState<PaperPreview | Paper | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +78,17 @@ export default function Upload() {
   const [abstract, setAbstract] = useState("");
   const [keywords, setKeywords] = useState("");
   const [year, setYear] = useState("");
+
+  const isPersistedPaper =
+    paper !== null &&
+    "id" in paper &&
+    typeof paper.id === "number";
+
+  const isPdf =
+    paper !== null &&
+    "stored_path" in paper &&
+    typeof paper.stored_path === "string" &&
+    paper.stored_path.toLowerCase().endsWith(".pdf");
 
   /*
    * Listen for BibTeX returned by the Chrome extension.
@@ -100,7 +130,7 @@ export default function Upload() {
         setUploading(false);
         setError(
           data.error ||
-          "The Google Scholar citation could not be retrieved."
+            "The Google Scholar citation could not be retrieved."
         );
       }
     }
@@ -118,7 +148,35 @@ export default function Upload() {
     };
   }, []);
 
-  function populatePaper(result: Paper) {
+  async function previewFile(file: File): Promise<PaperPreview> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const apiUrl =
+      import.meta.env.VITE_API_URL ??
+      "http://localhost:8000";
+
+    const response = await fetch(
+      `${apiUrl}/api/papers/preview`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail ??
+          "Failed to preview the paper."
+      );
+    }
+
+    return data as PaperPreview;
+  }
+
+  function populatePaper(result: PaperPreview | Paper) {
     setPaper(result);
 
     setTitle(result.title ?? "");
@@ -143,14 +201,28 @@ export default function Upload() {
     setJustSaved(false);
 
     try {
-      const result = await uploadPaper(file);
+      const suffix = file.name
+        .split(".")
+        .pop()
+        ?.toLowerCase();
 
+      if (suffix !== "pdf" && suffix !== "bib") {
+        throw new Error(
+          "Only PDF and BibTeX (.bib) files are accepted."
+        );
+      }
+
+      const result = await previewFile(file);
+
+      setSelectedFile(file);
       populatePaper(result);
     } catch (e) {
+      setSelectedFile(null);
+      setPaper(null);
       setError(
         e instanceof Error
           ? e.message
-          : "Failed to upload the file."
+          : "Failed to preview the file."
       );
     } finally {
       setUploading(false);
@@ -171,17 +243,28 @@ export default function Upload() {
         );
       }
 
-      const result = await importBibtex(
-        trimmed,
-        "google-scholar.bib"
+      const blob = new Blob(
+        [trimmed],
+        { type: "application/x-bibtex" }
       );
 
+      const file = new File(
+        [blob],
+        "google-scholar.bib",
+        { type: "application/x-bibtex" }
+      );
+
+      const result = await previewFile(file);
+
+      setSelectedFile(file);
       populatePaper(result);
     } catch (e) {
+      setSelectedFile(null);
+      setPaper(null);
       setError(
         e instanceof Error
           ? e.message
-          : "Failed to import Google Scholar BibTeX."
+          : "Failed to preview Google Scholar BibTeX."
       );
     } finally {
       setUploading(false);
@@ -280,17 +363,25 @@ export default function Upload() {
   }
 
   async function handleSave() {
-    if (!paper) {
+    // A preview can only be persisted once. After a successful save,
+    // the user must start a new preview before another database insert.
+    if (!paper || !selectedFile || justSaved || isPersistedPaper) {
       return;
     }
 
     setSaving(true);
     setError(null);
-    setJustSaved(false);
 
     try {
+      /*
+       * The preview step never touches the database.
+       * The first persistent operation happens here, after
+       * the user explicitly clicks Save.
+       */
+      const uploaded = await uploadPaper(selectedFile);
+
       const updated = await updatePaper(
-        paper.id,
+        uploaded.id,
         {
           title,
           abstract,
@@ -309,6 +400,8 @@ export default function Upload() {
         }
       );
 
+      notifyRecommendationIndexStale();
+
       setPaper(updated);
       setJustSaved(true);
     } catch (e) {
@@ -321,6 +414,30 @@ export default function Upload() {
       setSaving(false);
     }
   }
+
+  function handleResetUpload() {
+    setPaper(null);
+    setSelectedFile(null);
+    setError(null);
+    setJustSaved(false);
+
+    setAuthors("");
+    setDoi("");
+    setSubject("Computer Science");
+    setCategory("Machine Learning");
+    setDocType("Journal Article");
+    setCitations("");
+
+    setTitle("");
+    setAbstract("");
+    setKeywords("");
+    setYear("");
+
+    if (fileInput.current) {
+      fileInput.current.value = "";
+    }
+  }
+
 
   const filled: Record<string, boolean> = {
     Title: !!title,
@@ -679,21 +796,59 @@ export default function Upload() {
             </p>
           </div>
 
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="mt-6 w-full rounded bg-gold py-2.5 text-sm font-medium text-navy hover:bg-gold/90 disabled:opacity-50"
-          >
-            {saving
-              ? "Saving…"
-              : "Save paper"}
-          </button>
+          {isPersistedPaper && !isPdf && (
+            <div className="mt-6 rounded-lg border border-line bg-panel p-4">
+              <p className="text-sm font-medium text-ink">
+                No PDF attached
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted">
+                This paper was imported from a citation and has no
+                stored PDF. You can search for an open-access copy now.
+              </p>
+              <FindPdfPanel
+                paper={paper as Paper}
+                onAttached={(updated) => {
+                  setPaper(updated);
+                }}
+              />
+            </div>
+          )}
+
+          <div className="mt-6 flex gap-3">
+            <button
+              type="button"
+              onClick={handleResetUpload}
+              disabled={saving}
+              className="flex-1 rounded border border-line px-4 py-2.5 text-sm font-medium text-ink hover:border-gold disabled:opacity-50"
+            >
+              {justSaved || isPersistedPaper
+                ? "Upload another paper"
+                : "Back"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !selectedFile || justSaved || isPersistedPaper}
+              className={`flex-1 rounded py-2.5 text-sm font-medium disabled:opacity-50 ${
+                justSaved || isPersistedPaper
+                  ? "cursor-default border border-tfidf/40 bg-tfidf/10 text-tfidf"
+                  : "bg-gold text-navy hover:bg-gold/90"
+              }`}
+            >
+              {saving
+                ? "Saving…"
+                : justSaved || isPersistedPaper
+                  ? "Saved ✓"
+                  : "Save paper"}
+            </button>
+          </div>
 
           {justSaved && (
             <p className="mt-3 rounded border border-tfidf/40 bg-tfidf/10 px-3 py-2 text-center text-sm text-tfidf">
               {paper?.is_valid_for_recommendation
-                ? "Saved — this paper is valid for recommendation."
-                : `Saved — but still missing: ${
+                ? "Paper saved successfully — this paper is valid for recommendation."
+                : `Paper saved successfully — still missing: ${
                     paper?.missing_fields ??
                     "some required fields"
                   }.`}

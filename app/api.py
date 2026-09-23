@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -20,6 +21,11 @@ from app.services.upload_paper import (
     upload_paper_from_pdf,
     complete_paper_manually,
 )
+from app.services.bib_extraction import extract_metadata_from_bib
+from app.services.extraction import extract_metadata_from_pdf
+from app.services.classification import classify_paper
+from app.services.validation import validate_paper
+from app.services.text_preparation import refresh_prepared_text
 
 from app.services.storage import (
     delete_paper_file,
@@ -31,6 +37,14 @@ from app.services.local_user import get_or_create_default_user
 from app.services.recommendation.search_service import (
     search_papers as run_search,
 )
+from app.services.recommendation.pipeline_config import (
+    PIPELINE_CONFIGS,
+)
+
+from app.services.pdf_finder import (
+    find_pdf_candidates,
+    download_and_attach_pdf,
+)
 
 from app.schemas import (
     PaperOut,
@@ -38,10 +52,69 @@ from app.schemas import (
     RepositoryStats,
     LibraryEntryOut,
     SearchResultOut,
+    PdfCandidateOut,
+    AttachPdfRequest,
 )
 
 
 app = FastAPI(title="PaperRec API")
+
+
+# ============================================================
+# RECOMMENDATION INDEX STATUS
+# ============================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+RECOMMENDATION_STATUS_PATH = (
+    PROJECT_ROOT
+    / "storage"
+    / "recommendation_index_status.json"
+)
+
+
+def get_recommendation_index_status() -> bool:
+    """
+    Returns True when the recommendation index needs to be rebuilt.
+    """
+
+    if not RECOMMENDATION_STATUS_PATH.exists():
+        return False
+
+    try:
+        with open(
+            RECOMMENDATION_STATUS_PATH,
+            "r",
+            encoding="utf-8",
+        ) as file:
+            data = json.load(file)
+
+        return bool(data.get("stale", False))
+
+    except Exception:
+        return False
+
+
+def set_recommendation_index_stale(stale: bool):
+    """
+    Persist whether the recommendation index is stale.
+    """
+
+    RECOMMENDATION_STATUS_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with open(
+        RECOMMENDATION_STATUS_PATH,
+        "w",
+        encoding="utf-8",
+    ) as file:
+        json.dump(
+            {"stale": stale},
+            file,
+            indent=2,
+        )
 
 
 # ============================================================
@@ -118,21 +191,28 @@ def rebuild_recommendation_data():
     )
 
     if not script_path.exists():
-        print("Recommendation rebuild script not found.")
-        return
-
-    try:
-        subprocess.run(
-            [
-                sys.executable,
-                str(script_path),
-            ],
-            check=True,
+        raise FileNotFoundError(
+            "Recommendation rebuild script not found."
         )
 
-    except subprocess.CalledProcessError as error:
-        print("Recommendation rebuild failed:")
-        print(error)
+    subprocess.run(
+        [
+            sys.executable,
+            str(script_path),
+        ],
+        check=True,
+    )
+
+
+# ============================================================
+# RECOMMENDATION INDEX STATUS
+# ============================================================
+
+@app.get("/api/recommendations/status")
+def recommendation_status():
+    return {
+        "stale": get_recommendation_index_status(),
+    }
 
 
 # ============================================================
@@ -244,6 +324,133 @@ def get_paper_pdf(
 
 
 # ============================================================
+# FIND PDF ONLINE
+# ============================================================
+
+@app.get(
+    "/api/papers/{paper_id}/find-pdf",
+    response_model=list[PdfCandidateOut],
+)
+def find_pdf(
+    paper_id: int,
+    db: Session = Depends(get_session),
+):
+    """
+    Search-only step: looks for a legal open-access PDF matching this
+    paper (Unpaywall, Crossref, Semantic Scholar, arXiv, OpenAlex) and
+    returns candidates for the user to review. Nothing is downloaded
+    here.
+    """
+
+    paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .first()
+    )
+
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        )
+
+    if paper.stored_path and paper.stored_path.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="This paper already has a stored PDF.",
+        )
+
+    try:
+        candidates = find_pdf_candidates(paper)
+
+    except Exception as error:
+
+        print()
+        print("FIND PDF FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=502,
+            detail="Could not search for a PDF right now.",
+        )
+
+    # find_pdf_candidates() may resolve and set paper.doi via Crossref
+    # when the paper had none on file. Persist it so future searches
+    # (and attach_pdf's verification step) don't re-resolve it every
+    # time -- a GET request's session otherwise discards the change
+    # when it closes.
+    if db.is_modified(paper):
+        db.commit()
+
+    return [
+        PdfCandidateOut(**candidate.to_dict())
+        for candidate in candidates
+    ]
+
+
+@app.post(
+    "/api/papers/{paper_id}/attach-pdf",
+    response_model=PaperOut,
+)
+def attach_pdf(
+    paper_id: int,
+    payload: AttachPdfRequest,
+    db: Session = Depends(get_session),
+):
+    """
+    Confirm step: downloads the PDF at the given URL (a candidate the
+    user picked from /find-pdf), verifies it actually matches this
+    paper (by DOI-in-text if we have a DOI, otherwise by re-extracted
+    title similarity), and attaches it the same way an uploaded PDF
+    is stored.
+    """
+
+    paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .first()
+    )
+
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        )
+
+    try:
+        stored_path = download_and_attach_pdf(
+            paper_id,
+            payload.url,
+            paper.title,
+            paper.doi,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
+    except Exception as error:
+
+        print()
+        print("ATTACH PDF FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=502,
+            detail="Could not download the PDF from that link.",
+        )
+
+    paper.stored_path = stored_path
+
+    db.commit()
+    db.refresh(paper)
+
+    return paper
+
+
+# ============================================================
 # GET SINGLE PAPER
 # ============================================================
 
@@ -322,7 +529,12 @@ def update_paper(
     db.refresh(paper)
 
     if changed_recommendation_fields:
-        rebuild_recommendation_data()
+        set_recommendation_index_stale(True)
+
+        print(
+            f"Recommendation index is stale for paper {paper.id}. "
+            "Rebuild required."
+        )
 
     return paper
 
@@ -361,12 +573,132 @@ def delete_paper(
     db.delete(paper)
     db.commit()
 
-    if stored_path:
-        rebuild_recommendation_data()
+    set_recommendation_index_stale(True)
 
     return {
         "status": "deleted"
     }
+
+
+# ============================================================
+# PREVIEW PAPER
+# ============================================================
+
+@app.post("/api/papers/preview")
+def preview_paper(
+    file: UploadFile = File(...),
+):
+    """
+    Extract and validate paper metadata without creating a database record.
+
+    This is the first step of the upload flow. The frontend can show the
+    extracted metadata for editing, while the actual database insert and
+    file storage only happen through /api/papers/upload after the user
+    clicks Save.
+    """
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="A filename is required.",
+        )
+
+    suffix = os.path.splitext(file.filename)[1].lower()
+
+    if suffix not in (".pdf", ".bib"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF and BibTeX (.bib) files are accepted.",
+        )
+
+    with tempfile.NamedTemporaryFile(
+        suffix=suffix,
+        delete=False,
+    ) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        if suffix == ".pdf":
+            metadata = extract_metadata_from_pdf(tmp_path)
+        else:
+            metadata = extract_metadata_from_bib(tmp_path)
+
+        metadata = metadata or {}
+
+        paper = Paper(
+            title=metadata.get("title"),
+            author=metadata.get("author"),
+            abstract=metadata.get("abstract"),
+            keywords=metadata.get("keywords"),
+            keywords_source=metadata.get("keywords_source"),
+            keywords_generated=metadata.get(
+                "keywords_generated",
+                False,
+            ),
+            publication_year=metadata.get("publication_year"),
+            doi=metadata.get("doi"),
+            citation_count=metadata.get("citation_count"),
+            source_filename=file.filename,
+            extraction_method=(
+                "bibtex"
+                if suffix == ".bib"
+                else "pdf"
+            ),
+        )
+
+        try:
+            classify_paper(paper)
+        except Exception as error:
+            print("WARNING: Paper preview classification failed")
+            print(error)
+
+        try:
+            validate_paper(paper)
+        except Exception as error:
+            print("WARNING: Paper preview validation failed")
+            print(error)
+
+        try:
+            refresh_prepared_text(paper)
+        except Exception as error:
+            print("WARNING: Paper preview text preparation failed")
+            print(error)
+
+        return {
+            "title": paper.title,
+            "author": paper.author,
+            "abstract": paper.abstract,
+            "keywords": paper.keywords,
+            "publication_year": paper.publication_year,
+            "doi": paper.doi,
+            "subject_category": paper.subject_category,
+            "document_type": paper.document_type,
+            "citation_count": paper.citation_count,
+            "is_valid_for_recommendation": (
+                paper.is_valid_for_recommendation
+            ),
+            "missing_fields": paper.missing_fields,
+            "source_filename": paper.source_filename,
+            "extraction_method": paper.extraction_method,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print()
+        print("PAPER PREVIEW FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to preview the paper.",
+        )
+
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 # ============================================================
@@ -419,8 +751,6 @@ def upload_paper(
             file.filename,
         )
 
-        rebuild_recommendation_data()
-
     except Exception as error:
 
         print()
@@ -433,11 +763,38 @@ def upload_paper(
         )
 
     finally:
-
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+    set_recommendation_index_stale(True)
+
     return paper
+
+
+# ============================================================
+# MANUAL REBUILD OF RECOMMENDATION INDEX
+# ============================================================
+
+@app.post("/api/recommendations/rebuild")
+def rebuild_recommendations():
+    try:
+        rebuild_recommendation_data()
+
+        set_recommendation_index_stale(False)
+
+        return {
+            "success": True,
+            "message": "Recommendation index rebuilt successfully.",
+        }
+
+    except Exception as error:
+        print("RECOMMENDATION REBUILD FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to rebuild recommendation index.",
+        )
 
 
 # ============================================================
@@ -467,7 +824,6 @@ def import_paper_from_url(
         )
 
     try:
-
         response = requests.get(
             url,
             headers={
@@ -550,14 +906,11 @@ def import_paper_from_url(
         tmp_path = tmp.name
 
     try:
-
         paper = upload_paper_from_pdf(
             db,
             tmp_path,
             "google-scholar.bib",
         )
-
-        rebuild_recommendation_data()
 
     except Exception as error:
 
@@ -570,9 +923,10 @@ def import_paper_from_url(
         )
 
     finally:
-
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+    set_recommendation_index_stale(True)
 
     return paper
 
@@ -622,7 +976,6 @@ def import_bibtex(
         tmp_path = tmp.name
 
     try:
-
         filename = "google-scholar.bib"
 
         if source_url:
@@ -633,8 +986,6 @@ def import_bibtex(
             tmp_path,
             filename,
         )
-
-        rebuild_recommendation_data()
 
     except Exception as error:
 
@@ -647,9 +998,10 @@ def import_bibtex(
         )
 
     finally:
-
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+    set_recommendation_index_stale(True)
 
     return paper
 
@@ -769,6 +1121,10 @@ def remove_from_library(
 IMPLEMENTED_PIPELINES = {
     "tfidf",
     "sbert",
+    "tfidf_sbert",
+    "tfidf_metadata",
+    "sbert_metadata",
+    "tfidf_sbert_metadata",
 }
 
 
@@ -791,8 +1147,9 @@ def get_recommendations(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unsupported recommendation pipeline: "
-                f"{pipeline}"
+                f"Unsupported recommendation pipeline: {pipeline}. "
+                f"Supported pipelines: "
+                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}"
             ),
         )
 
@@ -803,9 +1160,7 @@ def get_recommendations(
     if not query and seed_paper_id is None:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Provide either a query or seed_paper_id."
-            ),
+            detail="Provide either a query or seed_paper_id.",
         )
 
     # --------------------------------------------------------
@@ -832,16 +1187,13 @@ def get_recommendations(
         )
 
     # --------------------------------------------------------
-    # Validate seed paper if one was supplied
+    # Validate seed paper
     # --------------------------------------------------------
 
     if seed_paper_id is not None:
-
         seed_paper = (
             db.query(Paper)
-            .filter(
-                Paper.id == seed_paper_id
-            )
+            .filter(Paper.id == seed_paper_id)
             .first()
         )
 
@@ -856,7 +1208,6 @@ def get_recommendations(
     # --------------------------------------------------------
 
     try:
-
         results = run_search(
             db=db,
             query=query,
@@ -865,8 +1216,13 @@ def get_recommendations(
             top_k=top_k,
         )
 
-    except Exception as error:
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
 
+    except Exception as error:
         print()
         print("RECOMMENDATION SEARCH FAILED")
         print(error)
@@ -874,6 +1230,6 @@ def get_recommendations(
         raise HTTPException(
             status_code=500,
             detail="Recommendation search failed.",
-        )
+        ) from error
 
     return results

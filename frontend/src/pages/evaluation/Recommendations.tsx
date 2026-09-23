@@ -1,14 +1,33 @@
+
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
+
+import {
+  getRecommendations,
+  getPaper,
+  saveToLibrary,
+  SearchResult,
+  Paper,
+} from "../../api";
+
 import { pipelineConfigs } from "../../data/pipelineConfigs";
 import WeightBar from "../../components/WeightBar";
-import { getRecommendations, getPaper, saveToLibrary, SearchResult, Paper } from "../../api";
 
-// Only these two have a real implementation behind them right now --
-// see app/services/recommendation/search_service.py. The other four
-// configurations are shown but disabled, rather than hidden, so it's
-// clear they're planned, not forgotten.
-const IMPLEMENTED = new Set(["tfidf", "sbert"]);
+import {
+  Button,
+  EmptyState,
+  PageHeader,
+  PageShell,
+} from "../../components/ui";
+
+const IMPLEMENTED = new Set([
+  "tfidf",
+  "sbert",
+  "tfidf_sbert",
+  "tfidf_metadata",
+  "sbert_metadata",
+  "tfidf_sbert_metadata",
+]);
 
 interface NavState {
   mode?: "keyword" | "title" | "seed";
@@ -19,219 +38,522 @@ interface NavState {
 
 export default function Recommendations() {
   const location = useLocation();
-  const navState = (location.state as NavState) ?? {};
 
-  const [mode] = useState<"keyword" | "title" | "seed">(navState.mode ?? "keyword");
-  const [queryText, setQueryText] = useState(navState.query ?? "");
-  const [seedPaperId] = useState<number | undefined>(navState.seedPaperId);
-  const [seedPaper, setSeedPaper] = useState<Paper | null>(null);
-  const [pipeline, setPipeline] = useState(navState.pipeline && IMPLEMENTED.has(navState.pipeline) ? navState.pipeline : "tfidf");
+  const navState =
+    (location.state as NavState | null) ?? {};
+
+  const [mode] = useState<
+    "keyword" | "title" | "seed"
+  >(navState.mode ?? "keyword");
+
+  const [queryText, setQueryText] = useState(
+    navState.query ?? ""
+  );
+
+  const [seedPaperId] = useState<
+    number | undefined
+  >(navState.seedPaperId);
+
+  const [seedPaper, setSeedPaper] =
+    useState<Paper | null>(null);
+
+  const initialPipeline =
+    navState.pipeline &&
+    IMPLEMENTED.has(navState.pipeline)
+      ? navState.pipeline
+      : "tfidf";
+
+  const [pipeline, setPipeline] =
+    useState(initialPipeline);
+
   const [topK, setTopK] = useState(10);
 
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
+  const [results, setResults] =
+    useState<SearchResult[]>([]);
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [savedIds, setSavedIds] =
+    useState<Set<number>>(new Set());
+
+  // ==========================================================
+  // LOAD SEED PAPER
+  // ==========================================================
 
   useEffect(() => {
-    if (seedPaperId !== undefined) {
-      getPaper(seedPaperId).then(setSeedPaper).catch(() => {});
-    }
-  }, [seedPaperId]);
-
-  function runSearch() {
-    if (!IMPLEMENTED.has(pipeline)) {
-      setResults([]);
-      setError(null);
+    if (seedPaperId === undefined) {
+      setSeedPaper(null);
       return;
     }
-    if (mode !== "seed" && !queryText.trim()) return;
+
+    getPaper(seedPaperId)
+      .then(setSeedPaper)
+      .catch(() => setSeedPaper(null));
+  }, [seedPaperId]);
+
+  // ==========================================================
+  // SEARCH
+  // ==========================================================
+
+  async function runSearch() {
+    if (!IMPLEMENTED.has(pipeline)) {
+      return;
+    }
+
+    if (mode === "seed") {
+      if (seedPaperId === undefined) {
+        setError("No seed paper was selected.");
+        return;
+      }
+    } else {
+      if (!queryText.trim()) {
+        setError("Enter a search query.");
+        return;
+      }
+    }
 
     setLoading(true);
     setError(null);
-    getRecommendations({
-      pipeline,
-      query: mode !== "seed" ? queryText : undefined,
-      seedPaperId: mode === "seed" ? seedPaperId : undefined,
-      topK,
-    })
-      .then(setResults)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+
+    try {
+      const data = await getRecommendations({
+        pipeline,
+        query:
+          mode !== "seed"
+            ? queryText.trim()
+            : undefined,
+        seedPaperId:
+          mode === "seed"
+            ? seedPaperId
+            : undefined,
+        topK,
+      });
+
+      setResults(data);
+    } catch (err) {
+      setResults([]);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Recommendation search failed."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // Re-run whenever the pipeline changes (if there's already a query/seed
-  // to search with), so switching TF-IDF <-> S-BERT re-fetches automatically.
+  // ==========================================================
+  // RERUN WHEN PIPELINE OR TOP K CHANGES
+  // ==========================================================
+
   useEffect(() => {
-    if (mode === "seed" ? seedPaperId !== undefined : queryText.trim()) {
-      runSearch();
+    const hasInput =
+      mode === "seed"
+        ? seedPaperId !== undefined
+        : queryText.trim().length > 0;
+
+    if (!hasInput) {
+      return;
     }
+
+    runSearch();
+
+    // The search intentionally uses the latest state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipeline]);
+  }, [pipeline, topK]);
+
+  // ==========================================================
+  // SAVE
+  // ==========================================================
 
   async function handleSave(paperId: number) {
-    await saveToLibrary(paperId);
-    setSavedIds((prev) => new Set(prev).add(paperId));
+    try {
+      await saveToLibrary(paperId);
+
+      setSavedIds((previous) => {
+        const next = new Set(previous);
+        next.add(paperId);
+        return next;
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save paper."
+      );
+    }
   }
 
-  const activeConfig = pipelineConfigs.find((c) => c.id === pipeline)!;
+  // ==========================================================
+  // ACTIVE PIPELINE
+  // ==========================================================
+
+  const activeConfig =
+    pipelineConfigs.find(
+      (config) => config.id === pipeline
+    ) ?? pipelineConfigs[0];
 
   return (
-    <div className="mx-auto max-w-4xl">
-      {/* Query / seed summary */}
-      <div className="mb-6 rounded-lg border border-line bg-panel p-5">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="flex gap-2 text-xs">
-            <span className="rounded bg-panelAlt px-2 py-1 text-muted">
-              {mode === "seed" ? "Seed Document" : mode === "title" ? "Title Query" : "Keyword Query"}
-            </span>
-            <span className="rounded bg-panelAlt px-2 py-1 text-muted">Top-{topK}</span>
+    <PageShell>
+      <PageHeader
+        eyebrow="Recommendation results"
+        title="Related papers"
+        description="Find related academic papers using configurable recommendation pipelines."
+      />
+
+      {/* ====================================================== */}
+      {/* SEARCH CONTROLS */}
+      {/* ====================================================== */}
+
+      <section className="surface mb-7 p-5">
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+            <div className="min-w-0 flex-1">
+              <label className="filter-label">
+                {mode === "seed"
+                  ? "Seed document"
+                  : mode === "title"
+                    ? "Title query"
+                    : "Keyword query"}
+              </label>
+
+              {mode === "seed" ? (
+                <div className="rounded-md border border-line bg-navy px-3 py-2.5">
+                  <p className="text-sm leading-6 text-ink">
+                    {seedPaper?.title ??
+                      `Paper #${seedPaperId}`}
+                  </p>
+                </div>
+              ) : (
+                <input
+                  value={queryText}
+                  onChange={(event) =>
+                    setQueryText(event.target.value)
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      runSearch();
+                    }
+                  }}
+                  placeholder={
+                    mode === "title"
+                      ? "Enter a paper title…"
+                      : "e.g. neural network text similarity"
+                  }
+                  className="ui-input"
+                />
+              )}
+            </div>
+
+            {mode !== "seed" && (
+              <Button
+                type="button"
+                onClick={runSearch}
+                disabled={
+                  loading ||
+                  !queryText.trim()
+                }
+              >
+                {loading
+                  ? "Searching…"
+                  : "Search"}
+              </Button>
+            )}
+
+            <label className="text-xs text-muted">
+              <span className="mb-1.5 block">
+                Results
+              </span>
+
+              <select
+                value={topK}
+                onChange={(event) =>
+                  setTopK(
+                    Number(event.target.value)
+                  )
+                }
+                className="min-h-10 rounded-md border border-line bg-navy px-3 text-sm text-ink focus:border-gold focus:outline-none"
+              >
+                <option value={5}>
+                  Top 5
+                </option>
+
+                <option value={10}>
+                  Top 10
+                </option>
+
+                <option value={20}>
+                  Top 20
+                </option>
+              </select>
+            </label>
           </div>
-          <select
-            value={topK}
-            onChange={(e) => setTopK(Number(e.target.value))}
-            className="rounded border border-line bg-navy px-2 py-1 text-xs text-ink focus:border-gold focus:outline-none"
-          >
-            <option value={5}>K = 5</option>
-            <option value={10}>K = 10</option>
-            <option value={20}>K = 20</option>
-          </select>
+
+          {/* Active pipeline summary */}
+          <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                  Active pipeline
+                </span>
+
+                <span className="rounded-full border border-line bg-navy px-2.5 py-1 text-xs font-medium text-ink">
+                  {activeConfig.label}
+                </span>
+              </div>
+
+              <p className="mt-1.5 text-xs leading-5 text-muted">
+                {activeConfig.subtitle}
+              </p>
+            </div>
+
+            <div className="w-full sm:w-64">
+              <WeightBar
+                weights={activeConfig.weights}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ====================================================== */}
+      {/* PIPELINE SELECTOR */}
+      {/* ====================================================== */}
+
+      <section className="mb-7">
+        <div className="mb-3">
+          <p className="text-sm font-medium text-ink">
+            Recommendation pipeline
+          </p>
+
+          <p className="mt-1 text-xs leading-5 text-muted">
+            Choose how the system combines lexical,
+            semantic, and metadata signals.
+          </p>
         </div>
 
-        {mode === "seed" ? (
-          <p className="font-serif text-lg text-ink">
-            {seedPaper ? seedPaper.title : `Paper #${seedPaperId}`}
-          </p>
-        ) : (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && runSearch()}
-              placeholder="e.g. neural network text similarity"
-              className="flex-1 rounded border border-line bg-navy px-3 py-2 text-sm text-ink focus:border-gold focus:outline-none"
-            />
-            <button
-              onClick={runSearch}
-              className="rounded bg-gold px-4 text-sm font-medium text-navy hover:bg-gold/90"
-            >
-              Search
-            </button>
-          </div>
-        )}
-      </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {pipelineConfigs.map((config) => {
+            const implemented =
+              IMPLEMENTED.has(config.id);
 
-      {/* Pipeline selector */}
-      <div className="mb-6">
-        <p className="mb-2 text-xs uppercase tracking-wide text-muted">
-          Active Pipeline Configuration
-        </p>
-        <div className="mb-2 flex flex-wrap gap-2">
-          {pipelineConfigs.map((c) => {
-            const implemented = IMPLEMENTED.has(c.id);
+            const active =
+              config.id === pipeline;
+
             return (
               <button
-                key={c.id}
-                onClick={() => implemented && setPipeline(c.id)}
+                key={config.id}
+                type="button"
                 disabled={!implemented}
-                title={implemented ? undefined : "Not built yet"}
-                className={`rounded px-3 py-1.5 text-xs font-medium ${
-                  c.id === pipeline
-                    ? "bg-gold text-navy"
-                    : implemented
-                    ? "bg-panel text-muted hover:text-ink"
-                    : "cursor-not-allowed bg-panel text-muted/40"
+                onClick={() => {
+                  if (implemented) {
+                    setPipeline(config.id);
+                  }
+                }}
+                className={`group rounded-lg border p-4 text-left transition ${
+                  active
+                    ? "border-gold bg-gold/5"
+                    : "border-line bg-surface hover:border-muted"
+                } ${
+                  !implemented
+                    ? "cursor-not-allowed opacity-40"
+                    : ""
                 }`}
+                title={
+                  implemented
+                    ? undefined
+                    : "Not implemented"
+                }
               >
-                {c.label}
-                {!implemented && <span className="ml-1">· soon</span>}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p
+                      className={`text-sm font-medium ${
+                        active
+                          ? "text-ink"
+                          : "text-ink"
+                      }`}
+                    >
+                      {config.label}
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-muted">
+                      {config.subtitle}
+                    </p>
+                  </div>
+
+                  {active && (
+                    <span className="shrink-0 rounded-full bg-gold px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-navy">
+                      Active
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-4">
+                  <WeightBar
+                    weights={config.weights}
+                  />
+                </div>
               </button>
             );
           })}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-3 text-xs text-muted">
-            {activeConfig.weights.map((w) => (
-              <span key={w.name}>
-                {w.name} {w.pct}%
-              </span>
-            ))}
-          </div>
-          <span className="text-xs text-muted">— {activeConfig.subtitle}</span>
-        </div>
-        <div className="mt-2 max-w-xs">
-          <WeightBar weights={activeConfig.weights} />
-        </div>
-      </div>
+      </section>
+
+      {/* ====================================================== */}
+      {/* ERROR */}
+      {/* ====================================================== */}
 
       {error && (
-        <p className="mb-4 rounded border border-sbert/40 bg-sbert/10 px-3 py-2 text-sm text-sbert">
+        <div className="status-error mb-5">
           {error}
-        </p>
+        </div>
       )}
 
-      {!IMPLEMENTED.has(pipeline) ? (
-        <div className="rounded-lg border border-dashed border-line py-16 text-center text-sm text-muted">
-          {activeConfig.label} isn't built yet — try TF-IDF or S-BERT.
-        </div>
-      ) : loading ? (
-        <div className="rounded-lg border border-dashed border-line py-16 text-center text-sm text-muted">
-          Searching…
+      {/* ====================================================== */}
+      {/* RESULTS */}
+      {/* ====================================================== */}
+
+      {loading ? (
+        <div className="empty-state">
+          <p className="text-sm text-muted">
+            Searching with{" "}
+            {activeConfig.label}…
+          </p>
         </div>
       ) : results.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-line py-16 text-center text-sm text-muted">
-          No matching papers found.
-        </div>
+        <EmptyState
+          title={
+            mode === "seed"
+              ? "No recommendations found."
+              : queryText.trim()
+                ? "No matching papers found."
+                : "Start a recommendation search."
+          }
+          description={
+            mode === "seed"
+              ? "Try another seed paper or recommendation pipeline."
+              : "Enter a query above and choose one of the six recommendation pipelines."
+          }
+        />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-line">
-          <table className="w-full text-sm">
-            <thead className="bg-panel text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-4 py-2 text-left">#</th>
-                <th className="px-4 py-2 text-left">Paper</th>
-                <th className="px-4 py-2 text-left">Score</th>
-                <th className="px-4 py-2 text-left">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line bg-panel">
-              {results.map((r, i) => {
-                const subject = r.paper.subject_category?.split(":")[0]?.trim() ?? "";
-                const isCS = subject.toLowerCase().includes("computer");
-                return (
-                  <tr key={r.paper.id}>
-                    <td className="px-4 py-3 text-muted">{i + 1}</td>
-                    <td className="px-4 py-3">
-                      <div className="mb-1 flex items-center gap-2 text-xs">
-                        <span className={`rounded px-1.5 py-0.5 ${isCS ? "bg-cs/20 text-cs" : "bg-math/20 text-math"}`}>
-                          {isCS ? "CS" : "Math"}
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-ink">
+                Results
+              </p>
+
+              <p className="mt-1 text-xs text-muted">
+                {results.length} paper
+                {results.length === 1 ? "" : "s"} found
+                using {activeConfig.label}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {results.map((result, index) => {
+              const paper = result.paper;
+
+              const isSaved =
+                savedIds.has(paper.id);
+
+              return (
+                <article
+                  key={paper.id}
+                  className="surface p-5 transition-colors hover:border-muted"
+                >
+                  <div className="flex flex-col gap-4">
+                    <div className="flex gap-4">
+                      {/* Rank */}
+                      <div className="hidden shrink-0 pt-0.5 sm:block">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-navy text-xs font-semibold text-muted">
+                          {index + 1}
                         </span>
-                        <span className="text-muted">{r.paper.publication_year ?? "—"}</span>
                       </div>
-                      <p className="font-medium text-ink">{r.paper.title}</p>
-                      <p className="text-xs text-muted">{r.paper.author ?? "Unknown author"}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="text-gold">{r.score.toFixed(3)}</p>
-                      <div className="mt-1 h-1 w-16 overflow-hidden rounded-full bg-line">
-                        <div className="h-full bg-gold" style={{ width: `${Math.max(0, Math.min(1, r.score)) * 100}%` }} />
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <h2 className="text-base font-medium leading-6 text-ink">
+                              {paper.title}
+                            </h2>
+
+                            {paper.author && (
+                              <p className="mt-1 text-xs leading-5 text-muted">
+                                {paper.author}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="shrink-0">
+                            <div className="rounded-md border border-line bg-navy px-3 py-2 text-right">
+                              <p className="text-[10px] uppercase tracking-wide text-muted">
+                                Score
+                              </p>
+
+                              <p className="mt-0.5 text-sm font-semibold text-ink">
+                                {Number(
+                                  result.score
+                                ).toFixed(4)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {paper.abstract && (
+                          <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted">
+                            {paper.abstract}
+                          </p>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+                          {paper.publication_year && (
+                            <span>
+                              {paper.publication_year}
+                            </span>
+                          )}
+
+                          {paper.subject_category && (
+                            <span>
+                              {paper.subject_category}
+                            </span>
+                          )}
+
+                          <span>
+                            Paper #{paper.id}
+                          </span>
+                        </div>
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleSave(r.paper.id)}
-                        className="rounded border border-line px-2 py-1 text-xs text-ink hover:border-gold"
+                    </div>
+
+                    <div className="flex justify-end border-t border-line pt-3">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() =>
+                          handleSave(paper.id)
+                        }
+                        disabled={isSaved}
                       >
-                        {savedIds.has(r.paper.id) ? "✓" : "+"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                        {isSaved
+                          ? "Saved"
+                          : "Save to library"}
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
       )}
-    </div>
+    </PageShell>
   );
 }
