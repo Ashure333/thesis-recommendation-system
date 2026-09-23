@@ -1,222 +1,407 @@
 """
-TF-IDF and S-BERT recommendation search service.
+Recommendation search orchestration.
 
-This module handles query-time recommendation search only.
+This module combines the independent recommendation components:
 
-Supported pipelines:
-    - tfidf
-    - sbert
+    - TF-IDF
+    - S-BERT
+    - Metadata
 
-Metadata and hybrid pipelines will be added later.
+The active pipeline determines which components are executed and
+how their scores are weighted.
+
+TF-IDF and S-BERT return raw cosine similarity scores.
+
+Those component scores are normalized independently before being
+combined.
+
+Metadata scores are already bounded between 0 and 1 and therefore
+are not min-max normalized.
 """
 
-from dataclasses import dataclass
+from __future__ import annotations
+
 from typing import Literal
 
 from sqlalchemy.orm import Session
 
 from app.models.models import Paper
-from app.services.text_preparation import build_prepared_text
-from app.services.recommendation import tfidf_pipeline
-from app.services.recommendation import sbert_pipeline
+
+from app.services.recommendation import (
+    metadata_pipeline,
+    sbert_pipeline,
+    tfidf_pipeline,
+)
+
+from app.services.recommendation.pipeline_config import (
+    PIPELINE_NAMES,
+    get_pipeline_weights,
+)
+
+from app.services.text_preparation import (
+    build_prepared_text,
+)
 
 
-PipelineName = Literal["tfidf", "sbert"]
+PipelineName = Literal[
+    "tfidf",
+    "sbert",
+    "tfidf_sbert",
+    "tfidf_metadata",
+    "sbert_metadata",
+    "tfidf_sbert_metadata",
+]
 
 
-@dataclass
-class SearchResult:
-    paper: Paper
-    score: float
+def min_max_normalize(
+    scores: dict[int, float],
+) -> dict[int, float]:
+    """
+    Normalize scores to the range 0..1.
+
+    If every score is identical, return 1.0 for every item.
+    """
+
+    if not scores:
+        return {}
+
+    values = list(scores.values())
+
+    minimum = min(values)
+    maximum = max(values)
+
+    if maximum == minimum:
+        return {
+            paper_id: 1.0
+            for paper_id in scores
+        }
+
+    return {
+        paper_id: (
+            (score - minimum)
+            / (maximum - minimum)
+        )
+        for paper_id, score in scores.items()
+    }
 
 
 def _get_valid_candidates(
     db: Session,
-    exclude_paper_id: int | None = None,
 ) -> list[Paper]:
     """
-    Retrieve only papers that are valid for recommendation.
+    Return papers that are valid for recommendation and have
+    prepared text.
 
-    A paper must:
-        - be marked as valid
-        - have prepared text
+    The rebuild process is responsible for determining whether
+    a paper is valid for recommendation.
     """
 
-    query = (
+    return (
         db.query(Paper)
-        .filter(Paper.is_valid_for_recommendation.is_(True))
-        .filter(Paper.prepared_text.isnot(None))
+        .filter(
+            Paper.is_valid_for_recommendation.is_(True)
+        )
+        .filter(
+            Paper.prepared_text.isnot(None)
+        )
+        .all()
     )
 
-    if exclude_paper_id is not None:
-        query = query.filter(Paper.id != exclude_paper_id)
 
-    return query.all()
+def _get_seed_paper(
+    db: Session,
+    seed_paper_id: int | None,
+) -> Paper | None:
+    if seed_paper_id is None:
+        return None
+
+    return (
+        db.query(Paper)
+        .filter(Paper.id == seed_paper_id)
+        .first()
+    )
 
 
 def _get_query_text(
-    db: Session,
     query: str | None,
-    seed_paper_id: int | None,
-) -> tuple[str, int | None]:
+    seed_paper: Paper | None,
+) -> str:
     """
-    Resolve the search input.
+    Build the prepared text used by TF-IDF and S-BERT.
 
-    Exactly one of these should be provided:
-        - query text
-        - seed paper ID
+    A seed paper uses its stored prepared text.
 
-    Returns:
-        prepared query text
-        seed paper ID, if applicable
+    A free-text query is treated as a title/query-style input.
     """
 
-    if query and seed_paper_id is not None:
-        raise ValueError(
-            "Provide either query text or seed_paper_id, not both."
-        )
-
-    if not query and seed_paper_id is None:
-        raise ValueError(
-            "Provide either query text or seed_paper_id."
-        )
-
-    if seed_paper_id is not None:
-        seed_paper = (
-            db.query(Paper)
-            .filter(Paper.id == seed_paper_id)
-            .first()
-        )
-
-        if seed_paper is None:
-            raise ValueError(
-                f"Paper with ID {seed_paper_id} was not found."
-            )
-
+    if seed_paper is not None:
         if not seed_paper.is_valid_for_recommendation:
             raise ValueError(
-                "The selected seed paper is not valid for recommendation."
+                "Seed paper is not valid for recommendation."
             )
 
         if not seed_paper.prepared_text:
             raise ValueError(
-                "The selected seed paper has no prepared text."
+                "Seed paper does not have prepared text."
             )
 
-        return seed_paper.prepared_text, seed_paper.id
+        return seed_paper.prepared_text
 
-    prepared_query = build_prepared_text(
+    if query is None or not query.strip():
+        raise ValueError(
+            "A query or seed paper is required."
+        )
+
+    return build_prepared_text(
         title=query,
         abstract=None,
         keywords=None,
     )
 
-    if not prepared_query:
-        raise ValueError(
-            "The search query became empty after text preparation."
+
+def _combine_scores(
+    *,
+    pipeline: PipelineName,
+    tfidf_scores: dict[int, float],
+    sbert_scores: dict[int, float],
+    metadata_scores: dict[int, float],
+) -> dict[int, float]:
+    """
+    Combine component scores using the selected pipeline weights.
+    """
+
+    weights = get_pipeline_weights(pipeline)
+
+    normalized_tfidf = min_max_normalize(
+        tfidf_scores
+    )
+
+    normalized_sbert = min_max_normalize(
+        sbert_scores
+    )
+
+    # Metadata scores are already 0..1.
+    normalized_metadata = metadata_scores
+
+    paper_ids = (
+        set(normalized_tfidf)
+        | set(normalized_sbert)
+        | set(normalized_metadata)
+    )
+
+    combined_scores: dict[int, float] = {}
+
+    for paper_id in paper_ids:
+        score = (
+            weights["tfidf"]
+            * normalized_tfidf.get(
+                paper_id,
+                0.0,
+            )
+            +
+            weights["sbert"]
+            * normalized_sbert.get(
+                paper_id,
+                0.0,
+            )
+            +
+            weights["metadata"]
+            * normalized_metadata.get(
+                paper_id,
+                0.0,
+            )
         )
 
-    return prepared_query, None
+        combined_scores[paper_id] = score
+
+    return combined_scores
 
 
 def search_papers(
-    db: Session,
     *,
+    db: Session,
     query: str | None = None,
     seed_paper_id: int | None = None,
     pipeline: PipelineName = "tfidf",
     top_k: int = 10,
-    exclude_seed: bool = True,
-) -> list[SearchResult]:
+) -> list[dict]:
     """
-    Search papers using TF-IDF or S-BERT similarity.
+    Run one of the six configured recommendation pipelines.
 
-    Args:
-        db:
-            SQLAlchemy database session.
-
-        query:
-            User-entered keyword/title/topic query.
-
-        seed_paper_id:
-            Existing paper to use as the recommendation seed.
-
-        pipeline:
-            Either "tfidf" or "sbert".
-
-        top_k:
-            Number of results to return.
-
-        exclude_seed:
-            If True, the seed paper is excluded from the results.
-
-    Returns:
-        A ranked list of SearchResult objects.
+    Only results with a final combined score greater than 0
+    are returned.
     """
 
-    if pipeline not in {"tfidf", "sbert"}:
+    # --------------------------------------------------------
+    # Validate pipeline
+    # --------------------------------------------------------
+
+    if pipeline not in PIPELINE_NAMES:
         raise ValueError(
-            "Invalid pipeline. Choose either 'tfidf' or 'sbert'."
+            f"Unsupported recommendation pipeline: {pipeline}"
         )
 
+    # --------------------------------------------------------
+    # Validate top_k
+    # --------------------------------------------------------
+
     if top_k <= 0:
-        raise ValueError("top_k must be greater than zero.")
+        raise ValueError(
+            "top_k must be greater than 0."
+        )
 
-    prepared_query, resolved_seed_id = _get_query_text(
-        db=db,
+    # --------------------------------------------------------
+    # Resolve seed
+    # --------------------------------------------------------
+
+    seed_paper = _get_seed_paper(
+        db,
+        seed_paper_id,
+    )
+
+    # --------------------------------------------------------
+    # Build query representation
+    # --------------------------------------------------------
+
+    prepared_query = _get_query_text(
         query=query,
-        seed_paper_id=seed_paper_id,
+        seed_paper=seed_paper,
     )
 
-    exclude_id = (
-        resolved_seed_id
-        if exclude_seed
-        else None
-    )
+    # --------------------------------------------------------
+    # Get candidates
+    # --------------------------------------------------------
 
-    candidates = _get_valid_candidates(
-        db=db,
-        exclude_paper_id=exclude_id,
-    )
+    candidates = _get_valid_candidates(db)
 
     if not candidates:
         return []
 
-    if pipeline == "tfidf":
-        query_vector = tfidf_pipeline.vectorize_query_or_seed(
-            prepared_query
-        )
+    # --------------------------------------------------------
+    # Remove seed paper from its own recommendations
+    # --------------------------------------------------------
 
-        scores = tfidf_pipeline.score_candidates(
-            query_vector=query_vector,
-            candidates=candidates,
-        )
+    if seed_paper_id is not None:
+        candidates = [
+            paper
+            for paper in candidates
+            if paper.id != seed_paper_id
+        ]
 
-    else:
-        query_vector = sbert_pipeline.embed_query_or_seed(
-            prepared_query
-        )
+    if not candidates:
+        return []
 
-        scores = sbert_pipeline.score_candidates(
-            query_vector=query_vector,
-            candidates=candidates,
-        )
+    # --------------------------------------------------------
+    # Pipeline weights
+    # --------------------------------------------------------
 
-    ranked_results = [
-        SearchResult(
-            paper=paper,
-            score=scores[paper.id],
-        )
-        for paper in candidates
-        if paper.id in scores
-    ]
-
-    ranked_results.sort(
-        key=lambda result: (
-            -result.score,
-            -(result.paper.publication_year or 0),
-            result.paper.title.lower(),
-        )
+    weights = get_pipeline_weights(
+        pipeline
     )
 
-    return ranked_results[:top_k]
+    # --------------------------------------------------------
+    # Component scores
+    # --------------------------------------------------------
+
+    tfidf_scores: dict[int, float] = {}
+    sbert_scores: dict[int, float] = {}
+    metadata_scores: dict[int, float] = {}
+
+    # --------------------------------------------------------
+    # TF-IDF
+    # --------------------------------------------------------
+
+    if weights["tfidf"] > 0:
+        query_vector = (
+            tfidf_pipeline.vectorize_query_or_seed(
+                prepared_query
+            )
+        )
+
+        tfidf_scores = (
+            tfidf_pipeline.score_candidates(
+                query_vector=query_vector,
+                candidates=candidates,
+            )
+        )
+
+    # --------------------------------------------------------
+    # S-BERT
+    # --------------------------------------------------------
+
+    if weights["sbert"] > 0:
+        query_vector = (
+            sbert_pipeline.embed_query_or_seed(
+                prepared_query
+            )
+        )
+
+        sbert_scores = (
+            sbert_pipeline.score_candidates(
+                query_vector=query_vector,
+                candidates=candidates,
+            )
+        )
+
+    # --------------------------------------------------------
+    # Metadata
+    # --------------------------------------------------------
+
+    if weights["metadata"] > 0:
+        metadata_scores = (
+            metadata_pipeline.score_candidates(
+                query=query,
+                seed_paper=seed_paper,
+                candidates=candidates,
+            )
+        )
+
+    # --------------------------------------------------------
+    # Combine
+    # --------------------------------------------------------
+
+    combined_scores = _combine_scores(
+        pipeline=pipeline,
+        tfidf_scores=tfidf_scores,
+        sbert_scores=sbert_scores,
+        metadata_scores=metadata_scores,
+    )
+
+    # --------------------------------------------------------
+    # Rank
+    # --------------------------------------------------------
+
+    candidate_by_id = {
+        paper.id: paper
+        for paper in candidates
+    }
+
+    ranked_ids = sorted(
+        combined_scores,
+        key=lambda paper_id: (
+            -combined_scores[paper_id],
+            -(
+                candidate_by_id[paper_id]
+                .publication_year
+                or 0
+            ),
+            (
+                candidate_by_id[paper_id]
+                .title
+                or ""
+            ).lower(),
+        ),
+    )
+
+    # --------------------------------------------------------
+    # Return top K
+    # --------------------------------------------------------
+
+    return [
+        {
+            "paper": candidate_by_id[paper_id],
+            "score": combined_scores[paper_id],
+        }
+        for paper_id in ranked_ids
+        if combined_scores[paper_id] > 0
+    ][:top_k]
