@@ -37,6 +37,9 @@ from app.services.local_user import get_or_create_default_user
 from app.services.recommendation.search_service import (
     search_papers as run_search,
 )
+from app.services.recommendation.pipeline_config import (
+    PIPELINE_CONFIGS,
+)
 
 from app.services.pdf_finder import (
     find_pdf_candidates,
@@ -1118,6 +1121,10 @@ def remove_from_library(
 IMPLEMENTED_PIPELINES = {
     "tfidf",
     "sbert",
+    "tfidf_sbert",
+    "tfidf_metadata",
+    "sbert_metadata",
+    "tfidf_sbert_metadata",
 }
 
 
@@ -1140,8 +1147,9 @@ def get_recommendations(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unsupported recommendation pipeline: "
-                f"{pipeline}"
+                f"Unsupported recommendation pipeline: {pipeline}. "
+                f"Supported pipelines: "
+                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}"
             ),
         )
 
@@ -1152,9 +1160,7 @@ def get_recommendations(
     if not query and seed_paper_id is None:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Provide either a query or seed_paper_id."
-            ),
+            detail="Provide either a query or seed_paper_id.",
         )
 
     # --------------------------------------------------------
@@ -1181,16 +1187,13 @@ def get_recommendations(
         )
 
     # --------------------------------------------------------
-    # Validate seed paper if one was supplied
+    # Validate seed paper
     # --------------------------------------------------------
 
     if seed_paper_id is not None:
-
         seed_paper = (
             db.query(Paper)
-            .filter(
-                Paper.id == seed_paper_id
-            )
+            .filter(Paper.id == seed_paper_id)
             .first()
         )
 
@@ -1205,7 +1208,6 @@ def get_recommendations(
     # --------------------------------------------------------
 
     try:
-
         results = run_search(
             db=db,
             query=query,
@@ -1214,8 +1216,13 @@ def get_recommendations(
             top_k=top_k,
         )
 
-    except Exception as error:
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
 
+    except Exception as error:
         print()
         print("RECOMMENDATION SEARCH FAILED")
         print(error)
@@ -1223,6 +1230,6 @@ def get_recommendations(
         raise HTTPException(
             status_code=500,
             detail="Recommendation search failed.",
-        )
+        ) from error
 
     return results
