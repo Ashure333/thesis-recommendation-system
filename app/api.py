@@ -21,6 +21,11 @@ from app.services.upload_paper import (
     upload_paper_from_pdf,
     complete_paper_manually,
 )
+from app.services.bib_extraction import extract_metadata_from_bib
+from app.services.extraction import extract_metadata_from_pdf
+from app.services.classification import classify_paper
+from app.services.validation import validate_paper
+from app.services.text_preparation import refresh_prepared_text
 
 from app.services.storage import (
     delete_paper_file,
@@ -570,6 +575,127 @@ def delete_paper(
     return {
         "status": "deleted"
     }
+
+
+# ============================================================
+# PREVIEW PAPER
+# ============================================================
+
+@app.post("/api/papers/preview")
+def preview_paper(
+    file: UploadFile = File(...),
+):
+    """
+    Extract and validate paper metadata without creating a database record.
+
+    This is the first step of the upload flow. The frontend can show the
+    extracted metadata for editing, while the actual database insert and
+    file storage only happen through /api/papers/upload after the user
+    clicks Save.
+    """
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="A filename is required.",
+        )
+
+    suffix = os.path.splitext(file.filename)[1].lower()
+
+    if suffix not in (".pdf", ".bib"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF and BibTeX (.bib) files are accepted.",
+        )
+
+    with tempfile.NamedTemporaryFile(
+        suffix=suffix,
+        delete=False,
+    ) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        if suffix == ".pdf":
+            metadata = extract_metadata_from_pdf(tmp_path)
+        else:
+            metadata = extract_metadata_from_bib(tmp_path)
+
+        metadata = metadata or {}
+
+        paper = Paper(
+            title=metadata.get("title"),
+            author=metadata.get("author"),
+            abstract=metadata.get("abstract"),
+            keywords=metadata.get("keywords"),
+            keywords_source=metadata.get("keywords_source"),
+            keywords_generated=metadata.get(
+                "keywords_generated",
+                False,
+            ),
+            publication_year=metadata.get("publication_year"),
+            doi=metadata.get("doi"),
+            citation_count=metadata.get("citation_count"),
+            source_filename=file.filename,
+            extraction_method=(
+                "bibtex"
+                if suffix == ".bib"
+                else "pdf"
+            ),
+        )
+
+        try:
+            classify_paper(paper)
+        except Exception as error:
+            print("WARNING: Paper preview classification failed")
+            print(error)
+
+        try:
+            validate_paper(paper)
+        except Exception as error:
+            print("WARNING: Paper preview validation failed")
+            print(error)
+
+        try:
+            refresh_prepared_text(paper)
+        except Exception as error:
+            print("WARNING: Paper preview text preparation failed")
+            print(error)
+
+        return {
+            "title": paper.title,
+            "author": paper.author,
+            "abstract": paper.abstract,
+            "keywords": paper.keywords,
+            "publication_year": paper.publication_year,
+            "doi": paper.doi,
+            "subject_category": paper.subject_category,
+            "document_type": paper.document_type,
+            "citation_count": paper.citation_count,
+            "is_valid_for_recommendation": (
+                paper.is_valid_for_recommendation
+            ),
+            "missing_fields": paper.missing_fields,
+            "source_filename": paper.source_filename,
+            "extraction_method": paper.extraction_method,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print()
+        print("PAPER PREVIEW FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to preview the paper.",
+        )
+
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 # ============================================================
