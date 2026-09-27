@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+
 import {
   FileText,
   Folder,
@@ -23,7 +24,7 @@ import {
    TYPES
    ============================================================ */
 
-type DetailTab = "details" | "abstract" | "attachment";
+type DetailTab = "details" | "abstract";
 
 type PdfTab = {
   id: number;
@@ -104,11 +105,9 @@ export default function LibraryUITest() {
   const [saveMessage, setSaveMessage] =
     useState<string | null>(null);
 
-  /*
-   * ==========================================================
-   * PDF TABS
-   * ==========================================================
-   */
+  /* ==========================================================
+     PDF TABS
+     ========================================================== */
 
   const [pdfTabs, setPdfTabs] =
     useState<PdfTab[]>([]);
@@ -183,8 +182,7 @@ export default function LibraryUITest() {
      ============================================================ */
 
   const filteredPapers = useMemo(() => {
-    const query =
-      searchQuery.trim().toLowerCase();
+    const query = searchQuery.trim().toLowerCase();
 
     return papers.filter((paper) => {
       const matchesCategory =
@@ -258,7 +256,7 @@ export default function LibraryUITest() {
   }
 
   /* ============================================================
-     OPEN PDF IN APPLICATION TAB
+     OPEN PDF IN MIDDLE APP TAB
      ============================================================ */
 
   function openPdfTab(paper: Paper) {
@@ -306,10 +304,6 @@ export default function LibraryUITest() {
       return;
     }
 
-    /*
-     * Prefer the tab immediately before the
-     * closed one. If none exists, use the next.
-     */
     const replacement =
       remainingTabs[tabIndex - 1] ??
       remainingTabs[tabIndex] ??
@@ -362,7 +356,7 @@ export default function LibraryUITest() {
   }
 
   /* ============================================================
-     CLOSE ALL PDF TABS
+     SHOW REPOSITORY
      ============================================================ */
 
   function showRepository() {
@@ -420,10 +414,6 @@ export default function LibraryUITest() {
     setSelectedCategory(category);
     setDetailTab("details");
 
-    /*
-     * Changing category returns the user
-     * to the repository table.
-     */
     setActivePdfTabId(null);
   }
 
@@ -481,6 +471,7 @@ export default function LibraryUITest() {
 
   return (
     <div className="h-screen w-full overflow-hidden bg-[#f7f6f3] text-[#24211d]">
+
       <div className="grid h-full min-h-0 w-full min-w-0 grid-cols-[236px_minmax(0,1fr)_420px] overflow-hidden">
 
         {/* ======================================================
@@ -490,7 +481,7 @@ export default function LibraryUITest() {
         <aside className="h-full min-h-0 min-w-0 overflow-hidden border-r border-[#dcd8d1] bg-[#eeece7]">
           <div className="flex h-full min-h-0 flex-col">
 
-            {/* Header */}
+            {/* HEADER */}
 
             <div className="shrink-0 border-b border-[#dcd8d1] px-5 py-5">
               <p className="text-[10px] uppercase tracking-[0.17em] text-[#81796f]">
@@ -502,9 +493,7 @@ export default function LibraryUITest() {
               </h1>
             </div>
 
-            {/* IMPORTANT:
-                No overflow-y-auto here.
-                Sidebar is fixed to viewport. */}
+            {/* SIDEBAR CONTENT */}
 
             <div className="min-h-0 flex-1 overflow-hidden px-3 py-4">
 
@@ -513,9 +502,7 @@ export default function LibraryUITest() {
               </SidebarLabel>
 
               <SidebarButton
-                icon={
-                  <Bookmark size={15} />
-                }
+                icon={<Bookmark size={15} />}
                 label="All Papers"
                 count={
                   stats?.total_papers ??
@@ -530,20 +517,17 @@ export default function LibraryUITest() {
               />
 
               <SidebarButton
-                icon={
-                  <Folder size={15} />
-                }
+                icon={<Folder size={15} />}
                 label="Recently Added"
                 onClick={() => {
-                  setSelectedCategory(
-                    null
-                  );
+                  setSelectedCategory(null);
                   setSearchQuery("");
                   setActivePdfTabId(null);
                 }}
               />
 
               <div className="mt-7">
+
                 <SidebarLabel>
                   Categories
                 </SidebarLabel>
@@ -564,9 +548,7 @@ export default function LibraryUITest() {
                             />
                           }
                           label={category}
-                          count={Number(
-                            count
-                          )}
+                          count={Number(count)}
                           active={active}
                           onClick={() =>
                             selectCategory(
@@ -579,12 +561,12 @@ export default function LibraryUITest() {
                   )}
                 </div>
 
-                {categories.length ===
-                  0 && (
+                {categories.length === 0 && (
                   <p className="px-3 py-2 text-[11px] text-[#99938a]">
                     No categories
                   </p>
                 )}
+
               </div>
             </div>
           </div>
@@ -602,7 +584,7 @@ export default function LibraryUITest() {
 
           <div className="flex h-11 shrink-0 min-w-0 items-end overflow-hidden border-b border-[#dcd8d1] bg-[#f5f3ef]">
 
-            {/* Repository tab */}
+            {/* REPOSITORY TAB */}
 
             <button
               type="button"
@@ -615,18 +597,16 @@ export default function LibraryUITest() {
             >
               Repository
 
-              {activePdfTabId ===
-                null && (
+              {activePdfTabId === null && (
                 <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#3e3933]" />
               )}
             </button>
 
-            {/* PDF tabs */}
+            {/* PDF TABS */}
 
             {pdfTabs.map((tab) => {
               const active =
-                activePdfTabId ===
-                tab.id;
+                activePdfTabId === tab.id;
 
               return (
                 <div
@@ -676,7 +656,7 @@ export default function LibraryUITest() {
           </div>
 
           {/* ==================================================
-              REPOSITORY
+              REPOSITORY / PDF VIEW
               ================================================== */}
 
           {activePdfTabId === null ? (
@@ -704,10 +684,6 @@ export default function LibraryUITest() {
               }
             />
           ) : (
-            /* ==================================================
-               PDF VIEWER
-               ================================================== */
-
             <PdfViewer
               paperId={
                 activePdfTabId
@@ -736,28 +712,30 @@ export default function LibraryUITest() {
         </main>
 
         {/* ======================================================
-            RIGHT DETAILS
+            RIGHT DETAILS PANEL
             ====================================================== */}
 
         <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[#dcd8d1] bg-[#faf9f7]">
 
           {selectedPaper ? (
             <>
-              {/* Header */}
+              {/* ==================================================
+                  RIGHT HEADER
+                  ================================================== */}
 
               <div className="shrink-0 border-b border-[#dedbd5] bg-[#faf9f7] px-5 py-4">
+
                 <div className="flex items-start justify-between gap-3">
 
                   <div className="min-w-0">
+
                     <p className="text-[9px] uppercase tracking-[0.16em] text-[#8a8177]">
                       Paper{" "}
                       {selectedPaper.id}
                       {" · "}
-                      {hasPdf(
-                        selectedPaper
-                      )
-                        ? "PDF attached"
-                        : "No PDF"}
+                      {hasPdf(selectedPaper)
+                        ? "File Attached"
+                        : "No File"}
                     </p>
 
                     <h2
@@ -776,9 +754,9 @@ export default function LibraryUITest() {
                     </p>
                   </div>
 
-                  <div className="flex shrink-0 flex-col gap-2">
+                  {/* BUTTONS */}
 
-                    {/* OPEN */}
+                  <div className="flex shrink-0 flex-col gap-2">
 
                     <button
                       type="button"
@@ -796,8 +774,6 @@ export default function LibraryUITest() {
                     >
                       Open
                     </button>
-
-                    {/* SAVE */}
 
                     <button
                       type="button"
@@ -821,7 +797,9 @@ export default function LibraryUITest() {
                 )}
               </div>
 
-              {/* Detail tabs */}
+              {/* ==================================================
+                  DETAILS / ABSTRACT TABS ONLY
+                  ================================================== */}
 
               <div className="flex shrink-0 border-b border-[#dedbd5] bg-[#faf9f7] px-5">
 
@@ -853,36 +831,31 @@ export default function LibraryUITest() {
                   Abstract
                 </DetailTabButton>
 
-                <DetailTabButton
-                  active={
-                    detailTab ===
-                    "attachment"
-                  }
-                  onClick={() =>
-                    setDetailTab(
-                      "attachment"
-                    )
-                  }
-                >
-                  Attachment
-                </DetailTabButton>
               </div>
 
-              {/* RIGHT BODY ONLY SCROLLS */}
+              {/* ==================================================
+                  IMPORTANT:
+                  THIS ENTIRE AREA SCROLLS.
+                  ATTACHMENT IS INSIDE DetailsPanel.
+                  NOTHING IS FIXED TO THE BOTTOM.
+                  ================================================== */}
 
               <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-5">
 
-                {detailTab ===
-                  "details" && (
+                {detailTab === "details" && (
                   <DetailsPanel
                     paper={
                       selectedPaper
                     }
+                    onOpenAttachment={() =>
+                      openPdfTab(
+                        selectedPaper
+                      )
+                    }
                   />
                 )}
 
-                {detailTab ===
-                  "abstract" && (
+                {detailTab === "abstract" && (
                   <AbstractPanel
                     paper={
                       selectedPaper
@@ -890,19 +863,6 @@ export default function LibraryUITest() {
                   />
                 )}
 
-                {detailTab ===
-                  "attachment" && (
-                  <AttachmentPanel
-                    paper={
-                      selectedPaper
-                    }
-                    onOpen={() =>
-                      openPdfTab(
-                        selectedPaper
-                      )
-                    }
-                  />
-                )}
               </div>
             </>
           ) : (
@@ -944,13 +904,16 @@ function RepositoryView({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 
-      {/* Repository header */}
+      {/* ======================================================
+          REPOSITORY HEADER
+          ====================================================== */}
 
       <div className="shrink-0 border-b border-[#dedbd5] bg-[#faf9f7] px-5 py-4">
 
         <div className="mb-4 flex min-w-0 items-center justify-between gap-4">
 
           <div className="min-w-0">
+
             <p className="text-[10px] uppercase tracking-[0.16em] text-[#8a8177]">
               Repository
             </p>
@@ -967,9 +930,10 @@ function RepositoryView({
           </span>
         </div>
 
-        {/* Search */}
+        {/* SEARCH */}
 
         <div className="relative">
+
           <Search
             size={15}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8d8982]"
@@ -989,13 +953,16 @@ function RepositoryView({
         </div>
       </div>
 
-      {/* TABLE SCROLLER */}
+      {/* ======================================================
+          TABLE
+          ====================================================== */}
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
 
         <table className="w-full table-fixed border-collapse">
 
           <thead className="sticky top-0 z-10 bg-[#f7f5f2]">
+
             <tr className="border-b border-[#dedbd5]">
 
               <th className="w-[34%] px-5 py-2.5 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[#827b72]">
@@ -1021,6 +988,7 @@ function RepositoryView({
               <th className="w-[10%] px-3 py-2.5 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[#827b72]">
                 File
               </th>
+
             </tr>
           </thead>
 
@@ -1091,6 +1059,7 @@ function RepositoryView({
                               paper.document_type ||
                               "No source information"}
                           </p>
+
                         </div>
                       </div>
                     </td>
@@ -1098,6 +1067,7 @@ function RepositoryView({
                     {/* CREATOR */}
 
                     <td className="min-w-0 px-3 py-3.5">
+
                       <span
                         title={
                           paper.author ||
@@ -1108,20 +1078,24 @@ function RepositoryView({
                         {paper.author ||
                           "Unknown author"}
                       </span>
+
                     </td>
 
                     {/* YEAR */}
 
                     <td className="px-3 py-3.5">
+
                       <span className="text-[11px] text-[#777169]">
                         {paper.publication_year ||
                           "—"}
                       </span>
+
                     </td>
 
                     {/* SUBJECT */}
 
                     <td className="min-w-0 px-3 py-3.5">
+
                       <span
                         title={
                           paper.subject_category ||
@@ -1132,11 +1106,13 @@ function RepositoryView({
                         {paper.subject_category ||
                           "—"}
                       </span>
+
                     </td>
 
                     {/* TYPE */}
 
                     <td className="min-w-0 px-3 py-3.5">
+
                       <span
                         title={
                           paper.document_type ||
@@ -1147,6 +1123,7 @@ function RepositoryView({
                         {paper.document_type ||
                           "—"}
                       </span>
+
                     </td>
 
                     {/* FILE */}
@@ -1172,6 +1149,7 @@ function RepositoryView({
                           —
                         </span>
                       )}
+
                     </td>
                   </tr>
                 );
@@ -1180,12 +1158,13 @@ function RepositoryView({
           </tbody>
         </table>
 
-        {/* Empty */}
+        {/* EMPTY */}
 
-        {filteredPapers.length ===
-          0 && (
+        {filteredPapers.length === 0 && (
           <div className="flex min-h-[260px] items-center justify-center px-6">
+
             <div className="text-center">
+
               <p className="font-serif text-[18px] text-[#4d4842]">
                 No papers found
               </p>
@@ -1194,9 +1173,11 @@ function RepositoryView({
                 Try changing your
                 search or category.
               </p>
+
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
@@ -1242,6 +1223,7 @@ function PdfViewer({
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#d3cfc8] bg-white px-4">
 
         <div className="min-w-0">
+
           <p
             title={paper.title}
             className="truncate text-[12px] font-medium text-[#302b26]"
@@ -1254,6 +1236,7 @@ function PdfViewer({
             {paper.author ||
               "Unknown author"}
           </p>
+
         </div>
 
         <button
@@ -1273,6 +1256,7 @@ function PdfViewer({
       {/* PDF */}
 
       <div className="min-h-0 flex-1 overflow-hidden">
+
         <iframe
           src={pdfUrl}
           title={
@@ -1281,6 +1265,7 @@ function PdfViewer({
           }
           className="block h-full w-full border-0"
         />
+
       </div>
     </div>
   );
@@ -1344,7 +1329,7 @@ function SidebarButton({
 }
 
 /* ============================================================
-   DETAIL TABS
+   DETAIL TAB BUTTON
    ============================================================ */
 
 function DetailTabButton({
@@ -1381,8 +1366,10 @@ function DetailTabButton({
 
 function DetailsPanel({
   paper,
+  onOpenAttachment,
 }: {
   paper: Paper;
+  onOpenAttachment: () => void;
 }) {
   const keywords =
     splitKeywords(
@@ -1392,76 +1379,92 @@ function DetailsPanel({
   return (
     <div className="space-y-6">
 
-      <DetailSectionTitle>
-        Bibliographic Information
-      </DetailSectionTitle>
-
-      <div className="overflow-hidden rounded-md border border-[#ddd8d0] bg-white">
-
-        <InfoRow
-          label="Author"
-          value={
-            paper.author || "—"
-          }
-        />
-
-        <InfoRow
-          label="Year"
-          value={
-            paper.publication_year
-              ? String(
-                  paper.publication_year
-                )
-              : "—"
-          }
-        />
-
-        <InfoRow
-          label="Subject"
-          value={
-            paper.subject_category ||
-            "—"
-          }
-        />
-
-        <InfoRow
-          label="Document Type"
-          value={
-            paper.document_type ||
-            "—"
-          }
-        />
-
-        <InfoRow
-          label="Citations"
-          value={
-            paper.citation_count !==
-              null &&
-            paper.citation_count !==
-              undefined
-              ? String(
-                  paper.citation_count
-                )
-              : "—"
-          }
-        />
-
-        <InfoRow
-          label="DOI"
-          value={paper.doi || "—"}
-          last
-        />
-      </div>
-
-      {/* Keywords */}
+      {/* ======================================================
+          BIBLIOGRAPHIC INFORMATION
+          ====================================================== */}
 
       <div>
+
+        <DetailSectionTitle>
+          Bibliographic Information
+        </DetailSectionTitle>
+
+        <div className="overflow-hidden rounded-md border border-[#ddd8d0] bg-white">
+
+          <InfoRow
+            label="Author"
+            value={
+              paper.author ||
+              "—"
+            }
+          />
+
+          <InfoRow
+            label="Year"
+            value={
+              paper.publication_year
+                ? String(
+                    paper.publication_year
+                  )
+                : "—"
+            }
+          />
+
+          <InfoRow
+            label="Subject"
+            value={
+              paper.subject_category ||
+              "—"
+            }
+          />
+
+          <InfoRow
+            label="Document Type"
+            value={
+              paper.document_type ||
+              "—"
+            }
+          />
+
+          <InfoRow
+            label="Citations"
+            value={
+              paper.citation_count !==
+                null &&
+              paper.citation_count !==
+                undefined
+                ? String(
+                    paper.citation_count
+                  )
+                : "—"
+            }
+          />
+
+          <InfoRow
+            label="DOI"
+            value={
+              paper.doi ||
+              "—"
+            }
+            last
+          />
+
+        </div>
+      </div>
+
+      {/* ======================================================
+          KEYWORDS
+          ====================================================== */}
+
+      <div>
+
         <DetailSectionTitle>
           Keywords
         </DetailSectionTitle>
 
         {keywords.length > 0 ? (
           <div className="flex flex-wrap gap-2">
+
             {keywords.map(
               (keyword, index) => (
                 <span
@@ -1472,17 +1475,22 @@ function DetailsPanel({
                 </span>
               )
             )}
+
           </div>
         ) : (
           <p className="text-[11px] text-[#99938a]">
             No keywords available.
           </p>
         )}
+
       </div>
 
-      {/* Record */}
+      {/* ======================================================
+          RECORD
+          ====================================================== */}
 
       <div>
+
         <DetailSectionTitle>
           Record
         </DetailSectionTitle>
@@ -1504,13 +1512,17 @@ function DetailsPanel({
             }
             last
           />
+
         </div>
       </div>
 
-      {/* Extraction */}
+      {/* ======================================================
+          EXTRACTION
+          ====================================================== */}
 
       {paper.extraction_method && (
         <div>
+
           <DetailSectionTitle>
             Extraction
           </DetailSectionTitle>
@@ -1518,12 +1530,16 @@ function DetailsPanel({
           <div className="rounded-md border border-[#ddd8d0] bg-white px-3 py-3 text-[11px] text-[#686159]">
             {paper.extraction_method}
           </div>
+
         </div>
       )}
 
-      {/* Recommendation */}
+      {/* ======================================================
+          RECOMMENDATION SIGNAL
+          ====================================================== */}
 
       <div>
+
         <DetailSectionTitle>
           Recommendation Signal
         </DetailSectionTitle>
@@ -1541,8 +1557,126 @@ function DetailsPanel({
               ? `Missing: ${paper.missing_fields}`
               : "Not currently valid for recommendation."}
         </div>
+
+      </div>
+
+      {/* ======================================================
+          ATTACHMENT
+
+          THIS IS INTENTIONALLY PART OF THE SCROLLABLE
+          DETAILS CONTENT.
+
+          IT IS NOT:
+          - fixed
+          - sticky
+          - absolute
+          - a tab
+          - a separate bottom panel
+          ====================================================== */}
+
+      <div className="pb-2">
+
+        <DetailSectionTitle>
+          Attachment
+        </DetailSectionTitle>
+
+        {!paper.stored_path ? (
+          <div className="rounded-md border border-[#ddd8d0] bg-white px-4 py-4">
+
+            <p className="text-[11px] text-[#777169]">
+              This paper does not
+              have an attached file.
+            </p>
+
+          </div>
+        ) : (
+          <AttachmentCard
+            paper={paper}
+            onOpen={
+              onOpenAttachment
+            }
+          />
+        )}
+
       </div>
     </div>
+  );
+}
+
+/* ============================================================
+   ATTACHMENT CARD
+   ============================================================ */
+
+function AttachmentCard({
+  paper,
+  onOpen,
+}: {
+  paper: Paper;
+  onOpen: () => void;
+}) {
+  const fileName =
+    getFileName(
+      paper.stored_path
+    );
+
+  const pdf =
+    hasPdf(paper);
+
+  return (
+    <button
+      type="button"
+      onClick={
+        pdf
+          ? onOpen
+          : undefined
+      }
+      disabled={!pdf}
+      className={`group flex w-full items-center gap-3 rounded-md border border-[#ddd8d0] bg-white px-3 py-3 text-left transition ${
+        pdf
+          ? "cursor-pointer hover:bg-[#f7f5f1]"
+          : "cursor-default"
+      }`}
+    >
+
+      {/* FILE ICON */}
+
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#eaf2ed] text-[#668b72]">
+        <Paperclip size={16} />
+      </div>
+
+      {/* FILE INFORMATION */}
+
+      <div className="min-w-0 flex-1">
+
+        <p
+          title={
+            fileName ||
+            undefined
+          }
+          className="truncate text-[11px] font-medium text-[#403b35]"
+        >
+          {fileName ||
+            "Attached file"}
+        </p>
+
+        <p className="mt-1 text-[9px] text-[#918a81]">
+          {pdf
+            ? "PDF document"
+            : "Attached file"}
+        </p>
+
+      </div>
+
+      {/* ARROW */}
+
+      {pdf && (
+        <ChevronRight
+          size={15}
+          className="shrink-0 text-[#918a81] transition-transform group-hover:translate-x-0.5"
+        />
+      )}
+
+    </button>
   );
 }
 
@@ -1557,6 +1691,7 @@ function AbstractPanel({
 }) {
   return (
     <div>
+
       <DetailSectionTitle>
         Abstract
       </DetailSectionTitle>
@@ -1571,110 +1706,7 @@ function AbstractPanel({
           for this paper.
         </div>
       )}
-    </div>
-  );
-}
 
-/* ============================================================
-   ATTACHMENT PANEL
-   ============================================================ */
-
-function AttachmentPanel({
-  paper,
-  onOpen,
-}: {
-  paper: Paper;
-  onOpen: () => void;
-}) {
-  const fileName =
-    getFileName(
-      paper.stored_path
-    );
-
-  if (!paper.stored_path) {
-    return (
-      <div>
-        <DetailSectionTitle>
-          Attachment
-        </DetailSectionTitle>
-
-        <div className="rounded-md border border-[#ddd8d0] bg-white px-4 py-5">
-          <p className="text-[12px] text-[#666057]">
-            This paper does not
-            have an attached file.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const pdf = hasPdf(paper);
-
-  return (
-    <div className="space-y-5">
-
-      <DetailSectionTitle>
-        Attachment
-      </DetailSectionTitle>
-
-      <div className="rounded-md border border-[#ddd8d0] bg-white p-4">
-
-        <div className="flex min-w-0 items-center gap-3">
-
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-[#eaf2ed] text-[#668b72]">
-            <FileText size={18} />
-          </div>
-
-          <div className="min-w-0">
-
-            <p
-              title={
-                fileName ||
-                undefined
-              }
-              className="truncate text-[12px] font-medium text-[#3b3732]"
-            >
-              {fileName ||
-                "Attached file"}
-            </p>
-
-            <p className="mt-1 text-[10px] text-[#918a81]">
-              {pdf
-                ? "PDF document"
-                : "Attached file"}
-            </p>
-          </div>
-        </div>
-
-        {pdf && (
-          <button
-            type="button"
-            onClick={onOpen}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-[#d4d0c9] bg-[#faf9f7] px-3 py-2.5 text-[11px] text-[#403b35] hover:bg-[#f0eee9]"
-          >
-            <ExternalLink
-              size={13}
-            />
-
-            Open PDF
-          </button>
-        )}
-      </div>
-
-      <div>
-        <p className="text-[9px] uppercase tracking-[0.15em] text-[#8b8379]">
-          Stored Path
-        </p>
-
-        <p
-          title={
-            paper.stored_path
-          }
-          className="mt-2 break-all text-[10px] leading-5 text-[#777169]"
-        >
-          {paper.stored_path}
-        </p>
-      </div>
     </div>
   );
 }
@@ -1712,6 +1744,7 @@ function InfoRow({
           : ""
       }`}
     >
+
       <span className="truncate text-[10px] text-[#918a81]">
         {label}
       </span>
@@ -1722,6 +1755,7 @@ function InfoRow({
       >
         {value}
       </span>
+
     </div>
   );
 }
@@ -1733,6 +1767,7 @@ function InfoRow({
 function EmptyDetails() {
   return (
     <div className="flex h-full items-center justify-center px-6">
+
       <div className="text-center">
 
         <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#efede8] text-[#9a948c]">
@@ -1749,6 +1784,7 @@ function EmptyDetails() {
           Paper details will
           appear here.
         </p>
+
       </div>
     </div>
   );
