@@ -18,8 +18,10 @@ Design constraints (why each rule exists):
       pdf_finder.MIN_CONFIDENCE bar already used to accept a candidate
       into the results list at all, since filling a *blank* field is
       lower-risk than overwriting a populated one.
-    - Keywords are deliberately NOT enriched here -- see the note in
-      enrich_paper_metadata()'s docstring.
+    - Keywords are NOT enriched from PDF-discovery candidates -- see
+      the note in enrich_paper_metadata()'s docstring. They ARE
+      generated separately, from the paper's own title/abstract text,
+      via generate_keywords_if_missing() below.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import logging
 
 from app.models.models import Paper
 from app.services.pdf_finder import MIN_CONFIDENCE, PdfCandidate
+from app.services.extraction import generate_keywords_from_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -119,20 +122,17 @@ def enrich_paper_metadata(
     best match *for that field*, not necessarily the single overall
     best candidate.
 
-    Keywords are intentionally left alone: none of the sources
+    Keywords are intentionally left alone here: none of the sources
     pdf_finder.py queries return keywords in a form comparable to this
-    project's author/YAKE keyword field (OpenAlex's "concepts" are a
-    different taxonomy, not a drop-in replacement), so merging them
-    risks polluting keyword-based classification/TF-IDF text for
-    little benefit.
+    project's author/YAKE keyword field. See generate_keywords_if_missing()
+    below for the actual keyword-filling path, which uses the paper's
+    own title/abstract instead of external candidate data.
 
     Returns the list of field names actually changed (e.g.
     ["title", "abstract"]), so callers know whether to re-run
     validate_paper() / refresh_prepared_text(). Also sets
     paper.enrichment_notes to a short, human-readable trace of what
-    changed and from which source -- purely for auditability (e.g. for
-    a methodology write-up), never read by any other part of the
-    system.
+    changed and from which source.
     """
     if not candidates:
         return []
@@ -207,9 +207,6 @@ def enrich_paper_metadata(
             getattr(paper, "id", None), changed,
         )
 
-        # Optional column -- see scripts/migrate_add_enrichment_notes.py.
-        # Guarded with hasattr so this module still works against a
-        # Paper model that hasn't had the migration applied yet.
         if hasattr(paper, "enrichment_notes"):
             existing = (paper.enrichment_notes or "").strip()
             new_note = "; ".join(notes)
@@ -218,3 +215,44 @@ def enrich_paper_metadata(
             )
 
     return changed
+
+
+def generate_keywords_if_missing(paper: Paper) -> bool:
+    """
+    Fills paper.keywords using YAKE run directly against the paper's
+    own title and abstract, when keywords are currently missing.
+
+    Unlike enrich_paper_metadata() above, this never touches PDF-
+    discovery candidates and needs no network call -- it only needs
+    whatever title/abstract the paper already has. This is what lets a
+    citation-only paper that will never have a PDF attached still end
+    up with usable keywords for classification and TF-IDF/S-BERT.
+
+    Returns True if paper.keywords was filled.
+    """
+    if paper.keywords and paper.keywords.strip():
+        return False
+
+    if not paper.title and not paper.abstract:
+        return False
+
+    result = generate_keywords_from_metadata(
+        title=paper.title,
+        abstract=paper.abstract,
+    )
+
+    if not result["keywords"]:
+        return False
+
+    paper.keywords = result["keywords"]
+    paper.keywords_source = result["keywords_source"]
+    paper.keywords_generated = result["keywords_generated"]
+
+    if hasattr(paper, "enrichment_notes"):
+        existing = (paper.enrichment_notes or "").strip()
+        new_note = "keywords <- yake (title+abstract)"
+        paper.enrichment_notes = (
+            f"{existing}; {new_note}" if existing else new_note
+        )
+
+    return True

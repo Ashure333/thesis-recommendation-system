@@ -42,7 +42,7 @@ extra signals when they're available on both sides:
       strong positive signal; if both sides have author data and none
       overlap at all, that's a negative signal.
 
-Title similarity itself blends two measures (see _title_similarity):
+Title similarity itself blends two measures (see title_similarity):
 a character-sequence ratio and a word-token overlap ratio, taking the
 higher of the two. A pure character-sequence ratio is brutally
 sensitive to word reordering and subtitle differences ("X: a study of
@@ -124,7 +124,7 @@ RETRY_BACKOFF_SECONDS = 1.5
 # Below this title-similarity score, a candidate is dropped rather than
 # shown -- a low-confidence "match" does more harm than good in a
 # confirm-first flow, since the person is trusting the title at a glance.
-# Lowered from 0.55: the blended similarity score in _title_similarity
+# Lowered from 0.55: the blended similarity score in title_similarity
 # is stricter about *wrong* matches than plain SequenceMatcher was, so
 # this can afford to be a bit more permissive without letting garbage
 # through.
@@ -277,7 +277,7 @@ def _token_overlap_score(a: str | None, b: str | None) -> float:
     return len(intersection) / len(union)
 
 
-def _title_similarity(a: str | None, b: str | None) -> float:
+def title_similarity(a: str | None, b: str | None) -> float:
     """
     Blends a character-sequence ratio with a word-token overlap ratio
     and takes the higher of the two. Either measure alone has a
@@ -485,7 +485,7 @@ def _resolve_doi_via_crossref(paper: Paper) -> str | None:
 
     for item in items:
         candidate_title = " ".join(item.get("title") or [])
-        score = _title_similarity(paper.title, candidate_title)
+        score = title_similarity(paper.title, candidate_title)
 
         candidate_authors = [
             f"{a.get('given', '')} {a.get('family', '')}".strip()
@@ -551,7 +551,7 @@ def _search_crossref_pdf_links(paper: Paper) -> list[PdfCandidate]:
             if a.get("family")
         ]
 
-        base_confidence = _title_similarity(paper.title, candidate_title)
+        base_confidence = title_similarity(paper.title, candidate_title)
         confidence = _apply_year_adjustment(
             base_confidence, paper.publication_year, candidate_year
         )
@@ -627,7 +627,7 @@ def _search_unpaywall(paper: Paper) -> list[PdfCandidate]:
         if not pdf_url:
             continue
 
-        base_confidence = max(_title_similarity(paper.title, result_title), 0.9)
+        base_confidence = max(title_similarity(paper.title, result_title), 0.9)
         confidence = _apply_year_adjustment(
             base_confidence, paper.publication_year, result_year
         )
@@ -715,7 +715,7 @@ def _search_semantic_scholar(paper: Paper) -> list[PdfCandidate]:
             if a.get("name")
         ]
 
-        base_confidence = _title_similarity(paper.title, result_title)
+        base_confidence = title_similarity(paper.title, result_title)
         confidence = _apply_year_adjustment(
             base_confidence, paper.publication_year, result_year
         )
@@ -821,7 +821,7 @@ def _search_arxiv(paper: Paper) -> list[PdfCandidate]:
 
         pdf_url = f"https://arxiv.org/pdf/{arxiv_id_match.group(1)}.pdf"
 
-        base_confidence = _title_similarity(paper.title, entry_title)
+        base_confidence = title_similarity(paper.title, entry_title)
         confidence = _apply_year_adjustment(
             base_confidence, paper.publication_year, entry_year
         )
@@ -903,7 +903,7 @@ def _search_openalex(paper: Paper) -> list[PdfCandidate]:
             result.get("abstract_inverted_index")
         )
 
-        base_confidence = _title_similarity(paper.title, result_title)
+        base_confidence = title_similarity(paper.title, result_title)
         confidence = _apply_year_adjustment(
             base_confidence, paper.publication_year, result_year
         )
@@ -984,7 +984,7 @@ def _search_google_scholar_via_serpapi(paper: Paper) -> list[PdfCandidate]:
             if author.get("name")
         ]
 
-        base_confidence = _title_similarity(paper.title, result_title)
+        base_confidence = title_similarity(paper.title, result_title)
         confidence = _apply_author_adjustment(
             base_confidence, paper_last_names, result_authors
         )
@@ -1199,7 +1199,7 @@ def download_and_attach_pdf(
                 extracted_title = None
 
             if extracted_title:
-                match_score = _title_similarity(expected_title, extracted_title)
+                match_score = title_similarity(expected_title, extracted_title)
 
                 if match_score < MIN_DOWNLOAD_TITLE_MATCH:
                     raise ValueError(

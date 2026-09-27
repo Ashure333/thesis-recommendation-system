@@ -694,7 +694,55 @@ def _extract_yake_keywords(
             break
 
     return selected_keywords
+def generate_keywords_from_metadata(
+    title: str | None,
+    abstract: str | None,
+    max_keywords: int = 8,
+) -> dict[str, Any]:
+    """
+    Generate keywords via YAKE directly from a paper's own title and
+    abstract fields, independent of any PDF file being present.
 
+    This exists for citation-only (BibTeX) papers that already have a
+    title and abstract -- from the original citation or from
+    metadata_enrichment.py's PDF-discovery-based backfill -- but no
+    keywords, and will never have a PDF attached to extract them from.
+    extract_metadata_from_pdf()'s hybrid keyword extraction only runs
+    when a PDF is actually opened; this reuses the same YAKE step on
+    text the paper already has, without needing pdfplumber or a file
+    at all.
+
+    Returns the same shape as extract_metadata_from_pdf()'s keyword
+    fields:
+        {
+            "keywords": str | None,
+            "keywords_source": "yake" | None,
+            "keywords_generated": bool,
+        }
+    """
+    source_text = _build_keyword_source_text(
+        title=title,
+        abstract=abstract,
+    )
+
+    keywords = _extract_yake_keywords(
+        text=source_text,
+        max_keywords=max_keywords,
+        max_ngram_size=3,
+    )
+
+    if keywords:
+        return {
+            "keywords": _keywords_to_string(keywords),
+            "keywords_source": "yake",
+            "keywords_generated": True,
+        }
+
+    return {
+        "keywords": None,
+        "keywords_source": None,
+        "keywords_generated": False,
+    }
 
 # ---------------------------------------------------------------------
 # Hybrid keyword extraction

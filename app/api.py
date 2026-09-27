@@ -25,6 +25,7 @@ from app.services.bib_extraction import extract_metadata_from_bib
 from app.services.extraction import extract_metadata_from_pdf
 from app.services.classification import classify_paper
 from app.services.validation import validate_paper
+from app.services.duplicate_detection import DuplicatePaperError
 from app.services.text_preparation import refresh_prepared_text
 
 from app.services.storage import (
@@ -855,6 +856,12 @@ def upload_paper(
             file.filename,
         )
 
+    except DuplicatePaperError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
+
     except Exception as error:
 
         print()
@@ -1016,6 +1023,12 @@ def import_paper_from_url(
             "google-scholar.bib",
         )
 
+    except DuplicatePaperError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
+
     except Exception as error:
 
         print("SCHOLAR IMPORT FAILED")
@@ -1090,6 +1103,12 @@ def import_bibtex(
             tmp_path,
             filename,
         )
+
+    except DuplicatePaperError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
 
     except Exception as error:
 

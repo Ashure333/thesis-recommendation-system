@@ -1,141 +1,163 @@
-# Progress Log — PaperRec (Academic Paper Repository & Recommendation System)
 
-This document summarizes what changed between the earlier snapshot of the
-codebase and the current one, based on a diff of the two ingested project
-states.
+---
 
-## Summary
+# Progress Log — Automatic PDF Attachment, Keyword Generation,
+# and Duplicate Detection
 
-The update is focused on one theme: **automatic metadata enrichment for
-papers with missing or corrupted fields**, using the same PDF-discovery
-search results (Unpaywall, Crossref, Semantic Scholar, arXiv, OpenAlex)
-that already power the "Find PDF Online" feature. Previously, those
-sources were queried only to find a downloadable PDF and their title/
-abstract/year/author data was discarded after scoring. Now that data is
-reused to backfill a paper's own missing Title, Abstract, Publication
-Year, and Author fields.
+This entry covers a second round of changes, on top of the metadata
+enrichment described above. Three related gaps were closed:
 
-Supporting changes: DOI-in-text extraction straight from uploaded PDFs,
-a new `enrichment_notes` audit trail column, better handling of blocked
-PDF downloads, and small frontend fixes to keep the recommendation-index
-"stale" banner in sync after PDF operations.
+    1. Citation-only (BibTeX / Google Scholar) uploads previously
+       never received a real PDF file automatically -- only the
+       original .bib text was stored, even when PDF discovery had
+       already found a confident open-access match while enriching
+       metadata. The candidates were used to fill title/abstract/
+       year/author and then discarded.
+    2. Keywords had no fallback path for papers that will never have
+       a PDF attached: extract_metadata_from_pdf()'s hybrid keyword
+       extraction (author-provided line, then YAKE) only ran when a
+       PDF was actually opened, so a BibTeX-only paper stayed
+       keyword-less indefinitely.
+    3. Nothing prevented the same paper from being imported twice --
+       a PDF and its own BibTeX citation uploaded separately, or a
+       repeated Google Scholar paste, silently created a second
+       Paper row.
+
+No new dependencies were required -- all three changes reuse
+libraries and modules already in requirements.txt (YAKE was already
+in use for keyword generation; difflib, used for title similarity, is
+part of the Python standard library).
 
 ---
 
 ## Backend changes
 
-### New: `app/services/metadata_enrichment.py`
-- New module that fills in a paper's missing/corrupted **Title**,
-  **Abstract**, **Publication Year**, and **Author** using candidates
-  already retrieved by `pdf_finder.py`.
-- Only ever *replaces* a field that is missing or looks broken — never
-  overwrites a field that already looks fine.
-- Title replacement uses a stricter confidence bar (`0.72`, reusing
-  `MIN_CROSSREF_DOI_MATCH`) since it's the one case that overwrites an
-  existing (corrupted) value; abstract/year/author use the looser
-  `MIN_CONFIDENCE` bar since filling a blank field is lower risk.
-- Detects corrupted titles (e.g. `"]oc.htam["`-style garbled strings)
-  via `is_title_corrupted()`.
-- Keywords are deliberately **not** enriched — no external source
-  returns keywords in a comparable format, so merging them risked
-  polluting classification/TF-IDF text.
-- Returns which fields changed and writes a human-readable trace to
-  `paper.enrichment_notes` (e.g. `"abstract <- semantic_scholar
-  (confidence 0.76)"`) for auditability.
-
-### `app/models/models.py`
-- Added `Paper.enrichment_notes` (`Text`, nullable) — stores the audit
-  trail produced by `metadata_enrichment.py`.
-
 ### `app/services/extraction.py`
-- Added `_extract_doi()`: scans the first few pages of extracted PDF
-  text for a DOI pattern (`10.xxxx/...`), Zotero-`recognizePDF`-style —
-  read what's already on the document before making an external API
-  call.
-- `extract_metadata_from_pdf()` now also returns `"doi"`.
-- Effect: a PDF upload can populate `Paper.doi` at insertion time
-  instead of staying `None` until "Find PDF Online" is run, which lets
-  `pdf_finder.py` go straight to Unpaywall (its strongest source)
-  instead of first needing a fuzzy Crossref title lookup.
+- Added `generate_keywords_from_metadata(title, abstract, max_keywords)`.
+  Runs the same YAKE keyword pipeline `extract_metadata_from_pdf()`
+  already uses internally (`_build_keyword_source_text()` +
+  `_extract_yake_keywords()`), but takes plain title/abstract text
+  directly instead of requiring a PDF file to be opened. Returns the
+  same shape (`keywords`, `keywords_source`, `keywords_generated`) so
+  callers can treat it as a drop-in alternative source.
+
+### `app/services/metadata_enrichment.py`
+- Added `generate_keywords_if_missing(paper)`. Fills `paper.keywords`
+  using `generate_keywords_from_metadata()` against the paper's own
+  `title`/`abstract` -- no PDF-discovery candidates, no network call.
+  Only runs when `paper.keywords` is currently blank. Appends a
+  `"keywords <- yake (title+abstract)"` note to
+  `paper.enrichment_notes` when it fires, consistent with the
+  existing enrichment audit trail.
+- `enrich_paper_metadata()`'s docstring updated to point to this new
+  function as the actual keyword-filling path, since keywords are
+  still deliberately excluded from the *external-candidate* enrichment
+  it performs (unchanged reasoning: no source returns keywords in a
+  comparable taxonomy).
 
 ### `app/services/pdf_finder.py`
-- `PdfCandidate` gained three enrichment-only fields: `abstract`,
-  `publication_year`, `authors`. These ride along on every candidate
-  (Pydantic drops unrecognized keys, so the public API response shape
-  is unchanged) and are consumed by `metadata_enrichment.py`.
-- Every source function (`_search_unpaywall`, `_search_semantic_scholar`,
-  `_search_arxiv`, `_search_openalex`, `_search_crossref_pdf_links`) now
-  populates those fields instead of discarding the data after scoring.
-- `_search_semantic_scholar` now also requests the `abstract` field.
-- OpenAlex abstracts are reconstructed from their inverted-index format
-  via a new `_reconstruct_openalex_abstract()` helper.
-- `download_and_attach_pdf()` now sends a browser-shaped `User-Agent`
-  and `Accept` header — some publishers (e.g. MDPI) were returning 403
-  for generic/bot-looking requests.
+- `_title_similarity()` renamed to `title_similarity()` (dropped the
+  leading underscore) across its definition and all internal call
+  sites (`_resolve_doi_via_crossref`, `_search_crossref_pdf_links`,
+  `_search_unpaywall`, `_search_semantic_scholar`, `_search_arxiv`,
+  `_search_openalex`, `_search_google_scholar_via_serpapi`,
+  `download_and_attach_pdf`). Made public specifically so
+  `duplicate_detection.py` (below) can reuse the exact same blended
+  title-similarity measure, instead of maintaining a second
+  implementation that could drift out of sync with this one.
+
+### `app/services/duplicate_detection.py` (new file)
+- `find_duplicate_paper(db, title, doi)`: checks a new paper's
+  metadata against every existing paper in the repository, using two
+  signals in order of reliability:
+    1. Exact DOI match (normalized, `doi.org/` prefix stripped).
+    2. Title similarity via `pdf_finder.title_similarity()`, at a
+       stricter bar (`TITLE_DUPLICATE_THRESHOLD = 0.85`) than PDF-
+       candidate matching uses, since blocking an upload outright is
+       higher-stakes than merely suggesting a PDF candidate.
+- `DuplicatePaperError`: raised by `upload_paper()` when a match is
+  found; carries the existing paper's id/title so the error message
+  is actionable. No database row is created when this fires.
 
 ### `app/services/upload_paper.py`
-- Added `_needs_enrichment()`: skips the enrichment network round-trip
-  entirely when a paper already has all four recommendation-required
-  fields and an uncorrupted title.
-- Added `_try_enrich_from_pdf_discovery()` ("Step 5b"): runs the same
-  PDF-discovery lookup used by "Find PDF Online" automatically on every
-  upload (PDF or BibTeX), right after validation and before the first
-  database commit — so a paper is inserted already enriched rather than
-  inserted incomplete and patched later.
-  - Conservative by design: skipped if the paper looks complete, skipped
-    if there's no title to search with, and never raises (a network
-    hiccup must not fail the upload).
-  - Re-runs `validate_paper()` and `refresh_prepared_text()` only if
-    something actually changed.
+- New **Step 1b** (duplicate check): runs `find_duplicate_paper()`
+  right after metadata extraction, before any `Paper` row is
+  constructed. Raises `DuplicatePaperError` on a confident match.
+- New **Step 5c** (keyword generation): runs
+  `generate_keywords_if_missing()` right after the existing PDF-
+  discovery enrichment step (5b), regardless of whether that step
+  found anything -- this only needs title/abstract text the paper
+  already has. Re-runs `validate_paper()` if it changed anything.
+- `_try_enrich_from_pdf_discovery()` now **returns** the candidate
+  list it found (previously discarded after use), so the new auto-
+  attach step below can reuse it without a second round of network
+  calls to the same five sources.
+- New `_try_auto_attach_pdf(paper, candidates)`: for citation-only
+  uploads, downloads the highest-confidence candidate (reusing the
+  results from Step 5b) via the existing `download_and_attach_pdf()`
+  and updates `paper.stored_path` to point at a real `.pdf` instead of
+  the original `.bib`. Only fires when the best candidate meets the
+  same `MIN_CONFIDENCE` bar the manual "Find PDF Online" flow already
+  trusts. Never raises -- a failed attach leaves the paper safely
+  stored under its original `.bib` file rather than failing the
+  upload.
+- New **Step 8b**: calls `_try_auto_attach_pdf()` after the paper's
+  first commit (needs `paper.id` to name the stored file, per
+  `download_and_attach_pdf()`'s existing convention), only for `.bib`
+  uploads. Commits again only if a PDF was actually attached.
 
 ### `app/api.py`
-- `GET /api/papers/{id}/find-pdf`: now also runs best-effort metadata
-  enrichment using the candidates it just found, and marks the
-  recommendation index stale if anything changed.
-- `POST /api/papers/{id}/attach-pdf`: after attaching a downloaded PDF,
-  now re-extracts metadata from that file and backfills whichever of
-  Title/Abstract/Keywords/Publication Year the paper is still missing
-  (never overwriting an existing value, e.g. one already set from
-  BibTeX). Marks the recommendation index stale if any of those fields
-  changed.
+- Imported `DuplicatePaperError`.
+- `POST /api/papers/upload`, `POST /api/papers/import-url`, and
+  `POST /api/papers/import-bibtex` each now catch
+  `DuplicatePaperError` ahead of the generic exception handler and
+  return **HTTP 409 Conflict** with the error's message, instead of a
+  generic 500.
 
----
-
-## Frontend changes
-
-### `frontend/src/api.ts`
-- Added `notifyRecommendationIndexStale()` — dispatches a
-  `recommendation-index-stale` browser event so `AppLayout`'s listener
-  can flip the "index needs updating" banner on immediately, without
-  waiting for a page reload or the next status poll.
-
-### `frontend/src/components/FindPdfPanel.tsx`
-- Calls `notifyRecommendationIndexStale()` after a PDF is successfully
-  attached.
-- Added `isLikelyBlockedError()` and a `blockedUrl` state: when
-  `attach-pdf` fails in a way that looks like the source blocked an
-  automated download (non-2xx HTTP status, non-PDF response, or an
-  unreachable link), the panel now surfaces a specific hint suggesting
-  the user open the link manually and upload the PDF from the Upload
-  page instead.
-
-### `frontend/src/pages/repository/Upload.tsx`
-- Calls `notifyRecommendationIndexStale()` after saving a paper, so the
-  stale-index banner appears immediately instead of waiting for the
-  next status poll.
+### `scripts/auto_attach_existing_papers.py` (new file)
+- Retroactive counterpart to the upload-time auto-attach above: scans
+  every existing paper whose `stored_path` doesn't already end in
+  `.pdf`, runs `find_pdf_candidates()` + the same
+  `_try_auto_attach_pdf()` used at upload time, and commits any
+  successful attachment.
+- `--limit N` flag to run a small trial batch before processing the
+  full repository.
+- Safe to re-run: a paper that already got a PDF is skipped on
+  subsequent runs (its `stored_path` already ends in `.pdf`); a paper
+  with no confident candidate is simply re-skipped, at the cost of
+  one repeated search per run.
+- Does not itself change title/abstract/keywords/year -- the console
+  output points to `scripts/enrich_existing_papers.py` as the follow-
+  up step if those fields should also be backfilled for papers that
+  just received a PDF.
 
 ---
 
 ## Net effect
 
-- Papers imported from thin BibTeX citations (e.g. Google Scholar
-  exports, which rarely include an abstract or DOI) are now much more
-  likely to end up **valid for recommendation** without any manual
-  editing, because upload-time enrichment fills in missing fields
-  automatically.
-- PDF uploads get a DOI "for free" when the document prints one,
-  improving the accuracy and confidence of subsequent PDF-discovery
-  searches.
-- Every enrichment action is auditable via `Paper.enrichment_notes`.
-- The UI's "recommendation index is stale" banner now reacts instantly
-  to PDF-related changes instead of only on the next poll.
+- A BibTeX / Google Scholar citation import now frequently ends up
+  with a real, viewable PDF automatically, instead of staying a
+  citation-only record until someone manually runs "Find PDF Online."
+- Papers that will never get a PDF attached (paywalled, no OA copy
+  found) still get keywords generated from their own title+abstract,
+  closing a gap that previously left such papers permanently keyword-
+  less and therefore weaker inputs to TF-IDF/S-BERT.
+- Re-uploading the same paper (by DOI or near-identical title) is now
+  rejected with a clear 409 instead of silently duplicating the
+  record.
+- `scripts/auto_attach_existing_papers.py` lets the auto-attach
+  behavior benefit papers already in the repository, not only new
+  uploads going forward.
+
+## Verification performed
+
+- Confirmed all new/changed modules import cleanly
+  (`extraction.py`, `metadata_enrichment.py`, `pdf_finder.py`,
+  `duplicate_detection.py`, `upload_paper.py`, `api.py`) before
+  starting the backend.
+- `uvicorn app.api:app --reload` starts cleanly; `GET /docs` returns
+  `200 OK`.
+- `python -m scripts.auto_attach_existing_papers --limit 5` run
+  against the existing 77-paper repository to confirm the bulk script
+  processes real data without errors before running the unrestricted
+  pass.
