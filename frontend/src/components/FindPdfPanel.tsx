@@ -1,32 +1,59 @@
 import { useState } from "react";
-import { findPdfOnline, attachPdf } from "../api";
+import { findPdfOnline, attachPdf, notifyRecommendationIndexStale } from "../api";
 import type { Paper, PdfCandidate } from "../api";
+import { Button } from "./ui";
 
 interface FindPdfPanelProps {
   paper: Paper;
   onAttached: (paper: Paper) => void;
 }
 
+/* ============================================================
+   GITINGEST DESIGN LANGUAGE
+   White result-panels with 3px gray-900 outlines · 4px radius
+   Orange = the one primary action · no red/blue/green state colours
+   Errors are plain ink text in an outlined panel.
+   ============================================================ */
+
+const FOCUS =
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900";
+
+// Anchor version of Button's `secondary` (button-utility) variant, so
+// "Preview" matches the buttons next to it.
+const UTILITY_LINK =
+  `inline-flex items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 ` +
+  `text-sm font-medium leading-snug text-gray-900 hover:bg-[#FCA847] ${FOCUS}`;
+
 const sourceLabels: Record<string, string> = {
   unpaywall: "Unpaywall",
   semantic_scholar: "Semantic Scholar",
   arxiv: "arXiv",
-  openalex: "OpenAlex"
+  openalex: "OpenAlex",
 };
 
-export default function FindPdfPanel({
-  paper,
-  onAttached,
-}: FindPdfPanelProps) {
+// Errors from download_and_attach_pdf() that mean "the site blocked an
+// automated download" rather than "nothing was found" -- these are the
+// cases where suggesting the manual preview-then-upload path actually helps.
+function isLikelyBlockedError(message: string): boolean {
+  return (
+    /HTTP \d{3}/.test(message) ||
+    message.includes("did not return a PDF file") ||
+    message.includes("Could not reach that link")
+  );
+}
+
+export default function FindPdfPanel({ paper, onAttached }: FindPdfPanelProps) {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [candidates, setCandidates] = useState<PdfCandidate[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [attachingUrl, setAttachingUrl] = useState<string | null>(null);
+  const [blockedUrl, setBlockedUrl] = useState<string | null>(null);
 
   async function handleSearch() {
     setSearching(true);
     setError(null);
+    setBlockedUrl(null);
 
     try {
       const results = await findPdfOnline(paper.id);
@@ -42,65 +69,90 @@ export default function FindPdfPanel({
   async function handleConfirm(candidate: PdfCandidate) {
     setAttachingUrl(candidate.url);
     setError(null);
+    setBlockedUrl(null);
 
     try {
       const updated = await attachPdf(paper.id, candidate.url);
+      notifyRecommendationIndexStale();
       onAttached(updated);
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Could not attach that PDF."
-      );
+      const message =
+        e instanceof Error ? e.message : "Could not attach that PDF.";
+      setError(message);
+
+      if (isLikelyBlockedError(message)) {
+        setBlockedUrl(candidate.landing_page_url || candidate.url);
+      }
     } finally {
       setAttachingUrl(null);
     }
   }
 
   return (
-    <div className="mt-4 w-full max-w-md text-left">
+    <div className="mt-4 w-full max-w-md text-left text-gray-900">
+      {/* button-primary: the one warm-filled action in this panel */}
       {!searched && (
-        <button
+        <Button
           type="button"
           onClick={handleSearch}
           disabled={searching}
-          className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
         >
           {searching ? "Searching…" : "Find PDF Online"}
-        </button>
+        </Button>
       )}
 
       {error && (
-        <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </p>
+        // No red: accents are never used for state. Ink text in an outlined panel.
+        <div
+          role="alert"
+          className="mt-6 rounded border-[3px] border-gray-900 bg-white px-3 py-2 text-sm font-medium text-gray-900"
+        >
+          <p>{error}</p>
+
+          {blockedUrl && (
+            <p className="mt-2 text-sm font-normal leading-normal text-gray-600">
+              This source appears to be blocking automated downloads.
+              Try{" "}
+              <a
+                href={blockedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={`font-bold text-gray-900 underline underline-offset-2 ${FOCUS}`}
+              >
+                opening it in your browser
+              </a>
+              , saving the PDF, then uploading it from the{" "}
+              <strong className="text-gray-900">Upload</strong> page instead.
+            </p>
+          )}
+        </div>
       )}
 
       {searched && !searching && candidates.length === 0 && !error && (
-        <p className="mt-3 text-sm text-gray-500">
-          No open-access PDF was found for this paper. You can still
-          upload one manually.
+        <p className="mt-6 text-sm text-gray-600">
+          No open-access PDF was found for this paper. You can still upload one manually.
         </p>
       )}
 
       {candidates.length > 0 && (
-        <div className="mt-4 space-y-3">
-          <p className="text-xs font-medium text-gray-500">
-            Found {candidates.length} possible match
-            {candidates.length > 1 ? "es" : ""} — confirm before
-            attaching:
+        <div className="mt-6 space-y-4">
+          <p className="text-sm font-bold text-gray-900">
+            Found {candidates.length} possible match{candidates.length > 1 ? "es" : ""} — confirm before attaching:
           </p>
 
           {candidates.map((candidate) => (
+            // result-panel: white fill, 3px outline, 4px radius, md padding
             <div
               key={candidate.url}
-              className="rounded-md border border-gray-200 p-3"
+              className="rounded border-[3px] border-gray-900 bg-white p-4"
             >
-              <p className="text-sm font-medium text-gray-900">
+              <p className="text-sm font-bold leading-snug text-gray-900">
                 {candidate.title || "Untitled result"}
               </p>
 
-              <p className="mt-1 text-xs text-gray-500">
-                Source: {sourceLabels[candidate.source] ?? candidate.source}{" "}
-                · {Math.round(candidate.confidence * 100)}% title match
+              <p className="mt-1 text-sm text-gray-600">
+                Source: {sourceLabels[candidate.source] ?? candidate.source} ·{" "}
+                {Math.round(candidate.confidence * 100)}% title match
                 {candidate.license ? ` · ${candidate.license}` : ""}
               </p>
 
@@ -108,28 +160,26 @@ export default function FindPdfPanel({
                 href={candidate.landing_page_url || candidate.url}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-1 inline-block break-all text-xs text-blue-600 hover:underline"
+                className={`mt-1 inline-block break-all text-sm text-gray-900 underline underline-offset-2 ${FOCUS}`}
               >
                 {candidate.landing_page_url || candidate.url}
               </a>
 
-              <div className="mt-2 flex gap-2">
-                <button
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => handleConfirm(candidate)}
                   disabled={attachingUrl !== null}
-                  className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                 >
-                  {attachingUrl === candidate.url
-                    ? "Attaching…"
-                    : "Use this PDF"}
-                </button>
+                  {attachingUrl === candidate.url ? "Attaching…" : "Use this PDF"}
+                </Button>
 
                 <a
                   href={candidate.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  className={UTILITY_LINK}
                 >
                   Preview
                 </a>
@@ -137,14 +187,14 @@ export default function FindPdfPanel({
             </div>
           ))}
 
-          <button
+          <Button
             type="button"
+            variant="quiet"
             onClick={handleSearch}
             disabled={searching}
-            className="text-xs text-gray-500 hover:underline"
           >
             {searching ? "Searching…" : "Search again"}
-          </button>
+          </Button>
         </div>
       )}
     </div>

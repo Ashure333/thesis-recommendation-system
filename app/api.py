@@ -25,6 +25,7 @@ from app.services.bib_extraction import extract_metadata_from_bib
 from app.services.extraction import extract_metadata_from_pdf
 from app.services.classification import classify_paper
 from app.services.validation import validate_paper
+from app.services.duplicate_detection import DuplicatePaperError
 from app.services.text_preparation import refresh_prepared_text
 
 from app.services.storage import (
@@ -56,6 +57,11 @@ from app.schemas import (
     AttachPdfRequest,
 )
 
+from app.services.research_chat import (
+    ResearchChatRequest,
+    ResearchChatResponse,
+    answer_research_question,
+)
 
 app = FastAPI(title="PaperRec API")
 
@@ -337,9 +343,11 @@ def find_pdf(
 ):
     """
     Search-only step: looks for a legal open-access PDF matching this
-    paper (Unpaywall, Crossref, Semantic Scholar, arXiv, OpenAlex) and
-    returns candidates for the user to review. Nothing is downloaded
-    here.
+    paper (Unpaywall, Crossref, Semantic Scholar, arXiv, OpenAlex)
+    and returns candidates for the user to review.
+
+    Metadata enrichment is also attempted using the same candidates.
+    Nothing is downloaded here.
     """
 
     paper = (
@@ -360,11 +368,14 @@ def find_pdf(
             detail="This paper already has a stored PDF.",
         )
 
+    # --------------------------------------------------------
+    # Find PDF candidates
+    # --------------------------------------------------------
+
     try:
         candidates = find_pdf_candidates(paper)
 
     except Exception as error:
-
         print()
         print("FIND PDF FAILED")
         print(error)
@@ -372,21 +383,41 @@ def find_pdf(
         raise HTTPException(
             status_code=502,
             detail="Could not search for a PDF right now.",
+        ) from error
+
+    # --------------------------------------------------------
+    # Best-effort metadata enrichment
+    # --------------------------------------------------------
+
+    try:
+        from app.services.metadata_enrichment import enrich_paper_metadata
+
+        changed = enrich_paper_metadata(
+            paper,
+            candidates,
         )
 
-    # find_pdf_candidates() may resolve and set paper.doi via Crossref
-    # when the paper had none on file. Persist it so future searches
-    # (and attach_pdf's verification step) don't re-resolve it every
-    # time -- a GET request's session otherwise discards the change
-    # when it closes.
+        if changed:
+            validate_paper(paper)
+            refresh_prepared_text(paper)
+            set_recommendation_index_stale(True)
+
+    except Exception as error:
+        print("WARNING: Metadata enrichment failed:")
+        print(error)
+
+    # --------------------------------------------------------
+    # Persist changes made by find_pdf_candidates() or enrichment
+    # --------------------------------------------------------
+
     if db.is_modified(paper):
         db.commit()
+        db.refresh(paper)
 
     return [
         PdfCandidateOut(**candidate.to_dict())
         for candidate in candidates
     ]
-
 
 @app.post(
     "/api/papers/{paper_id}/attach-pdf",
@@ -399,10 +430,13 @@ def attach_pdf(
 ):
     """
     Confirm step: downloads the PDF at the given URL (a candidate the
-    user picked from /find-pdf), verifies it actually matches this
-    paper (by DOI-in-text if we have a DOI, otherwise by re-extracted
-    title similarity), and attaches it the same way an uploaded PDF
-    is stored.
+    user picked from /find-pdf), verifies it, and stores it the same
+    way an uploaded PDF is stored. Then runs the same metadata
+    extraction the normal PDF-upload path uses on the newly downloaded
+    file, backfilling whatever the paper is still missing
+    (title/abstract/keywords/publication_year). A field the paper
+    already has -- e.g. a title from its original BibTeX import -- is
+    never overwritten.
     """
 
     paper = (
@@ -444,8 +478,84 @@ def attach_pdf(
 
     paper.stored_path = stored_path
 
+    # --------------------------------------------------------
+    # Extract metadata from the file we just downloaded and use
+    # it to backfill whatever the paper is still missing -- the
+    # same fields a normal PDF upload extracts. A field already
+    # on the paper is left alone.
+    # --------------------------------------------------------
+
+    changed_recommendation_fields = False
+
+    try:
+        full_path = get_paper_file_path(stored_path)
+        extracted = extract_metadata_from_pdf(full_path)
+
+    except Exception as error:
+
+        print()
+        print("METADATA EXTRACTION FAILED FOR ATTACHED PDF")
+        print(error)
+
+        extracted = {}
+
+    backfill_fields = (
+        "title",
+        "abstract",
+        "keywords",
+        "publication_year",
+    )
+
+    for field in backfill_fields:
+        current_value = getattr(paper, field, None)
+
+        is_blank = (
+            current_value is None
+            or (
+                isinstance(current_value, str)
+                and not current_value.strip()
+            )
+        )
+
+        extracted_value = extracted.get(field)
+
+        if is_blank and extracted_value:
+            setattr(paper, field, extracted_value)
+            changed_recommendation_fields = True
+
+            if field == "keywords":
+                paper.keywords_source = extracted.get(
+                    "keywords_source"
+                )
+                paper.keywords_generated = extracted.get(
+                    "keywords_generated",
+                    False,
+                )
+
+    if not paper.subject_category:
+        try:
+            classify_paper(paper)
+        except Exception as error:
+            print("WARNING: classification failed after attach-pdf")
+            print(error)
+
+    try:
+        validate_paper(paper)
+        refresh_prepared_text(paper)
+    except Exception as error:
+        print("WARNING: validation/prepared-text refresh failed after attach-pdf")
+        print(error)
+
     db.commit()
     db.refresh(paper)
+
+    if changed_recommendation_fields:
+        set_recommendation_index_stale(True)
+
+        print(
+            f"Recommendation index is stale for paper {paper.id}. "
+            "Rebuild required."
+        )
 
     return paper
 
@@ -751,6 +861,12 @@ def upload_paper(
             file.filename,
         )
 
+    except DuplicatePaperError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
+
     except Exception as error:
 
         print()
@@ -912,6 +1028,12 @@ def import_paper_from_url(
             "google-scholar.bib",
         )
 
+    except DuplicatePaperError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
+
     except Exception as error:
 
         print("SCHOLAR IMPORT FAILED")
@@ -986,6 +1108,12 @@ def import_bibtex(
             tmp_path,
             filename,
         )
+
+    except DuplicatePaperError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
 
     except Exception as error:
 
@@ -1233,3 +1361,197 @@ def get_recommendations(
         ) from error
 
     return results
+
+# ============================================================
+# SIMILAR PAPERS GRAPH
+# ============================================================
+
+@app.get("/api/papers/{paper_id}/similar-graph")
+def get_similar_papers_graph(
+    paper_id: int,
+    pipeline: str = "tfidf_sbert_metadata",
+    top_k: int = 10,
+    db: Session = Depends(get_session),
+):
+    # --------------------------------------------------------
+    # Validate pipeline
+    # --------------------------------------------------------
+
+    if pipeline not in IMPLEMENTED_PIPELINES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported recommendation pipeline: {pipeline}. "
+                f"Supported pipelines: "
+                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}"
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Validate top_k
+    # --------------------------------------------------------
+
+    if top_k <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="top_k must be greater than 0.",
+        )
+
+    # --------------------------------------------------------
+    # Get selected paper
+    # --------------------------------------------------------
+
+    seed_paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .first()
+    )
+
+    if not seed_paper:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        )
+
+    # --------------------------------------------------------
+    # Make sure the seed can be used by the recommendation
+    # system
+    # --------------------------------------------------------
+
+    if not seed_paper.is_valid_for_recommendation:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This paper is not valid for recommendation. "
+                "Rebuild the recommendation index first."
+            ),
+        )
+
+    if not seed_paper.prepared_text:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This paper has no prepared text and cannot "
+                "be used for similarity search."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Run the EXISTING recommendation system
+    # --------------------------------------------------------
+
+    try:
+        results = run_search(
+            db=db,
+            seed_paper_id=paper_id,
+            pipeline=pipeline,
+            top_k=top_k,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    except Exception as error:
+        print()
+        print("SIMILAR PAPERS GRAPH FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to generate similar papers graph.",
+        ) from error
+
+    # --------------------------------------------------------
+    # Center node = selected paper
+    # --------------------------------------------------------
+
+    nodes = [
+        {
+            "id": seed_paper.id,
+            "title": seed_paper.title,
+            "author": seed_paper.author,
+            "publication_year": seed_paper.publication_year,
+            "abstract": seed_paper.abstract,
+            "doi": seed_paper.doi,
+            "similarity": 1.0,
+            "relationship": "current",
+        }
+    ]
+
+    # --------------------------------------------------------
+    # Similar-paper nodes
+    # --------------------------------------------------------
+
+    for result in results:
+        paper = result["paper"]
+
+        nodes.append(
+            {
+                "id": paper.id,
+                "title": paper.title,
+                "author": paper.author,
+                "publication_year": paper.publication_year,
+                "abstract": paper.abstract,
+                "doi": paper.doi,
+                "similarity": result["score"],
+                "relationship": "similar",
+            }
+        )
+
+    # --------------------------------------------------------
+    # Connect the selected paper to each similar paper
+    # --------------------------------------------------------
+
+    edges = [
+        {
+            "source": paper_id,
+            "target": node["id"],
+            "similarity": node["similarity"],
+        }
+        for node in nodes
+        if node["id"] != paper_id
+    ]
+
+    # --------------------------------------------------------
+    # Return graph data
+    # --------------------------------------------------------
+
+    return {
+        "paper_id": paper_id,
+        "pipeline": pipeline,
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+# ============================================================
+# RESEARCH ASSISTANT
+# ============================================================
+
+@app.post(
+    "/api/research-chat",
+    response_model=ResearchChatResponse,
+)
+def research_chat(
+    request: ResearchChatRequest,
+    db: Session = Depends(get_session),
+):
+    try:
+        return answer_research_question(
+            db=db,
+            request=request,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+    except Exception as error:
+        print("RESEARCH CHAT FAILED")
+        print(error)
+        raise HTTPException(
+            status_code=500,
+            detail="Research chat failed.",
+        ) from error
