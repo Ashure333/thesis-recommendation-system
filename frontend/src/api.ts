@@ -250,7 +250,9 @@ export interface RecommendationIndexStatus {
 }
 
 export function getRecommendationIndexStatus(): Promise<RecommendationIndexStatus> {
-  return fetch(`${API_URL}/api/recommendations/status`).then(
+  return fetch(
+    `${API_URL}/api/recommendations/status`
+  ).then(
     handle<RecommendationIndexStatus>
   );
 }
@@ -259,17 +261,118 @@ export function rebuildRecommendationIndex(): Promise<{
   success: boolean;
   message: string;
 }> {
-  return fetch(`${API_URL}/api/recommendations/rebuild`, {
-    method: "POST",
-  }).then(handle<{ success: boolean; message: string }>);
+  return fetch(
+    `${API_URL}/api/recommendations/rebuild`,
+    {
+      method: "POST",
+    }
+  ).then(
+    handle<{
+      success: boolean;
+      message: string;
+    }>
+  );
 }
+
 // ============================================================
 // RECOMMENDATION INDEX STALE NOTIFICATION
 // ============================================================
 
-// Dispatches a browser event so AppLayout's listener can flip the
-// "recommendation index needs updating" banner on immediately,
-// without waiting for a page reload or the next status poll.
+// Dispatches a browser event so AppLayout's listener
+// can flip the "recommendation index needs updating"
+// banner immediately, without waiting for a page reload
+// or the next status poll.
 export function notifyRecommendationIndexStale(): void {
-  window.dispatchEvent(new Event("recommendation-index-stale"));
+  window.dispatchEvent(
+    new Event("recommendation-index-stale")
+  );
+}
+
+// ============================================================
+// SEMANTIC SCHOLAR RESEARCH GRAPH
+// ============================================================
+
+export interface ConnectedPaperNode {
+  id: string;
+  title: string;
+  authors: string[];
+  year: number | null;
+  abstract: string | null;
+  url: string | null;
+  doi: string | null;
+
+  relationship:
+    | "current"
+    | "reference"
+    | "citation";
+}
+
+export interface ConnectedPaperEdge {
+  source: string;
+  target: string;
+
+  relationship:
+    | "reference"
+    | "citation";
+}
+
+export interface ConnectedPapersGraphData {
+  start_id: string;
+  semantic_scholar_id: string;
+
+  nodes: ConnectedPaperNode[];
+  edges: ConnectedPaperEdge[];
+}
+
+export function getConnectedPapersGraph(
+  paperId: number
+): Promise<ConnectedPapersGraphData> {
+  return fetch(
+    `${API_URL}/api/papers/${paperId}/connected-graph`
+  ).then(
+    handle<ConnectedPapersGraphData>
+  );
+}
+
+// ============================================================
+// SIMILAR PAPERS GRAPH
+// ============================================================
+
+export interface SimilarGraphNode {
+  id: number;
+  title: string;
+  author: string | null;
+  publication_year: number | null;
+  abstract: string | null;
+  doi: string | null;
+  similarity: number;
+  relationship: "current" | "similar";
+}
+
+export interface SimilarGraphEdge {
+  source: number;
+  target: number;
+  similarity: number;
+}
+
+export interface SimilarPapersGraph {
+  paper_id: number;
+  pipeline: string;
+  nodes: SimilarGraphNode[];
+  edges: SimilarGraphEdge[];
+}
+
+export function getSimilarPapersGraph(
+  paperId: number,
+  pipeline = "tfidf_sbert_metadata",
+  topK = 10
+): Promise<SimilarPapersGraph> {
+  const search = new URLSearchParams();
+
+  search.set("pipeline", pipeline);
+  search.set("top_k", String(topK));
+
+  return fetch(
+    `${API_URL}/api/papers/${paperId}/similar-graph?${search.toString()}`
+  ).then(handle<SimilarPapersGraph>);
 }

@@ -14,6 +14,8 @@ import Upload from "./pages/repository/Upload";
 import MyLibrary from "./pages/repository/MyLibrary";
 import Evaluation from "./pages/evaluation/Evaluation";
 
+import LibraryUITest from "./pages/repository/LibraryUITest";
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -33,6 +35,7 @@ export default function App() {
           <Route path="/upload" element={<Upload />} />
           <Route path="/library" element={<MyLibrary />} />
           <Route path="/evaluation" element={<Evaluation />} />
+          <Route path="/library-ui-test" element={<LibraryUITest />} />
           <Route path="/faq" element={<FAQ />} />
         </Route>
 
