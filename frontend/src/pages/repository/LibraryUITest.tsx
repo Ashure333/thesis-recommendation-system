@@ -9,7 +9,10 @@ import {
   Paperclip,
   X,
   ChevronRight,
+  ChevronDown,
 } from "lucide-react";
+
+import ConnectedPapersGraph from "../../components/ConnectedPapersGraph";
 
 import {
   listPapers,
@@ -25,6 +28,29 @@ import {
    ============================================================ */
 
 type DetailTab = "details" | "abstract";
+
+type RecommendationPipeline =
+  | "tfidf"
+  | "sbert"
+  | "tfidf_sbert"
+  | "tfidf_metadata"
+  | "sbert_metadata"
+  | "tfidf_sbert_metadata";
+
+const RECOMMENDATION_PIPELINES: {
+  value: RecommendationPipeline;
+  label: string;
+}[] = [
+  { value: "tfidf", label: "TF-IDF" },
+  { value: "sbert", label: "S-BERT" },
+  { value: "tfidf_sbert", label: "TF-IDF + S-BERT" },
+  { value: "tfidf_metadata", label: "TF-IDF + Metadata" },
+  { value: "sbert_metadata", label: "S-BERT + Metadata" },
+  {
+    value: "tfidf_sbert_metadata",
+    label: "TF-IDF + S-BERT + Metadata",
+  },
+];
 
 type PdfTab = {
   id: number;
@@ -1599,7 +1625,119 @@ function DetailsPanel({
         )}
 
       </div>
+
+      {/* ======================================================
+          SIMILAR PAPERS
+
+          This stays outside the Details/Abstract tabs so the
+          graph gets its own vertical space and does not make
+          the tab contents feel cramped. It remains part of the
+          normal scroll flow of the right details panel.
+          ====================================================== */}
+
+      <SimilarPapersSection paper={paper} />
+
     </div>
+  );
+}
+
+/* ============================================================
+   SIMILAR PAPERS
+   ============================================================ */
+
+function SimilarPapersSection({
+  paper,
+}: {
+  paper: Paper;
+}) {
+  const [open, setOpen] = useState(true);
+  const [pipeline, setPipeline] =
+    useState<RecommendationPipeline>(
+      "tfidf_sbert_metadata"
+    );
+
+  const activePipelineLabel =
+    RECOMMENDATION_PIPELINES.find(
+      (item) => item.value === pipeline
+    )?.label ?? pipeline;
+
+  return (
+    <section className="pb-2">
+
+      <div className="overflow-hidden rounded-md border border-[#ddd8d0] bg-white">
+
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left hover:bg-[#faf9f7]"
+        >
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#686159]">
+              Similar Papers
+            </p>
+
+            <p className="mt-1 truncate text-[10px] text-[#99938a]">
+              {open
+                ? "Repository papers ranked by the selected recommendation pipeline."
+                : `Using ${activePipelineLabel}`}
+            </p>
+          </div>
+
+          <ChevronDown
+            size={15}
+            className={`shrink-0 text-[#918a81] transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+
+        {open && (
+          <div className="border-t border-[#e5e0d9] p-3">
+
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[9px] uppercase tracking-[0.14em] text-[#918a81]">
+                  Recommendation Pipeline
+                </p>
+              </div>
+
+              <select
+                value={pipeline}
+                onChange={(event) =>
+                  setPipeline(
+                    event.target.value as RecommendationPipeline
+                  )
+                }
+                className="max-w-[220px] rounded-md border border-[#d9d5ce] bg-[#faf9f7] px-2.5 py-1.5 text-[10px] text-[#514b44] outline-none focus:border-[#aaa49b]"
+              >
+                {RECOMMENDATION_PIPELINES.map((item) => (
+                  <option
+                    key={item.value}
+                    value={item.value}
+                  >
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <p className="mb-3 text-[10px] leading-5 text-[#777169]">
+              These are similar papers already available in your repository.
+              The selected paper is the center node.
+            </p>
+
+            <div className="min-h-[430px] w-full overflow-hidden rounded-md border border-[#e3dfd8] bg-[#faf9f7]">
+              <ConnectedPapersGraph
+                paperId={paper.id}
+                pipeline={pipeline}
+                topK={10}
+              />
+            </div>
+
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
