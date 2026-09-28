@@ -376,3 +376,52 @@ export function getSimilarPapersGraph(
     `${API_URL}/api/papers/${paperId}/similar-graph?${search.toString()}`
   ).then(handle<SimilarPapersGraph>);
 }
+
+// ============================================================
+// RESEARCH ASSISTANT
+// Add this near the other API types/functions in frontend/src/api.ts
+// ============================================================
+
+export interface ResearchChatHistoryItem {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ResearchChatSource {
+  paper_id: number;
+  title: string;
+  author: string | null;
+  year: number | null;
+  score: number;
+  abstract: string | null;
+}
+
+export interface ResearchChatResponse {
+  answer: string;
+  sources: ResearchChatSource[];
+  used_fallback: boolean;
+}
+
+export interface ResearchChatParams {
+  message: string;
+  pipeline?: "tfidf" | "sbert";
+  topK?: number;
+  history?: ResearchChatHistoryItem[];
+}
+
+export function researchChat(
+  params: ResearchChatParams
+): Promise<ResearchChatResponse> {
+  return fetch(`${API_URL}/api/research-chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message: params.message,
+      pipeline: params.pipeline ?? "sbert",
+      top_k: params.topK ?? 6,
+      history: params.history ?? [],
+    }),
+  }).then(handle<ResearchChatResponse>);
+}

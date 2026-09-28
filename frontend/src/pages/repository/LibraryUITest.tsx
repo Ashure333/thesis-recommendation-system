@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 
 import ConnectedPapersGraph from "../../components/ConnectedPapersGraph";
+import ResearchAssistant, {
+  ResearchReferencePanel,
+} from "../../components/ResearchAssistant";
 
 import {
   listPapers,
@@ -140,6 +143,12 @@ export default function LibraryUITest() {
 
   const [activePdfTabId, setActivePdfTabId] =
     useState<number | null>(null);
+
+  const [activeView, setActiveView] =
+    useState<"repository" | "research">("repository");
+
+  const [researchSources, setResearchSources] =
+    useState<import("../../api").ResearchChatSource[]>([]);
 
   /* ============================================================
      LOAD WHOLE REPOSITORY
@@ -307,6 +316,7 @@ export default function LibraryUITest() {
     }
 
     setSelectedPaper(paper);
+    setActiveView("repository");
     setActivePdfTabId(paper.id);
   }
 
@@ -386,6 +396,7 @@ export default function LibraryUITest() {
      ============================================================ */
 
   function showRepository() {
+    setActiveView("repository");
     setActivePdfTabId(null);
 
     if (filteredPapers.length > 0) {
@@ -393,6 +404,11 @@ export default function LibraryUITest() {
         filteredPapers[0]
       );
     }
+  }
+
+  function showResearchAssistant() {
+    setActiveView("research");
+    setActivePdfTabId(null);
   }
 
   /* ============================================================
@@ -440,6 +456,7 @@ export default function LibraryUITest() {
     setSelectedCategory(category);
     setDetailTab("details");
 
+    setActiveView("repository");
     setActivePdfTabId(null);
   }
 
@@ -616,14 +633,32 @@ export default function LibraryUITest() {
               type="button"
               onClick={showRepository}
               className={`relative flex h-full shrink-0 items-center border-r border-[#ddd8d0] px-5 text-[11px] ${
-                activePdfTabId === null
+                activeView === "repository" && activePdfTabId === null
                   ? "bg-white text-[#25211d]"
                   : "text-[#817a72] hover:bg-[#eeece8]"
               }`}
             >
               Repository
 
-              {activePdfTabId === null && (
+              {activeView === "repository" && activePdfTabId === null && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#3e3933]" />
+              )}
+            </button>
+
+            {/* RESEARCH ASSISTANT TAB */}
+
+            <button
+              type="button"
+              onClick={showResearchAssistant}
+              className={`relative flex h-full shrink-0 items-center border-r border-[#ddd8d0] px-5 text-[11px] ${
+                activeView === "research"
+                  ? "bg-white text-[#25211d]"
+                  : "text-[#817a72] hover:bg-[#eeece8]"
+              }`}
+            >
+              Research Assistant
+
+              {activeView === "research" && (
                 <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#3e3933]" />
               )}
             </button>
@@ -685,7 +720,11 @@ export default function LibraryUITest() {
               REPOSITORY / PDF VIEW
               ================================================== */}
 
-          {activePdfTabId === null ? (
+          {activeView === "research" ? (
+            <ResearchAssistant
+              onSourcesChange={setResearchSources}
+            />
+          ) : activePdfTabId === null ? (
             <RepositoryView
               selectedCategory={
                 selectedCategory
@@ -743,7 +782,9 @@ export default function LibraryUITest() {
 
         <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[#dcd8d1] bg-[#faf9f7]">
 
-          {selectedPaper ? (
+          {activeView === "research" ? (
+            <ResearchReferencePanel sources={researchSources} />
+          ) : selectedPaper ? (
             <>
               {/* ==================================================
                   RIGHT HEADER
@@ -1927,3 +1968,4 @@ function EmptyDetails() {
     </div>
   );
 }
+
