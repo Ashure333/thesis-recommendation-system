@@ -15,6 +15,9 @@ import { FaRegFilePdf } from "react-icons/fa6";
 import { CiFileOff } from "react-icons/ci";
 
 import ConnectedPapersGraph from "../../components/ConnectedPapersGraph";
+import ResearchAssistant, {
+  ResearchReferencePanel,
+} from "../../components/ResearchAssistant";
 import { Button } from "../../components/ui";
 
 import {
@@ -24,6 +27,7 @@ import {
   saveToLibrary,
   Paper,
   RepositoryStats,
+  ResearchChatSource,
 } from "../../api";
 
 /* ============================================================
@@ -156,6 +160,12 @@ export default function LibraryUITest() {
 
   const [activePdfTabId, setActivePdfTabId] =
     useState<number | null>(null);
+
+  const [activeView, setActiveView] =
+    useState<"repository" | "research">("repository");
+
+  const [researchSources, setResearchSources] =
+    useState<ResearchChatSource[]>([]);
 
   /* ============================================================
      LOAD WHOLE REPOSITORY
@@ -323,6 +333,7 @@ export default function LibraryUITest() {
     }
 
     setSelectedPaper(paper);
+    setActiveView("repository");
     setActivePdfTabId(paper.id);
   }
 
@@ -394,6 +405,7 @@ export default function LibraryUITest() {
     if (!paper) return;
 
     setSelectedPaper(paper);
+    setActiveView("repository");
     setActivePdfTabId(paperId);
   }
 
@@ -402,6 +414,7 @@ export default function LibraryUITest() {
      ============================================================ */
 
   function showRepository() {
+    setActiveView("repository");
     setActivePdfTabId(null);
 
     if (filteredPapers.length > 0) {
@@ -409,6 +422,11 @@ export default function LibraryUITest() {
         filteredPapers[0]
       );
     }
+  }
+
+  function showResearchAssistant() {
+    setActiveView("research");
+    setActivePdfTabId(null);
   }
 
   /* ============================================================
@@ -454,6 +472,7 @@ export default function LibraryUITest() {
     category: string | null
   ) {
     setSelectedCategory(category);
+    setActiveView("repository");
     setDetailTab("details");
 
     setActivePdfTabId(null);
@@ -532,7 +551,7 @@ export default function LibraryUITest() {
 
             <div className="shrink-0 border-b-[3px] border-gray-900 px-5 py-5">
               <h1 className="text-3xl font-bold leading-none tracking-tighter text-gray-900">
-                Paper repository
+                RE: Search
               </h1>
             </div>
 
@@ -566,6 +585,7 @@ export default function LibraryUITest() {
                   onClick={() => {
                     setSelectedCategory(null);
                     setSearchQuery("");
+                    setActiveView("repository");
                     setActivePdfTabId(null);
                   }}
                 />
@@ -635,7 +655,7 @@ export default function LibraryUITest() {
               type="button"
               onClick={showRepository}
               aria-current={
-                activePdfTabId === null
+                activeView === "repository" && activePdfTabId === null
                   ? "page"
                   : undefined
               }
@@ -646,6 +666,23 @@ export default function LibraryUITest() {
               }`}
             >
               Repository
+            </button>
+
+            {/* RESEARCH ASSISTANT TAB */}
+
+            <button
+              type="button"
+              onClick={showResearchAssistant}
+              aria-current={
+                activeView === "research" ? "page" : undefined
+              }
+              className={`h-10 shrink-0 rounded border-[3px] border-gray-900 px-4 text-sm font-medium text-gray-900 ${FOCUS} ${
+                activeView === "research"
+                  ? "bg-[#FCA847]"
+                  : "bg-white hover:bg-[#FFFDF8]"
+              }`}
+            >
+              Research Assistant
             </button>
 
             {/* PDF TABS */}
@@ -709,7 +746,11 @@ export default function LibraryUITest() {
               REPOSITORY / PDF VIEW
               ================================================== */}
 
-          {activePdfTabId === null ? (
+          {activeView === "research" ? (
+            <ResearchAssistant
+              onSourcesChange={setResearchSources}
+            />
+          ) : activePdfTabId === null ? (
             <RepositoryView
               selectedCategory={
                 selectedCategory
@@ -767,7 +808,9 @@ export default function LibraryUITest() {
 
         <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l-[3px] border-gray-900 bg-[#FFFDF8]">
 
-          {selectedPaper ? (
+          {activeView === "research" ? (
+            <ResearchReferencePanel sources={researchSources} />
+          ) : selectedPaper ? (
             <>
               {/* ==================================================
                   RIGHT HEADER
