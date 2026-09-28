@@ -24,12 +24,19 @@ interface PositionedNode extends SimilarGraphNode {
     "tfidf_metadata" | "sbert_metadata" | "tfidf_sbert_metadata"
 */
 
+/* ============================================================
+   GITINGEST DESIGN LANGUAGE
+   White result-panel · 3px gray-900 outline · 4px radius · no blur
+   Ink = the selected paper · Orange = hovered / selected (active state)
+   Depth is a solid offset slab (4px / 4px), never a drop shadow.
+   ============================================================ */
+
 /*
   LAYOUT NOTES
   ------------
-  The graph no longer tries to draw titles next to every node. That was the
-  cause of the cramped look: long labels collided with each other and forced a
-  620px minimum width, which caused horizontal scrolling in the side panel.
+  The graph does not draw titles next to every node. Long labels collided and
+  forced a wide minimum width, which caused horizontal scrolling in the side
+  panel.
 
   Instead:
     - the SVG only holds the nodes (numbered by rank), so it scales cleanly
@@ -49,18 +56,23 @@ const RING_SQUASH = 0.98;
 
 const CURRENT_RADIUS = 30;
 
+// Slab offset, in SVG user units (matches translate-x-1 / translate-y-1).
+const SLAB = 4;
+// Stroke of the chunky outline, in SVG user units.
+const OUTLINE = 3;
+
+// SVG needs raw hex values; these mirror the Tailwind tokens used elsewhere.
 const COLORS = {
-  sage: "#668b72",
-  sageDark: "#4f7259",
-  sageSoft: "#eef4ef",
-  sageMid: "#cfdfd3",
-  line: "#d8d2ca",
-  lineSoft: "#eeeae4",
-  ink: "#403b35",
-  inkSoft: "#686159",
-  muted: "#918a81",
-  paper: "#faf9f7",
+  ink: "#111827", // gray-900
+  orange: "#FCA847", // brand orange: active state
+  surface: "#ffffff",
+  hairline: "#e5e7eb",
 };
+
+const FOCUS_INSET =
+  "focus-visible:outline focus-visible:outline-[3px] focus-visible:-outline-offset-[3px] focus-visible:outline-gray-900";
+
+const PANEL = "rounded border-[3px] border-gray-900 bg-white";
 
 function getRingRadius(ring: number) {
   if (ring < RING_RADII.length) {
@@ -143,6 +155,8 @@ function layoutNodes(
   return result;
 }
 
+// Similarity is encoded by size only (no tinted washes), so the fills stay
+// flat: white = idle, orange = active, ink = the paper being compared.
 function getNodeRadius(node: PositionedNode, min: number, max: number) {
   if (node.relationship === "current") {
     return CURRENT_RADIUS;
@@ -154,17 +168,12 @@ function getNodeRadius(node: PositionedNode, min: number, max: number) {
   return 15 + t * 6;
 }
 
-function nodeFill(node: PositionedNode, min: number, max: number) {
-  if (node.relationship === "current") {
-    return COLORS.sage;
-  }
+/* ---------- Shared bits ---------- */
 
-  const span = Math.max(max - min, 0.0001);
-  const t = (node.similarity - min) / span;
-
-  // Stronger matches get a slightly deeper sage wash.
-  const alpha = 0.06 + t * 0.34;
-  return `rgba(102, 139, 114, ${alpha.toFixed(2)})`;
+function PanelTitle({ children }: { children: string }) {
+  return (
+    <h3 className="text-xl font-bold leading-snug text-gray-900">{children}</h3>
+  );
 }
 
 export default function ConnectedPapersGraph({
@@ -262,44 +271,46 @@ export default function ConnectedPapersGraph({
 
   if (loading) {
     return (
-      <div className="rounded-md border border-[#ddd8d0] bg-white px-4 py-5">
-        <div className="flex items-center justify-between">
+      <div
+        role="status"
+        aria-live="polite"
+        className={`${PANEL} px-4 py-5 text-gray-900`}
+      >
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-[12px] font-medium text-[#403b35]">
-              Similar Papers
-            </p>
-
-            <p className="mt-1 text-[10px] text-[#918a81]">
+            <PanelTitle>Similar Papers</PanelTitle>
+            <p className="mt-1 text-sm text-gray-600">
               Building similarity graph from your repository…
             </p>
           </div>
 
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#ddd8d0] border-t-[#668b72]" />
+          {/* small circular indicator: the one place `rounded-full` is allowed */}
+          <div
+            aria-hidden="true"
+            className="h-6 w-6 shrink-0 animate-spin rounded-full border-[3px] border-gray-900 border-t-transparent motion-reduce:animate-none"
+          />
         </div>
       </div>
     );
   }
 
   if (error) {
+    // No red: accents are never used for state. Ink text in an outlined panel.
     return (
-      <div className="rounded-md border border-[#e3d8d0] bg-[#faf4f0] px-4 py-4">
-        <p className="text-[12px] font-medium text-[#765f51]">
-          Similar Papers
+      <div role="alert" className={`${PANEL} px-4 py-4 text-gray-900`}>
+        <PanelTitle>Similar Papers</PanelTitle>
+        <p className="mt-1 text-sm font-medium leading-normal text-gray-900">
+          {error}
         </p>
-
-        <p className="mt-1 text-[10px] leading-5 text-[#826b5d]">{error}</p>
       </div>
     );
   }
 
   if (!graph || graph.nodes.length <= 1) {
     return (
-      <div className="rounded-md border border-[#ddd8d0] bg-white px-4 py-4">
-        <p className="text-[12px] font-medium text-[#403b35]">
-          Similar Papers
-        </p>
-
-        <p className="mt-1 text-[10px] leading-5 text-[#918a81]">
+      <div className={`${PANEL} px-4 py-4 text-gray-900`}>
+        <PanelTitle>Similar Papers</PanelTitle>
+        <p className="mt-1 text-sm text-gray-600">
           No similar papers were found in the repository.
         </p>
       </div>
@@ -309,34 +320,27 @@ export default function ConnectedPapersGraph({
   const ringCount = Math.max(...rankedNodes.map((node) => node.ring), 0) + 1;
 
   return (
-    <div className="overflow-hidden rounded-md border border-[#ddd8d0] bg-white">
+    <div className={`${PANEL} overflow-hidden text-gray-900`}>
       {/* HEADER */}
-      <div className="border-b border-[#eeeae4] px-4 py-3">
+      <div className="px-4 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[12px] font-medium text-[#403b35]">
-              Similar Papers
-            </p>
+            <PanelTitle>Similar Papers</PanelTitle>
 
-            <p className="mt-1 text-[10px] leading-4 text-[#918a81]">
+            <p className="mt-1 text-sm text-gray-600">
               Closer to the center means more similar.
             </p>
           </div>
 
-          <span className="shrink-0 rounded-full border border-[#ddd8d0] bg-[#faf9f7] px-2 py-1 text-[9px] text-[#777169]">
+          {/* example-chip treatment */}
+          <span className="shrink-0 rounded border-[3px] border-gray-900 bg-white px-2 py-0.5 text-sm font-bold leading-snug">
             {graph.nodes.length - 1} related
           </span>
         </div>
       </div>
 
-      {/* GRAPH */}
-      <div
-        className="px-2 py-2"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 50% 50%, #f3f7f4 0%, #ffffff 68%)",
-        }}
-      >
+      {/* GRAPH: sits on the cream canvas so it reads as "inside" the panel */}
+      <div className="border-t-[3px] border-gray-900 bg-[#FFFDF8] px-2 py-3">
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           className="mx-auto block h-auto w-full max-w-[520px]"
@@ -353,10 +357,9 @@ export default function ConnectedPapersGraph({
               rx={getRingRadius(ring)}
               ry={getRingRadius(ring) * RING_SQUASH}
               fill="none"
-              stroke={COLORS.line}
-              strokeWidth={1}
-              strokeDasharray="2 5"
-              opacity={0.75}
+              stroke={COLORS.hairline}
+              strokeWidth={2}
+              strokeDasharray="3 6"
             />
           ))}
 
@@ -379,6 +382,10 @@ export default function ConnectedPapersGraph({
 
             const dimmed = activeId !== null && !highlighted;
 
+            // Ink for the edges that matter, hairline for the rest.
+            const stroke =
+              highlighted || touchesCurrent ? COLORS.ink : COLORS.hairline;
+
             return (
               <line
                 key={`${edge.source}-${edge.target}`}
@@ -386,11 +393,11 @@ export default function ConnectedPapersGraph({
                 y1={source.y}
                 x2={target.x}
                 y2={target.y}
-                stroke={highlighted ? COLORS.sage : COLORS.line}
-                strokeWidth={highlighted ? 2 : touchesCurrent ? 1.3 : 0.8}
-                strokeLinecap="round"
-                opacity={dimmed ? 0.2 : touchesCurrent ? 0.9 : 0.45}
-                style={{ transition: "opacity 150ms, stroke 150ms" }}
+                stroke={stroke}
+                strokeWidth={highlighted ? OUTLINE : touchesCurrent ? 2 : 1.5}
+                strokeLinecap="butt"
+                opacity={dimmed ? 0.25 : 1}
+                style={{ transition: "opacity 100ms" }}
               />
             );
           })}
@@ -417,6 +424,16 @@ export default function ConnectedPapersGraph({
               similarityRange.max
             );
 
+            // Flat fills only: ink = compared paper, orange = active, white = idle.
+            const fill = isCurrent
+              ? COLORS.ink
+              : isActive || isSelected
+                ? COLORS.orange
+                : COLORS.surface;
+
+            // Slab only on the high-priority nodes (level-2 elevation).
+            const hasSlab = isCurrent || isSelected;
+
             return (
               <g
                 key={node.id}
@@ -442,102 +459,46 @@ export default function ConnectedPapersGraph({
                 onBlur={() => setHoveredNodeId(null)}
                 className="cursor-pointer outline-none"
                 opacity={dimmed ? 0.4 : 1}
-                style={{ transition: "opacity 150ms" }}
+                style={{ transition: "opacity 100ms" }}
               >
-                {/* soft halo for the active node */}
-                {(isActive || isSelected) && (
+                {/* offset slab: a second solid layer, same shape, no blur */}
+                {hasSlab && (
                   <circle
-                    cx={node.x}
-                    cy={node.y}
-                    r={radius + 6}
-                    fill={COLORS.sage}
-                    opacity={0.14}
+                    cx={node.x + SLAB}
+                    cy={node.y + SLAB}
+                    r={radius}
+                    fill={COLORS.ink}
+                    stroke={COLORS.ink}
+                    strokeWidth={OUTLINE}
                   />
                 )}
-
-                {/* pulse on the center node (one gentle, ambient motion) */}
-                {isCurrent && (
-                  <circle
-                    cx={node.x}
-                    cy={node.y}
-                    r={radius}
-                    fill="none"
-                    stroke={COLORS.sage}
-                    strokeWidth={1.5}
-                  >
-                    <animate
-                      attributeName="r"
-                      values={`${radius};${radius + 14}`}
-                      dur="3s"
-                      repeatCount="indefinite"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0.45;0"
-                      dur="3s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                )}
-
-                {/* shadow */}
-                <circle
-                  cx={node.x}
-                  cy={node.y + 1.5}
-                  r={radius}
-                  fill="#000"
-                  opacity={0.06}
-                />
 
                 {/* body */}
                 <circle
                   cx={node.x}
                   cy={node.y}
                   r={radius}
-                  fill="#ffffff"
-                />
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r={radius}
-                  fill={nodeFill(
-                    node,
-                    similarityRange.min,
-                    similarityRange.max
-                  )}
-                  stroke={
-                    isCurrent || isActive || isSelected
-                      ? COLORS.sage
-                      : COLORS.line
-                  }
-                  strokeWidth={isCurrent || isSelected ? 2.5 : 1.5}
-                  style={{ transition: "stroke 150ms" }}
+                  fill={fill}
+                  stroke={COLORS.ink}
+                  strokeWidth={OUTLINE}
                 />
 
                 {isCurrent ? (
-                  <>
-                    <circle
-                      cx={node.x}
-                      cy={node.y}
-                      r={10}
-                      fill="#ffffff"
-                      opacity={0.95}
-                    />
-                    <circle
-                      cx={node.x}
-                      cy={node.y}
-                      r={4}
-                      fill={COLORS.sage}
-                    />
-                  </>
+                  <circle
+                    cx={node.x}
+                    cy={node.y}
+                    r={8}
+                    fill={COLORS.surface}
+                    pointerEvents="none"
+                  />
                 ) : (
                   <text
                     x={node.x}
-                    y={node.y + 4}
+                    y={node.y + 5}
                     textAnchor="middle"
-                    fontSize={12}
-                    fontWeight={600}
-                    fill={COLORS.sageDark}
+                    fontSize={14}
+                    fontWeight={700}
+                    fill={COLORS.ink}
                     pointerEvents="none"
                   >
                     {node.rank}
@@ -549,24 +510,38 @@ export default function ConnectedPapersGraph({
         </svg>
 
         {/* LEGEND */}
-        <div className="flex items-center justify-center gap-4 pb-1 text-[9px] text-[#918a81]">
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#668b72]" />
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-2 text-sm text-gray-900">
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="h-4 w-4 rounded-full border-[3px] border-gray-900 bg-gray-900"
+            />
             Selected paper
           </span>
 
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full border border-[#d8d2ca] bg-[rgba(102,139,114,0.25)]" />
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="h-4 w-4 rounded-full border-[3px] border-gray-900 bg-white"
+            />
             Similar (numbered by rank)
+          </span>
+
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="h-4 w-4 rounded-full border-[3px] border-gray-900 bg-[#FCA847]"
+            />
+            Highlighted
           </span>
         </div>
       </div>
 
       {/* CENTER PAPER */}
       {currentNode && (
-        <div className="border-t border-[#eeeae4] bg-[#faf9f7] px-4 py-2.5">
-          <p className="text-[9px] text-[#918a81]">Comparing against</p>
-          <p className="mt-0.5 text-[11px] font-medium leading-4 text-[#403b35]">
+        <div className="border-t-[3px] border-gray-900 bg-white px-4 py-3">
+          <p className="text-sm text-gray-600">Comparing against</p>
+          <p className="mt-0.5 text-sm font-bold leading-snug text-gray-900">
             {currentNode.title}
           </p>
         </div>
@@ -574,7 +549,7 @@ export default function ConnectedPapersGraph({
 
       {/* RANKED LIST */}
       <ol
-        className="border-t border-[#eeeae4]"
+        className="border-t-[3px] border-gray-900"
         onMouseLeave={() => setHoveredNodeId(null)}
       >
         {rankedNodes.map((node) => {
@@ -585,7 +560,8 @@ export default function ConnectedPapersGraph({
           return (
             <li
               key={node.id}
-              className="border-b border-[#f3f0eb] last:border-b-0"
+              // hairline: the one incidental separator in the design language
+              className="border-b border-gray-200 last:border-b-0"
             >
               <button
                 type="button"
@@ -594,15 +570,14 @@ export default function ConnectedPapersGraph({
                 onFocus={() => setHoveredNodeId(node.id)}
                 onBlur={() => setHoveredNodeId(null)}
                 aria-pressed={isSelected}
-                className={`flex w-full items-start gap-3 px-4 py-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#668b72] ${
-                  isActive ? "bg-[#f3f7f4]" : "bg-white"
+                className={`flex w-full items-start gap-3 px-4 py-3 text-left text-gray-900 transition-colors duration-100 motion-reduce:transition-none ${FOCUS_INSET} ${
+                  isActive ? "bg-[#FCA847]" : "bg-white"
                 }`}
               >
+                {/* rank chip: circular indicator, ink when selected */}
                 <span
-                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-semibold ${
-                    isSelected
-                      ? "border-[#668b72] bg-[#668b72] text-white"
-                      : "border-[#d8d2ca] bg-white text-[#4f7259]"
+                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[3px] border-gray-900 text-sm font-bold leading-none ${
+                    isSelected ? "bg-gray-900 text-white" : "bg-white text-gray-900"
                   }`}
                 >
                   {node.rank}
@@ -610,15 +585,15 @@ export default function ConnectedPapersGraph({
 
                 <span className="min-w-0 flex-1">
                   <span
-                    className={`block text-[11px] leading-4 text-[#403b35] ${
-                      isSelected ? "font-medium" : ""
-                    } ${isSelected ? "" : "line-clamp-2"}`}
+                    className={`block text-sm leading-snug text-gray-900 ${
+                      isSelected ? "font-bold" : "line-clamp-2 font-medium"
+                    }`}
                   >
                     {node.title}
                   </span>
 
                   {isSelected && (
-                    <span className="mt-0.5 block text-[9px] text-[#918a81]">
+                    <span className="mt-0.5 block text-sm text-gray-900">
                       {node.author || "Unknown author"}
                       {node.publication_year
                         ? `, ${node.publication_year}`
@@ -626,19 +601,19 @@ export default function ConnectedPapersGraph({
                     </span>
                   )}
 
-                  {/* similarity bar */}
-                  <span className="mt-1.5 flex items-center gap-2">
-                    <span className="h-1 flex-1 overflow-hidden rounded-full bg-[#eeeae4]">
+                  {/* similarity bar: same construction as WeightBar */}
+                  <span className="mt-2 flex items-center gap-3">
+                    <span className="h-3 flex-1 overflow-hidden rounded border-[3px] border-gray-900 bg-white">
                       <span
-                        className="block h-full rounded-full bg-[#668b72]"
+                        className="block h-full bg-gray-900"
                         style={{
                           width: `${Math.max(2, Math.min(100, percent))}%`,
-                          transition: "width 300ms ease-out",
+                          transition: "width 100ms linear",
                         }}
                       />
                     </span>
 
-                    <span className="w-9 shrink-0 text-right text-[9px] font-medium tabular-nums text-[#668b72]">
+                    <span className="w-12 shrink-0 text-right text-sm font-bold tabular-nums text-gray-900">
                       {percent.toFixed(1)}%
                     </span>
                   </span>
@@ -650,8 +625,8 @@ export default function ConnectedPapersGraph({
       </ol>
 
       {/* FOOTER */}
-      <div className="border-t border-[#eeeae4] px-4 py-2">
-        <p className="text-[9px] leading-4 text-[#a09a92]">
+      <div className="border-t-[3px] border-gray-900 bg-white px-4 py-3">
+        <p className="text-sm leading-normal text-gray-600">
           Similarity is calculated using the selected recommendation pipeline
           against papers already stored in the repository.
         </p>

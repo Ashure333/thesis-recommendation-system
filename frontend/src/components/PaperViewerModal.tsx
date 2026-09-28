@@ -5,7 +5,7 @@ import {
 } from "../api";
 import type { Paper } from "../api";
 import FindPdfPanel from "./FindPdfPanel";
-
+import { Button } from "./ui";
 
 interface PaperViewerModalProps {
   paper: Paper | null;
@@ -14,7 +14,6 @@ interface PaperViewerModalProps {
   canEdit?: boolean;
   onPaperUpdated?: (paper: Paper) => void;
 }
-
 
 interface PaperForm {
   title: string;
@@ -28,6 +27,69 @@ interface PaperForm {
   citation_count: string;
 }
 
+/* ============================================================
+   GITINGEST DESIGN LANGUAGE
+   Cream canvas #FFFDF8 · 3px gray-900 outlines · 4px radius
+   Depth = a solid offset slab behind the dialog (8px, offset-lg)
+   Orange = the one primary action · errors are plain ink text
+   ============================================================ */
+
+/* Compact version of the url-input (pale-blue field, chunky outline).
+   No slab: nine stacked slabs in a sidebar would be noise, and the
+   slab is reserved for the one dominant input on a page. */
+const INPUT =
+  "block w-full rounded border-[3px] border-gray-900 bg-[#E8F0FE] px-3 py-2 " +
+  "text-sm font-medium text-gray-900 placeholder-gray-600 " +
+  "focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-gray-900 " +
+  "disabled:cursor-not-allowed disabled:opacity-50";
+
+// Fields shown in the metadata panel, in display order.
+interface FieldConfig {
+  key: keyof PaperForm;
+  label: string;
+  control: "input" | "textarea";
+  type?: "number";
+  rows?: number;
+  emptyText?: string;
+  /** whitespace-pre-wrap + relaxed leading, for long prose */
+  prose?: boolean;
+  breakAll?: boolean;
+}
+
+const FIELDS: FieldConfig[] = [
+  { key: "title", label: "Title", control: "input" },
+  { key: "author", label: "Author", control: "input" },
+  { key: "publication_year", label: "Publication year", control: "input", type: "number" },
+  {
+    key: "abstract",
+    label: "Abstract",
+    control: "textarea",
+    rows: 7,
+    emptyText: "No abstract available.",
+    prose: true,
+  },
+  { key: "keywords", label: "Keywords", control: "textarea", rows: 3 },
+  { key: "doi", label: "DOI", control: "input", breakAll: true },
+  { key: "subject_category", label: "Subject category", control: "input" },
+  { key: "document_type", label: "Document type", control: "input" },
+  { key: "citation_count", label: "Citation count", control: "input", type: "number" },
+];
+
+function formFromPaper(paper: Paper): PaperForm {
+  return {
+    title: paper.title ?? "",
+    author: paper.author ?? "",
+    abstract: paper.abstract ?? "",
+    keywords: paper.keywords ?? "",
+    publication_year:
+      paper.publication_year != null ? String(paper.publication_year) : "",
+    doi: paper.doi ?? "",
+    subject_category: paper.subject_category ?? "",
+    document_type: paper.document_type ?? "",
+    citation_count:
+      paper.citation_count != null ? String(paper.citation_count) : "",
+  };
+}
 
 export default function PaperViewerModal({
   paper,
@@ -36,19 +98,10 @@ export default function PaperViewerModal({
   canEdit = false,
   onPaperUpdated,
 }: PaperViewerModalProps) {
-
   const [editing, setEditing] = useState(false);
-
   const [saving, setSaving] = useState(false);
-
-  const [error, setError] = useState<string | null>(
-    null
-  );
-
-
-  const [currentPaper, setCurrentPaper] =
-    useState<Paper | null>(paper);
-
+  const [error, setError] = useState<string | null>(null);
+  const [currentPaper, setCurrentPaper] = useState<Paper | null>(paper);
 
   const [form, setForm] = useState<PaperForm>({
     title: "",
@@ -62,7 +115,6 @@ export default function PaperViewerModal({
     citation_count: "",
   });
 
-
   useEffect(() => {
     setCurrentPaper(paper);
 
@@ -70,113 +122,54 @@ export default function PaperViewerModal({
       return;
     }
 
-    setForm({
-      title: paper.title ?? "",
-      author: paper.author ?? "",
-      abstract: paper.abstract ?? "",
-      keywords: paper.keywords ?? "",
-      publication_year:
-        paper.publication_year != null
-          ? String(paper.publication_year)
-          : "",
-      doi: paper.doi ?? "",
-      subject_category:
-        paper.subject_category ?? "",
-      document_type:
-        paper.document_type ?? "",
-      citation_count:
-        paper.citation_count != null
-          ? String(paper.citation_count)
-          : "",
-    });
-
+    setForm(formFromPaper(paper));
     setEditing(false);
     setError(null);
   }, [paper]);
-
 
   if (!open || !currentPaper) {
     return null;
   }
 
-
-  const pdfUrl = getPaperPdfUrl(
-    currentPaper.id
-  );
-
+  const pdfUrl = getPaperPdfUrl(currentPaper.id);
 
   const isPdf =
-    currentPaper.stored_path
-      ?.toLowerCase()
-      .endsWith(".pdf") ?? false;
+    currentPaper.stored_path?.toLowerCase().endsWith(".pdf") ?? false;
 
-
-  const handleChange = (
-    field: keyof PaperForm,
-    value: string
-  ) => {
+  const handleChange = (field: keyof PaperForm, value: string) => {
     setForm((previous) => ({
       ...previous,
       [field]: value,
     }));
   };
 
-
   const handleSave = async () => {
     setSaving(true);
     setError(null);
 
     try {
-      const updatedPaper =
-  await updatePaper(
-    currentPaper.id,
-    {
-      title:
-        form.title.trim() || undefined,
-
-      author:
-        form.author.trim() || undefined,
-
-      abstract:
-        form.abstract.trim() || undefined,
-
-      keywords:
-        form.keywords.trim() || undefined,
-
-      publication_year:
-        form.publication_year.trim()
+      const updatedPaper = await updatePaper(currentPaper.id, {
+        title: form.title.trim() || undefined,
+        author: form.author.trim() || undefined,
+        abstract: form.abstract.trim() || undefined,
+        keywords: form.keywords.trim() || undefined,
+        publication_year: form.publication_year.trim()
           ? Number(form.publication_year)
           : undefined,
-
-      doi:
-        form.doi.trim() || undefined,
-
-      subject_category:
-        form.subject_category.trim() || undefined,
-
-      document_type:
-        form.document_type.trim() || undefined,
-
-      citation_count:
-        form.citation_count.trim()
+        doi: form.doi.trim() || undefined,
+        subject_category: form.subject_category.trim() || undefined,
+        document_type: form.document_type.trim() || undefined,
+        citation_count: form.citation_count.trim()
           ? Number(form.citation_count)
           : undefined,
-    }
-  );
+      });
 
-
-      setCurrentPaper(
-        updatedPaper
-      );
-
+      setCurrentPaper(updatedPaper);
       setEditing(false);
 
       if (onPaperUpdated) {
-        onPaperUpdated(
-          updatedPaper
-        );
+        onPaperUpdated(updatedPaper);
       }
-
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -188,40 +181,15 @@ export default function PaperViewerModal({
     }
   };
 
-
   const handleCancelEdit = () => {
     if (!currentPaper) {
       return;
     }
 
-    setForm({
-      title: currentPaper.title ?? "",
-      author: currentPaper.author ?? "",
-      abstract: currentPaper.abstract ?? "",
-      keywords: currentPaper.keywords ?? "",
-      publication_year:
-        currentPaper.publication_year != null
-          ? String(
-              currentPaper.publication_year
-            )
-          : "",
-      doi: currentPaper.doi ?? "",
-      subject_category:
-        currentPaper.subject_category ?? "",
-      document_type:
-        currentPaper.document_type ?? "",
-      citation_count:
-        currentPaper.citation_count != null
-          ? String(
-              currentPaper.citation_count
-            )
-          : "",
-    });
-
+    setForm(formFromPaper(currentPaper));
     setEditing(false);
     setError(null);
   };
-
 
   // --------------------------------------------------------
   // Called by FindPdfPanel once a candidate PDF has been
@@ -235,812 +203,222 @@ export default function PaperViewerModal({
     }
   };
 
-
   return (
+    /* Scrim is the solid cream canvas rather than a translucent black:
+       the spec allows no translucency, and the ink outline + slab read
+       best against cream. */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#FFFDF8] p-6"
       onMouseDown={(event) => {
-        if (
-          event.target === event.currentTarget
-        ) {
+        if (event.target === event.currentTarget) {
           onClose();
         }
       }}
     >
-
-      <div
-        className="
-          flex
-          h-[92vh]
-          w-[95vw]
-          max-w-[1600px]
-          flex-col
-          overflow-hidden
-          rounded-xl
-          bg-white
-          shadow-2xl
-        "
-      >
-
-        {/* ================================================= */}
-        {/* HEADER */}
-        {/* ================================================= */}
+      {/* Sizing lives on the wrapper so the slab matches the dialog exactly. */}
+      <div className="relative h-[92vh] w-[95vw] max-w-[1600px]">
+        {/* offset-lg slab: second solid layer, 8px right / 8px down */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 translate-x-2 translate-y-2 rounded bg-gray-900"
+        />
 
         <div
-          className="
-            flex
-            items-center
-            justify-between
-            border-b
-            border-gray-200
-            px-5
-            py-4
-          "
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="paper-viewer-title"
+          className="relative z-10 flex h-full w-full flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white text-gray-900"
         >
+          {/* ================================================= */}
+          {/* HEADER (navbar treatment: cream, ink rule below) */}
+          {/* ================================================= */}
 
-          <div className="min-w-0">
-            <h2
-              className="
-                truncate
-                text-lg
-                font-semibold
-                text-gray-900
-              "
-            >
-              {currentPaper.title ||
-                "Untitled Paper"}
-            </h2>
-
-            <p
-              className="
-                mt-1
-                text-xs
-                text-gray-500
-              "
-            >
-              {isPdf
-                ? "PDF reader"
-                : "Bibliographic record"}
-            </p>
-          </div>
-
-
-          <div className="flex items-center gap-2">
-
-            {canEdit && !editing && (
-              <button
-                type="button"
-                onClick={() =>
-                  setEditing(true)
-                }
-                className="
-                  rounded-md
-                  border
-                  border-gray-300
-                  px-3
-                  py-2
-                  text-sm
-                  font-medium
-                  text-gray-700
-                  hover:bg-gray-50
-                "
+          <div className="flex items-center justify-between gap-4 border-b-[3px] border-gray-900 bg-[#FFFDF8] px-5 py-3">
+            <div className="min-w-0">
+              <h2
+                id="paper-viewer-title"
+                className="truncate text-xl font-bold leading-snug text-gray-900"
               >
-                Edit
-              </button>
-            )}
-
-
-            {editing && (
-              <>
-                <button
-                  type="button"
-                  onClick={
-                    handleCancelEdit
-                  }
-                  disabled={saving}
-                  className="
-                    rounded-md
-                    border
-                    border-gray-300
-                    px-3
-                    py-2
-                    text-sm
-                    font-medium
-                    text-gray-700
-                    hover:bg-gray-50
-                    disabled:opacity-50
-                  "
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="button"
-                  onClick={
-                    handleSave
-                  }
-                  disabled={saving}
-                  className="
-                    rounded-md
-                    bg-gray-900
-                    px-3
-                    py-2
-                    text-sm
-                    font-medium
-                    text-white
-                    hover:bg-gray-800
-                    disabled:opacity-50
-                  "
-                >
-                  {saving
-                    ? "Saving..."
-                    : "Save"}
-                </button>
-              </>
-            )}
-
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="
-                rounded-md
-                px-3
-                py-2
-                text-xl
-                leading-none
-                text-gray-500
-                hover:bg-gray-100
-                hover:text-gray-800
-              "
-              aria-label="Close"
-            >
-              ×
-            </button>
-
-          </div>
-        </div>
-
-
-        {/* ================================================= */}
-        {/* ERROR */}
-        {/* ================================================= */}
-
-        {error && (
-          <div
-            className="
-              border-b
-              border-red-200
-              bg-red-50
-              px-5
-              py-3
-              text-sm
-              text-red-700
-            "
-          >
-            {error}
-          </div>
-        )}
-
-
-        {/* ================================================= */}
-        {/* BODY */}
-        {/* ================================================= */}
-
-        <div className="flex min-h-0 flex-1">
-
-          {/* ================================================= */}
-          {/* PDF READER */}
-          {/* ================================================= */}
-
-          <div className="min-w-0 flex-1 bg-gray-100">
-
-            {isPdf ? (
-
-              <iframe
-                src={pdfUrl}
-                title={
-                  currentPaper.title ||
-                  "Paper PDF"
-                }
-                className="
-                  h-full
-                  w-full
-                  border-0
-                "
-              />
-
-            ) : (
-
-              <div
-                className="
-                  flex
-                  h-full
-                  items-center
-                  justify-center
-                  p-8
-                  text-center
-                "
-              >
-
-                <div className="max-w-md">
-
-                  <p
-                    className="
-                      text-sm
-                      font-medium
-                      text-gray-700
-                    "
-                  >
-                    PDF unavailable
-                  </p>
-
-                  <p
-                    className="
-                      mt-2
-                      text-xs
-                      leading-5
-                      text-gray-500
-                    "
-                  >
-                    This paper was imported
-                    as a BibTeX citation and
-                    does not have a stored
-                    PDF file.
-                  </p>
-
-                  <FindPdfPanel
-                    paper={currentPaper}
-                    onAttached={handlePdfAttached}
-                  />
-
-                </div>
-
-              </div>
-
-            )}
-
-          </div>
-
-
-          {/* ================================================= */}
-          {/* METADATA PANEL */}
-          {/* ================================================= */}
-
-          <aside
-            className="
-              flex
-              w-[360px]
-              shrink-0
-              flex-col
-              overflow-y-auto
-              border-l
-              border-gray-200
-              bg-white
-            "
-          >
-
-            <div className="p-5">
-
-              <h3
-                className="
-                  text-sm
-                  font-semibold
-                  text-gray-900
-                "
-              >
-                Paper information
-              </h3>
-
-
-              <div className="mt-5 space-y-4">
-
-                {/* TITLE */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Title
-                  </label>
-
-                  {editing ? (
-                    <input
-                      value={form.title}
-                      onChange={(event) =>
-                        handleChange(
-                          "title",
-                          event.target.value
-                        )
-                      }
-                      className="
-                        mt-1
-                        w-full
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        text-sm
-                        text-gray-900
-                      "
-                    >
-                      {currentPaper.title ||
-                        "—"}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* AUTHOR */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Author
-                  </label>
-
-                  {editing ? (
-                    <input
-                      value={form.author}
-                      onChange={(event) =>
-                        handleChange(
-                          "author",
-                          event.target.value
-                        )
-                      }
-                      className="
-                        mt-1
-                        w-full
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        text-sm
-                        text-gray-900
-                      "
-                    >
-                      {currentPaper.author ||
-                        "—"}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* YEAR */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Publication year
-                  </label>
-
-                  {editing ? (
-                    <input
-                      type="number"
-                      value={
-                        form.publication_year
-                      }
-                      onChange={(event) =>
-                        handleChange(
-                          "publication_year",
-                          event.target.value
-                        )
-                      }
-                      className="
-                        mt-1
-                        w-full
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        text-sm
-                        text-gray-900
-                      "
-                    >
-                      {currentPaper.publication_year ??
-                        "—"}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* ABSTRACT */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Abstract
-                  </label>
-
-                  {editing ? (
-                    <textarea
-                      value={
-                        form.abstract
-                      }
-                      onChange={(event) =>
-                        handleChange(
-                          "abstract",
-                          event.target.value
-                        )
-                      }
-                      rows={7}
-                      className="
-                        mt-1
-                        w-full
-                        resize-y
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        whitespace-pre-wrap
-                        text-sm
-                        leading-6
-                        text-gray-700
-                      "
-                    >
-                      {currentPaper.abstract ||
-                        "No abstract available."}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* KEYWORDS */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Keywords
-                  </label>
-
-                  {editing ? (
-                    <textarea
-                      value={
-                        form.keywords
-                      }
-                      onChange={(event) =>
-                        handleChange(
-                          "keywords",
-                          event.target.value
-                        )
-                      }
-                      rows={3}
-                      className="
-                        mt-1
-                        w-full
-                        resize-y
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        text-sm
-                        text-gray-700
-                      "
-                    >
-                      {currentPaper.keywords ||
-                        "—"}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* DOI */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    DOI
-                  </label>
-
-                  {editing ? (
-                    <input
-                      value={form.doi}
-                      onChange={(event) =>
-                        handleChange(
-                          "doi",
-                          event.target.value
-                        )
-                      }
-                      className="
-                        mt-1
-                        w-full
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        break-all
-                        text-sm
-                        text-gray-700
-                      "
-                    >
-                      {currentPaper.doi ||
-                        "—"}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* SUBJECT CATEGORY */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Subject category
-                  </label>
-
-                  {editing ? (
-                    <input
-                      value={
-                        form.subject_category
-                      }
-                      onChange={(event) =>
-                        handleChange(
-                          "subject_category",
-                          event.target.value
-                        )
-                      }
-                      className="
-                        mt-1
-                        w-full
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        text-sm
-                        text-gray-700
-                      "
-                    >
-                      {currentPaper.subject_category ||
-                        "—"}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* DOCUMENT TYPE */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Document type
-                  </label>
-
-                  {editing ? (
-                    <input
-                      value={
-                        form.document_type
-                      }
-                      onChange={(event) =>
-                        handleChange(
-                          "document_type",
-                          event.target.value
-                        )
-                      }
-                      className="
-                        mt-1
-                        w-full
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        text-sm
-                        text-gray-700
-                      "
-                    >
-                      {currentPaper.document_type ||
-                        "—"}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* CITATION COUNT */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Citation count
-                  </label>
-
-                  {editing ? (
-                    <input
-                      type="number"
-                      value={
-                        form.citation_count
-                      }
-                      onChange={(event) =>
-                        handleChange(
-                          "citation_count",
-                          event.target.value
-                        )
-                      }
-                      className="
-                        mt-1
-                        w-full
-                        rounded-md
-                        border
-                        border-gray-300
-                        px-3
-                        py-2
-                        text-sm
-                        outline-none
-                        focus:border-gray-500
-                      "
-                    />
-                  ) : (
-                    <p
-                      className="
-                        mt-1
-                        text-sm
-                        text-gray-700
-                      "
-                    >
-                      {currentPaper.citation_count ??
-                        "—"}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* FILE */}
-
-                <div>
-                  <label
-                    className="
-                      text-xs
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    Stored file
-                  </label>
-
-                  <p
-                    className="
-                      mt-1
-                      break-all
-                      text-xs
-                      text-gray-500
-                    "
-                  >
-                    {currentPaper.stored_path ||
-                      "No file"}
-                  </p>
-                </div>
-
-              </div>
+                {currentPaper.title || "Untitled Paper"}
+              </h2>
+
+              <p className="text-sm text-gray-600">
+                {isPdf ? "PDF reader" : "Bibliographic record"}
+              </p>
             </div>
 
-          </aside>
+            <div className="flex shrink-0 items-center gap-3">
+              {canEdit && !editing && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setEditing(true)}
+                >
+                  Edit
+                </Button>
+              )}
 
+              {editing && (
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleCancelEdit}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
+
+                  {/* button-primary, scaled down for the header bar */}
+                  <Button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="!px-4 !py-1.5 !text-base"
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </Button>
+                </>
+              )}
+
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onClose}
+                aria-label="Close"
+                className="!px-3 !py-0.5 !text-2xl !leading-none"
+              >
+                ×
+              </Button>
+            </div>
+          </div>
+
+          {/* ================================================= */}
+          {/* ERROR: no red, plain ink text on white */}
+          {/* ================================================= */}
+
+          {error && (
+            <div
+              role="alert"
+              className="border-b-[3px] border-gray-900 bg-white px-5 py-3 text-sm font-medium text-gray-900"
+            >
+              {error}
+            </div>
+          )}
+
+          {/* ================================================= */}
+          {/* BODY */}
+          {/* ================================================= */}
+
+          <div className="flex min-h-0 flex-1">
+            {/* ----------------- PDF READER ----------------- */}
+            <div className="min-w-0 flex-1 bg-[#FFFDF8]">
+              {isPdf ? (
+                <iframe
+                  src={pdfUrl}
+                  title={currentPaper.title || "Paper PDF"}
+                  className="h-full w-full border-0"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center p-8">
+                  {/* result-panel */}
+                  <div className="w-full max-w-md rounded border-[3px] border-gray-900 bg-white p-6 text-left">
+                    <p className="text-xl font-bold leading-snug text-gray-900">
+                      PDF unavailable
+                    </p>
+
+                    <p className="mt-2 text-sm leading-normal text-gray-600">
+                      This paper was imported as a BibTeX citation and does
+                      not have a stored PDF file.
+                    </p>
+
+                    <FindPdfPanel
+                      paper={currentPaper}
+                      onAttached={handlePdfAttached}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ----------------- METADATA PANEL ----------------- */}
+            <aside className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-l-[3px] border-gray-900 bg-white">
+              <div className="p-5">
+                <h3 className="text-xl font-bold leading-snug text-gray-900">
+                  Paper information
+                </h3>
+
+                {/* whitespace groups the fields; no divider rules */}
+                <div className="mt-6 space-y-5">
+                  {FIELDS.map((field) => {
+                    const inputId = `paper-field-${field.key}`;
+                    const raw = currentPaper[field.key];
+                    const isEmpty = raw == null || raw === "";
+
+                    return (
+                      <div key={field.key}>
+                        <label
+                          htmlFor={editing ? inputId : undefined}
+                          className="mb-1.5 block text-sm font-bold text-gray-900"
+                        >
+                          {field.label}
+                        </label>
+
+                        {editing ? (
+                          field.control === "textarea" ? (
+                            <textarea
+                              id={inputId}
+                              value={form[field.key]}
+                              onChange={(event) =>
+                                handleChange(field.key, event.target.value)
+                              }
+                              rows={field.rows}
+                              className={`${INPUT} resize-y`}
+                            />
+                          ) : (
+                            <input
+                              id={inputId}
+                              type={field.type}
+                              value={form[field.key]}
+                              onChange={(event) =>
+                                handleChange(field.key, event.target.value)
+                              }
+                              className={INPUT}
+                            />
+                          )
+                        ) : (
+                          <p
+                            className={`text-sm ${
+                              field.prose
+                                ? "whitespace-pre-wrap leading-relaxed"
+                                : "leading-snug"
+                            } ${field.breakAll ? "break-all" : ""} ${
+                              isEmpty ? "text-gray-600" : "text-gray-900"
+                            }`}
+                          >
+                            {isEmpty ? field.emptyText ?? "—" : String(raw)}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* FILE: read-only, set in monospace like other code values */}
+                  <div>
+                    <p className="mb-1.5 text-sm font-bold text-gray-900">
+                      Stored file
+                    </p>
+
+                    <p className="break-all font-mono text-sm leading-normal text-gray-600">
+                      {currentPaper.stored_path || "No file"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
         </div>
-
       </div>
-
     </div>
   );
 }

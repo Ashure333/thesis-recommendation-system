@@ -14,17 +14,22 @@ export default function RecommendationIndexAlert({
   }
 
   return (
-    <div
-      role="alert"
-      className="border-b border-gold/30 bg-gold/10 px-6 py-3"
-    >
-      <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium text-gold">
+    // Sits on the cream canvas. Whitespace separates it from the page,
+    // so there is no divider rule and no tinted fill.
+    <div className="bg-[#FFFDF8] px-4 py-4 sm:px-6">
+      {/* result-panel: white fill, 3px outline, 4px radius, md padding.
+          No gold/red: accents are never used for state, so the alert is
+          identified by role="alert" and its copy, not by colour. */}
+      <div
+        role="alert"
+        className="mx-auto flex max-w-[1400px] flex-col gap-4 rounded border-[3px] border-gray-900 bg-white p-4 text-gray-900 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="min-w-0">
+          <p className="text-base font-bold leading-snug">
             Recommendation index needs updating
           </p>
 
-          <p className="mt-0.5 text-xs text-muted">
+          <p className="mt-1 text-sm text-gray-600">
             New or modified papers have been added since the last rebuild.
           </p>
         </div>
@@ -34,4 +39,3 @@ export default function RecommendationIndexAlert({
     </div>
   );
 }
-
