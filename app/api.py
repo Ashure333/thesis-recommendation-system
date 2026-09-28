@@ -1356,3 +1356,167 @@ def get_recommendations(
         ) from error
 
     return results
+
+# ============================================================
+# SIMILAR PAPERS GRAPH
+# ============================================================
+
+@app.get("/api/papers/{paper_id}/similar-graph")
+def get_similar_papers_graph(
+    paper_id: int,
+    pipeline: str = "tfidf_sbert_metadata",
+    top_k: int = 10,
+    db: Session = Depends(get_session),
+):
+    # --------------------------------------------------------
+    # Validate pipeline
+    # --------------------------------------------------------
+
+    if pipeline not in IMPLEMENTED_PIPELINES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported recommendation pipeline: {pipeline}. "
+                f"Supported pipelines: "
+                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}"
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Validate top_k
+    # --------------------------------------------------------
+
+    if top_k <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="top_k must be greater than 0.",
+        )
+
+    # --------------------------------------------------------
+    # Get selected paper
+    # --------------------------------------------------------
+
+    seed_paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .first()
+    )
+
+    if not seed_paper:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        )
+
+    # --------------------------------------------------------
+    # Make sure the seed can be used by the recommendation
+    # system
+    # --------------------------------------------------------
+
+    if not seed_paper.is_valid_for_recommendation:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This paper is not valid for recommendation. "
+                "Rebuild the recommendation index first."
+            ),
+        )
+
+    if not seed_paper.prepared_text:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This paper has no prepared text and cannot "
+                "be used for similarity search."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Run the EXISTING recommendation system
+    # --------------------------------------------------------
+
+    try:
+        results = run_search(
+            db=db,
+            seed_paper_id=paper_id,
+            pipeline=pipeline,
+            top_k=top_k,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    except Exception as error:
+        print()
+        print("SIMILAR PAPERS GRAPH FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to generate similar papers graph.",
+        ) from error
+
+    # --------------------------------------------------------
+    # Center node = selected paper
+    # --------------------------------------------------------
+
+    nodes = [
+        {
+            "id": seed_paper.id,
+            "title": seed_paper.title,
+            "author": seed_paper.author,
+            "publication_year": seed_paper.publication_year,
+            "abstract": seed_paper.abstract,
+            "doi": seed_paper.doi,
+            "similarity": 1.0,
+            "relationship": "current",
+        }
+    ]
+
+    # --------------------------------------------------------
+    # Similar-paper nodes
+    # --------------------------------------------------------
+
+    for result in results:
+        paper = result["paper"]
+
+        nodes.append(
+            {
+                "id": paper.id,
+                "title": paper.title,
+                "author": paper.author,
+                "publication_year": paper.publication_year,
+                "abstract": paper.abstract,
+                "doi": paper.doi,
+                "similarity": result["score"],
+                "relationship": "similar",
+            }
+        )
+
+    # --------------------------------------------------------
+    # Connect the selected paper to each similar paper
+    # --------------------------------------------------------
+
+    edges = [
+        {
+            "source": paper_id,
+            "target": node["id"],
+            "similarity": node["similarity"],
+        }
+        for node in nodes
+        if node["id"] != paper_id
+    ]
+
+    # --------------------------------------------------------
+    # Return graph data
+    # --------------------------------------------------------
+
+    return {
+        "paper_id": paper_id,
+        "pipeline": pipeline,
+        "nodes": nodes,
+        "edges": edges,
+    }
