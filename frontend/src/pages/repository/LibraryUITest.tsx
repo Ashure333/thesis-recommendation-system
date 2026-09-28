@@ -1,21 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
-  FileText,
   Folder,
   Bookmark,
   Search,
   ExternalLink,
-  Paperclip,
   X,
   ChevronRight,
   ChevronDown,
+  Check,
+  AlertCircle,
 } from "lucide-react";
+import { FaRegFilePdf } from "react-icons/fa6";
+import { CiFileOff } from "react-icons/ci";
 
 import ConnectedPapersGraph from "../../components/ConnectedPapersGraph";
-import ResearchAssistant, {
-  ResearchReferencePanel,
-} from "../../components/ResearchAssistant";
+import { Button } from "../../components/ui";
 
 import {
   listPapers,
@@ -25,6 +25,19 @@ import {
   Paper,
   RepositoryStats,
 } from "../../api";
+
+/* ============================================================
+   GITINGEST DESIGN LANGUAGE
+   Canvas #FFFDF8 · ink gray-900 · muted gray-600
+   3px outlines on every interactive surface · 4px radius
+   Orange #FCA847 = primary + active fill · field blue #E8F0FE = main input
+   Depth = sibling slab (bg-gray-900, translate 4px/4px), never a blur
+   Hairline (gray-200) only for incidental row separators
+   No pills, no tracked all-caps labels, no state colours.
+   ============================================================ */
+
+const FOCUS =
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900";
 
 /* ============================================================
    TYPES
@@ -143,12 +156,6 @@ export default function LibraryUITest() {
 
   const [activePdfTabId, setActivePdfTabId] =
     useState<number | null>(null);
-
-  const [activeView, setActiveView] =
-    useState<"repository" | "research">("repository");
-
-  const [researchSources, setResearchSources] =
-    useState<import("../../api").ResearchChatSource[]>([]);
 
   /* ============================================================
      LOAD WHOLE REPOSITORY
@@ -316,7 +323,6 @@ export default function LibraryUITest() {
     }
 
     setSelectedPaper(paper);
-    setActiveView("repository");
     setActivePdfTabId(paper.id);
   }
 
@@ -396,7 +402,6 @@ export default function LibraryUITest() {
      ============================================================ */
 
   function showRepository() {
-    setActiveView("repository");
     setActivePdfTabId(null);
 
     if (filteredPapers.length > 0) {
@@ -404,11 +409,6 @@ export default function LibraryUITest() {
         filteredPapers[0]
       );
     }
-  }
-
-  function showResearchAssistant() {
-    setActiveView("research");
-    setActivePdfTabId(null);
   }
 
   /* ============================================================
@@ -456,7 +456,6 @@ export default function LibraryUITest() {
     setSelectedCategory(category);
     setDetailTab("details");
 
-    setActiveView("repository");
     setActivePdfTabId(null);
   }
 
@@ -466,11 +465,12 @@ export default function LibraryUITest() {
 
   if (loading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#f7f6f3]">
+      <div className="flex h-screen w-full items-center justify-center bg-[#FFFDF8]">
         <div className="text-center">
-          <div className="mx-auto mb-3 h-5 w-5 animate-spin rounded-full border-2 border-[#c9c4bc] border-t-[#4b5563]" />
+          {/* Small circular indicator: the one place rounded-full is allowed */}
+          <div className="mx-auto mb-3 h-6 w-6 animate-spin rounded-full border-[3px] border-gray-900 border-t-transparent motion-reduce:animate-none" />
 
-          <p className="text-[12px] text-[#777169]">
+          <p className="text-sm font-medium text-gray-900">
             Loading repository...
           </p>
         </div>
@@ -484,25 +484,29 @@ export default function LibraryUITest() {
 
   if (error) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#f7f6f3] px-6">
-        <div className="max-w-md text-center">
-          <p className="font-serif text-[22px] text-[#25211d]">
+      <div className="flex h-screen w-full items-center justify-center bg-[#FFFDF8] px-6">
+        <div
+          role="alert"
+          className="max-w-md rounded border-[3px] border-gray-900 bg-white p-6 text-center"
+        >
+          <p className="text-xl font-bold leading-snug text-gray-900">
             Unable to load repository
           </p>
 
-          <p className="mt-2 text-[13px] leading-6 text-[#777169]">
+          <p className="mt-2 text-sm text-gray-600">
             {error}
           </p>
 
-          <button
-            type="button"
-            onClick={() =>
-              window.location.reload()
-            }
-            className="mt-5 rounded-md border border-[#d4d0c9] bg-white px-4 py-2 text-[12px] text-[#403b35] hover:bg-[#f4f2ee]"
-          >
-            Try again
-          </button>
+          <div className="mt-6 flex justify-center">
+            <Button
+              type="button"
+              onClick={() =>
+                window.location.reload()
+              }
+            >
+              Try again
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -513,61 +517,59 @@ export default function LibraryUITest() {
      ============================================================ */
 
   return (
-    <div className="h-screen w-full overflow-hidden bg-[#f7f6f3] text-[#24211d]">
+    <div className="h-screen w-full overflow-hidden bg-[#FFFDF8] text-gray-900">
 
-      <div className="grid h-full min-h-0 w-full min-w-0 grid-cols-[236px_minmax(0,1fr)_420px] overflow-hidden">
+      <div className="grid h-full min-h-0 w-full min-w-0 grid-cols-[256px_minmax(0,1fr)_420px] overflow-hidden">
 
         {/* ======================================================
             LEFT SIDEBAR
             ====================================================== */}
 
-        <aside className="h-full min-h-0 min-w-0 overflow-hidden border-r border-[#dcd8d1] bg-[#eeece7]">
+        <aside className="h-full min-h-0 min-w-0 overflow-hidden border-r-[3px] border-gray-900 bg-[#FFFDF8]">
           <div className="flex h-full min-h-0 flex-col">
 
             {/* HEADER */}
 
-            <div className="shrink-0 border-b border-[#dcd8d1] px-5 py-5">
-              <p className="text-[10px] uppercase tracking-[0.17em] text-[#81796f]">
-                Repository
-              </p>
-
-              <h1 className="mt-1 font-serif text-[23px] leading-tight text-[#17202a]">
-                Paper Repository
+            <div className="shrink-0 border-b-[3px] border-gray-900 px-5 py-5">
+              <h1 className="text-3xl font-bold leading-none tracking-tighter text-gray-900">
+                Paper repository
               </h1>
             </div>
 
             {/* SIDEBAR CONTENT */}
 
-            <div className="min-h-0 flex-1 overflow-hidden px-3 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
 
               <SidebarLabel>
                 Repository
               </SidebarLabel>
 
-              <SidebarButton
-                icon={<Bookmark size={15} />}
-                label="All Papers"
-                count={
-                  stats?.total_papers ??
-                  papers.length
-                }
-                active={
-                  selectedCategory === null
-                }
-                onClick={() =>
-                  selectCategory(null)
-                }
-              />
+              <div className="space-y-1">
+                <SidebarButton
+                  icon={<Bookmark size={15} />}
+                  label="All papers"
+                  count={
+                    stats?.total_papers ??
+                    papers.length
+                  }
+                  active={
+                    selectedCategory === null
+                  }
+                  onClick={() =>
+                    selectCategory(null)
+                  }
+                />
 
-              <SidebarButton
-                icon={<Folder size={15} />}
-                label="Recently Added"
-                onClick={() => {
-                  setSelectedCategory(null);
-                  setSearchQuery("");
-                  setActivePdfTabId(null);
-                }}
-              />
+                <SidebarButton
+                  icon={<Folder size={15} />}
+                  label="Recently added"
+                  onClick={() => {
+                    setSelectedCategory(null);
+                    setSearchQuery("");
+                    setActivePdfTabId(null);
+                  }}
+                />
+              </div>
 
               <div className="mt-7">
 
@@ -605,7 +607,7 @@ export default function LibraryUITest() {
                 </div>
 
                 {categories.length === 0 && (
-                  <p className="px-3 py-2 text-[11px] text-[#99938a]">
+                  <p className="px-3 py-2 text-sm text-gray-600">
                     No categories
                   </p>
                 )}
@@ -622,45 +624,28 @@ export default function LibraryUITest() {
         <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-white">
 
           {/* ==================================================
-              IN-APP TABS
+              IN-APP TABS  (toggle-segment / toggle-segment-active)
               ================================================== */}
 
-          <div className="flex h-11 shrink-0 min-w-0 items-end overflow-hidden border-b border-[#dcd8d1] bg-[#f5f3ef]">
+          <div className="flex h-16 min-w-0 shrink-0 items-center gap-2 overflow-x-auto overflow-y-hidden border-b-[3px] border-gray-900 bg-[#FFFDF8] px-3">
 
             {/* REPOSITORY TAB */}
 
             <button
               type="button"
               onClick={showRepository}
-              className={`relative flex h-full shrink-0 items-center border-r border-[#ddd8d0] px-5 text-[11px] ${
-                activeView === "repository" && activePdfTabId === null
-                  ? "bg-white text-[#25211d]"
-                  : "text-[#817a72] hover:bg-[#eeece8]"
+              aria-current={
+                activePdfTabId === null
+                  ? "page"
+                  : undefined
+              }
+              className={`h-10 shrink-0 rounded border-[3px] border-gray-900 px-4 text-sm font-medium text-gray-900 ${FOCUS} ${
+                activePdfTabId === null
+                  ? "bg-[#FCA847]"
+                  : "bg-white hover:bg-[#FFFDF8]"
               }`}
             >
               Repository
-
-              {activeView === "repository" && activePdfTabId === null && (
-                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#3e3933]" />
-              )}
-            </button>
-
-            {/* RESEARCH ASSISTANT TAB */}
-
-            <button
-              type="button"
-              onClick={showResearchAssistant}
-              className={`relative flex h-full shrink-0 items-center border-r border-[#ddd8d0] px-5 text-[11px] ${
-                activeView === "research"
-                  ? "bg-white text-[#25211d]"
-                  : "text-[#817a72] hover:bg-[#eeece8]"
-              }`}
-            >
-              Research Assistant
-
-              {activeView === "research" && (
-                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#3e3933]" />
-              )}
             </button>
 
             {/* PDF TABS */}
@@ -672,10 +657,10 @@ export default function LibraryUITest() {
               return (
                 <div
                   key={tab.id}
-                  className={`relative flex h-full min-w-0 max-w-[260px] shrink-0 items-center border-r border-[#ddd8d0] ${
+                  className={`flex h-10 min-w-0 max-w-[260px] shrink-0 items-center rounded border-[3px] border-gray-900 ${
                     active
-                      ? "bg-white"
-                      : "bg-[#f5f3ef]"
+                      ? "bg-[#FCA847]"
+                      : "bg-white"
                   }`}
                 >
                   <button
@@ -686,13 +671,21 @@ export default function LibraryUITest() {
                       )
                     }
                     title={tab.title}
-                    className="min-w-0 flex-1 truncate px-4 pr-1 text-left text-[11px] text-[#4b4640]"
+                    aria-current={
+                      active
+                        ? "page"
+                        : undefined
+                    }
+                    className={`flex min-w-0 flex-1 items-center gap-2 truncate pl-3 pr-1 text-left text-sm font-medium text-gray-900 ${FOCUS}`}
                   >
-                    <span className="mr-2 text-[#7f897f]">
-                      ▤
-                    </span>
+                    <FaRegFilePdf
+                      size={14}
+                      className="shrink-0"
+                    />
 
-                    {tab.title}
+                    <span className="truncate">
+                      {tab.title}
+                    </span>
                   </button>
 
                   <button
@@ -703,14 +696,10 @@ export default function LibraryUITest() {
                       )
                     }
                     aria-label={`Close ${tab.title}`}
-                    className="mr-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[#8c857d] hover:bg-[#e6e2dc] hover:text-[#292520]"
+                    className={`mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-900 hover:bg-gray-900 hover:text-white ${FOCUS}`}
                   >
-                    <X size={13} />
+                    <X size={14} />
                   </button>
-
-                  {active && (
-                    <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#3e3933]" />
-                  )}
                 </div>
               );
             })}
@@ -720,11 +709,7 @@ export default function LibraryUITest() {
               REPOSITORY / PDF VIEW
               ================================================== */}
 
-          {activeView === "research" ? (
-            <ResearchAssistant
-              onSourcesChange={setResearchSources}
-            />
-          ) : activePdfTabId === null ? (
+          {activePdfTabId === null ? (
             <RepositoryView
               selectedCategory={
                 selectedCategory
@@ -780,42 +765,49 @@ export default function LibraryUITest() {
             RIGHT DETAILS PANEL
             ====================================================== */}
 
-        <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[#dcd8d1] bg-[#faf9f7]">
+        <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l-[3px] border-gray-900 bg-[#FFFDF8]">
 
-          {activeView === "research" ? (
-            <ResearchReferencePanel sources={researchSources} />
-          ) : selectedPaper ? (
+          {selectedPaper ? (
             <>
               {/* ==================================================
                   RIGHT HEADER
                   ================================================== */}
 
-              <div className="shrink-0 border-b border-[#dedbd5] bg-[#faf9f7] px-5 py-4">
+              <div className="shrink-0 border-b-[3px] border-gray-900 px-5 py-4">
 
                 <div className="flex items-start justify-between gap-3">
 
                   <div className="min-w-0">
 
-                    <p className="text-[9px] uppercase tracking-[0.16em] text-[#8a8177]">
-                      Paper{" "}
-                      {selectedPaper.id}
-                      {" · "}
-                      {hasPdf(selectedPaper)
-                        ? "File Attached"
-                        : "No File"}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                      <span>
+                        Paper{" "}
+                        {selectedPaper.id}
+                      </span>
+
+                      <span className="inline-flex items-center gap-1 rounded border-[3px] border-gray-900 bg-white px-2 text-sm font-medium text-gray-900">
+                        {hasPdf(selectedPaper) ? (
+                          <FaRegFilePdf size={12} />
+                        ) : (
+                          <CiFileOff size={12} />
+                        )}
+                        {hasPdf(selectedPaper)
+                          ? "File attached"
+                          : "No file"}
+                      </span>
+                    </div>
 
                     <h2
                       title={
                         selectedPaper.title
                       }
-                      className="mt-2 line-clamp-4 font-serif text-[21px] leading-[1.15] text-[#171717]"
+                      className="mt-2 line-clamp-4 text-xl font-bold leading-snug text-gray-900"
                     >
                       {selectedPaper.title ||
                         "Untitled paper"}
                     </h2>
 
-                    <p className="mt-3 truncate text-[11px] text-[#777169]">
+                    <p className="mt-2 truncate text-sm text-gray-600">
                       {selectedPaper.author ||
                         "Unknown author"}
                     </p>
@@ -825,8 +817,9 @@ export default function LibraryUITest() {
 
                   <div className="flex shrink-0 flex-col gap-2">
 
-                    <button
+                    <Button
                       type="button"
+                      variant="secondary"
                       disabled={
                         !hasPdf(
                           selectedPaper
@@ -837,28 +830,30 @@ export default function LibraryUITest() {
                           selectedPaper
                         )
                       }
-                      className="rounded-md border border-[#d4d0c9] bg-white px-3 py-2 text-[11px] text-[#403b35] transition hover:bg-[#f3f1ed] disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Open
-                    </button>
+                    </Button>
 
-                    <button
+                    <Button
                       type="button"
+                      variant="secondary"
                       onClick={
                         handleSave
                       }
                       disabled={saving}
-                      className="rounded-md border border-[#d4d0c9] bg-white px-3 py-2 text-[11px] text-[#403b35] transition hover:bg-[#f3f1ed] disabled:cursor-wait disabled:opacity-50"
                     >
                       {saving
                         ? "Saving..."
                         : "Save"}
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
                 {saveMessage && (
-                  <div className="mt-3 rounded border border-[#ddd8cf] bg-white px-3 py-2 text-[10px] text-[#6b665f]">
+                  <div
+                    role="status"
+                    className="mt-3 rounded border-[3px] border-gray-900 bg-white px-3 py-2 text-sm font-medium text-gray-900"
+                  >
                     {saveMessage}
                   </div>
                 )}
@@ -868,9 +863,10 @@ export default function LibraryUITest() {
                   DETAILS / ABSTRACT TABS ONLY
                   ================================================== */}
 
-              <div className="flex shrink-0 border-b border-[#dedbd5] bg-[#faf9f7] px-5">
+              <div className="flex shrink-0 border-b-[3px] border-gray-900 px-5 py-3">
 
                 <DetailTabButton
+                  edge="first"
                   active={
                     detailTab ===
                     "details"
@@ -885,6 +881,7 @@ export default function LibraryUITest() {
                 </DetailTabButton>
 
                 <DetailTabButton
+                  edge="last"
                   active={
                     detailTab ===
                     "abstract"
@@ -968,6 +965,9 @@ function RepositoryView({
     paper: Paper
   ) => void;
 }) {
+  const TH =
+    "border-b-[3px] border-gray-900 bg-white px-3 py-3 text-left text-sm font-bold text-gray-900";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 
@@ -975,35 +975,33 @@ function RepositoryView({
           REPOSITORY HEADER
           ====================================================== */}
 
-      <div className="shrink-0 border-b border-[#dedbd5] bg-[#faf9f7] px-5 py-4">
+      <div className="shrink-0 border-b-[3px] border-gray-900 bg-[#FFFDF8] px-5 py-5">
 
-        <div className="mb-4 flex min-w-0 items-center justify-between gap-4">
+        <div className="mb-5 flex min-w-0 items-center justify-between gap-4">
 
-          <div className="min-w-0">
+          <h2 className="min-w-0 truncate text-xl font-bold leading-snug text-gray-900">
+            {selectedCategory ||
+              "All papers"}
+          </h2>
 
-            <p className="text-[10px] uppercase tracking-[0.16em] text-[#8a8177]">
-              Repository
-            </p>
-
-            <h2 className="mt-1 truncate font-serif text-[22px] leading-tight text-[#17202a]">
-              {selectedCategory ||
-                "All Papers"}
-            </h2>
-          </div>
-
-          <span className="shrink-0 text-[11px] text-[#8a8177]">
+          <span className="shrink-0 text-sm text-gray-600">
             {filteredPapers.length}{" "}
             papers
           </span>
         </div>
 
-        {/* SEARCH */}
+        {/* SEARCH — url-input construction: field fill + offset slab */}
 
         <div className="relative">
 
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 translate-x-1 translate-y-1 rounded bg-gray-900"
+          />
+
           <Search
-            size={15}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8d8982]"
+            size={18}
+            className="pointer-events-none absolute left-4 top-1/2 z-20 -translate-y-1/2 text-gray-900"
           />
 
           <input
@@ -1015,7 +1013,8 @@ function RepositoryView({
               )
             }
             placeholder="Search repository..."
-            className="h-10 w-full min-w-0 rounded-md border border-[#d9d5ce] bg-white pl-9 pr-3 text-[13px] text-[#2f2b27] outline-none placeholder:text-[#aaa39a] focus:border-[#aaa49b]"
+            aria-label="Search repository"
+            className="relative z-10 block w-full min-w-0 rounded border-[3px] border-gray-900 bg-[#E8F0FE] py-3 pl-11 pr-4 text-lg font-medium text-gray-900 placeholder-gray-600 transition-transform duration-100 focus:translate-x-0.5 focus:translate-y-0.5 focus:outline-none motion-reduce:transition-none"
           />
         </div>
       </div>
@@ -1026,36 +1025,34 @@ function RepositoryView({
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
 
-        <table className="w-full table-fixed border-collapse">
+        <table className="w-full table-fixed border-separate border-spacing-0">
 
-          <thead className="sticky top-0 z-10 bg-[#f7f5f2]">
+          <thead className="sticky top-0 z-10">
 
-            <tr className="border-b border-[#dedbd5]">
-
-              <th className="w-[34%] px-5 py-2.5 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[#827b72]">
+            <tr>
+              <th className={`w-[34%] pl-5 ${TH}`}>
                 Title
               </th>
 
-              <th className="w-[19%] px-3 py-2.5 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[#827b72]">
+              <th className={`w-[19%] ${TH}`}>
                 Creator
               </th>
 
-              <th className="w-[8%] px-3 py-2.5 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[#827b72]">
+              <th className={`w-[8%] ${TH}`}>
                 Year
               </th>
 
-              <th className="w-[17%] px-3 py-2.5 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[#827b72]">
+              <th className={`w-[17%] ${TH}`}>
                 Subject
               </th>
 
-              <th className="w-[12%] px-3 py-2.5 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[#827b72]">
+              <th className={`w-[12%] ${TH}`}>
                 Type
               </th>
 
-              <th className="w-[10%] px-3 py-2.5 text-left text-[10px] font-medium uppercase tracking-[0.12em] text-[#827b72]">
+              <th className={`w-[10%] ${TH}`}>
                 File
               </th>
-
             </tr>
           </thead>
 
@@ -1068,6 +1065,11 @@ function RepositoryView({
 
                 const pdf =
                   hasPdf(paper);
+
+                // Selected rows sit on orange, so secondary text goes to ink.
+                const muted = selected
+                  ? "text-gray-900"
+                  : "text-gray-600";
 
                 return (
                   <tr
@@ -1084,29 +1086,36 @@ function RepositoryView({
                         );
                       }
                     }}
-                    className={`cursor-pointer border-b border-[#e5e2dd] transition-colors ${
+                    className={`cursor-pointer ${
                       selected
-                        ? "bg-[#eeebe5]"
-                        : "bg-white hover:bg-[#f8f7f4]"
+                        ? "bg-[#FCA847]"
+                        : "bg-white hover:bg-[#FFFDF8]"
                     }`}
                   >
 
                     {/* TITLE */}
 
-                    <td className="min-w-0 px-5 py-3.5">
+                    <td className="min-w-0 border-b border-gray-200 py-3.5 pl-5 pr-3">
 
                       <div className="flex min-w-0 items-center gap-3">
 
+                        {/* solid outline = has PDF, dashed = no PDF */}
                         <div
-                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded ${
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border-[3px] ${
                             pdf
-                              ? "bg-[#eaf2ed] text-[#668b72]"
-                              : "bg-[#f1efeb] text-[#918c84]"
+                              ? "border-gray-900 bg-white text-gray-900"
+                              : `border-dashed border-gray-900 bg-transparent ${muted}`
                           }`}
                         >
-                          <FileText
-                            size={15}
-                          />
+                          {pdf ? (
+                            <FaRegFilePdf
+                              size={15}
+                            />
+                          ) : (
+                            <CiFileOff
+                              size={15}
+                            />
+                          )}
                         </div>
 
                         <div className="min-w-0">
@@ -1115,13 +1124,13 @@ function RepositoryView({
                             title={
                               paper.title
                             }
-                            className="truncate text-[13px] font-medium text-[#111827]"
+                            className="truncate text-sm font-bold text-gray-900"
                           >
                             {paper.title ||
                               "Untitled paper"}
                           </p>
 
-                          <p className="mt-1 truncate text-[10px] text-[#8b857d]">
+                          <p className={`mt-0.5 truncate text-sm ${muted}`}>
                             {paper.source_filename ||
                               paper.document_type ||
                               "No source information"}
@@ -1133,14 +1142,14 @@ function RepositoryView({
 
                     {/* CREATOR */}
 
-                    <td className="min-w-0 px-3 py-3.5">
+                    <td className="min-w-0 border-b border-gray-200 px-3 py-3.5">
 
                       <span
                         title={
                           paper.author ||
                           undefined
                         }
-                        className="block truncate text-[11px] text-[#4f4a44]"
+                        className="block truncate text-sm text-gray-900"
                       >
                         {paper.author ||
                           "Unknown author"}
@@ -1150,9 +1159,9 @@ function RepositoryView({
 
                     {/* YEAR */}
 
-                    <td className="px-3 py-3.5">
+                    <td className="border-b border-gray-200 px-3 py-3.5">
 
-                      <span className="text-[11px] text-[#777169]">
+                      <span className={`text-sm ${muted}`}>
                         {paper.publication_year ||
                           "—"}
                       </span>
@@ -1161,14 +1170,14 @@ function RepositoryView({
 
                     {/* SUBJECT */}
 
-                    <td className="min-w-0 px-3 py-3.5">
+                    <td className="min-w-0 border-b border-gray-200 px-3 py-3.5">
 
                       <span
                         title={
                           paper.subject_category ||
                           undefined
                         }
-                        className="block truncate text-[11px] text-[#777169]"
+                        className={`block truncate text-sm ${muted}`}
                       >
                         {paper.subject_category ||
                           "—"}
@@ -1178,14 +1187,14 @@ function RepositoryView({
 
                     {/* TYPE */}
 
-                    <td className="min-w-0 px-3 py-3.5">
+                    <td className="min-w-0 border-b border-gray-200 px-3 py-3.5">
 
                       <span
                         title={
                           paper.document_type ||
                           undefined
                         }
-                        className="block truncate text-[11px] text-[#777169]"
+                        className={`block truncate text-sm ${muted}`}
                       >
                         {paper.document_type ||
                           "—"}
@@ -1195,24 +1204,24 @@ function RepositoryView({
 
                     {/* FILE */}
 
-                    <td className="px-3 py-3.5">
+                    <td className="border-b border-gray-200 px-3 py-3.5">
 
                       {pdf ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] text-[#668b72]">
-                          <Paperclip
+                        <span className="inline-flex items-center gap-1 rounded border-[3px] border-gray-900 bg-white px-1.5 text-sm font-medium text-gray-900">
+                          <FaRegFilePdf
                             size={13}
                           />
                           PDF
                         </span>
                       ) : paper.stored_path ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] text-[#8d8982]">
-                          <Paperclip
+                        <span className={`inline-flex items-center gap-1 text-sm ${muted}`}>
+                          <CiFileOff
                             size={13}
                           />
                           File
                         </span>
                       ) : (
-                        <span className="text-[10px] text-[#aaa39a]">
+                        <span className={`text-sm ${muted}`}>
                           —
                         </span>
                       )}
@@ -1230,13 +1239,13 @@ function RepositoryView({
         {filteredPapers.length === 0 && (
           <div className="flex min-h-[260px] items-center justify-center px-6">
 
-            <div className="text-center">
+            <div className="rounded border-[3px] border-gray-900 bg-white p-6 text-center">
 
-              <p className="font-serif text-[18px] text-[#4d4842]">
+              <p className="text-xl font-bold leading-snug text-gray-900">
                 No papers found
               </p>
 
-              <p className="mt-1 text-[12px] text-[#99938a]">
+              <p className="mt-1 text-sm text-gray-600">
                 Try changing your
                 search or category.
               </p>
@@ -1269,9 +1278,9 @@ function PdfViewer({
 
   if (!paper) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center bg-[#e8e6e2]">
-        <div className="text-center">
-          <p className="font-serif text-[18px] text-[#4d4842]">
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-[#FFFDF8]">
+        <div className="rounded border-[3px] border-gray-900 bg-white p-6 text-center">
+          <p className="text-xl font-bold leading-snug text-gray-900">
             Paper not found
           </p>
         </div>
@@ -1283,41 +1292,42 @@ function PdfViewer({
     getPaperPdfUrl(paper.id);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#e5e3df]">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
 
       {/* PDF TOOLBAR */}
 
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#d3cfc8] bg-white px-4">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b-[3px] border-gray-900 bg-[#FFFDF8] px-4">
 
         <div className="min-w-0">
 
           <p
             title={paper.title}
-            className="truncate text-[12px] font-medium text-[#302b26]"
+            className="truncate text-sm font-bold text-gray-900"
           >
             {paper.title ||
               "Untitled paper"}
           </p>
 
-          <p className="truncate text-[10px] text-[#8b847c]">
+          <p className="truncate text-sm text-gray-600">
             {paper.author ||
               "Unknown author"}
           </p>
 
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="secondary"
           onClick={
             onOpenExternally
           }
-          className="ml-4 flex shrink-0 items-center gap-2 rounded-md border border-[#d4d0c9] bg-white px-3 py-2 text-[10px] text-[#514b45] hover:bg-[#f3f1ed]"
+          className="ml-4 shrink-0"
         >
           <ExternalLink
-            size={12}
+            size={14}
           />
           Open externally
-        </button>
+        </Button>
       </div>
 
       {/* PDF */}
@@ -1348,12 +1358,14 @@ function SidebarLabel({
   children: React.ReactNode;
 }) {
   return (
-    <p className="mb-2 px-3 text-[9px] uppercase tracking-[0.16em] text-[#837b71]">
+    <p className="mb-2 px-3 text-sm font-bold text-gray-600">
       {children}
     </p>
   );
 }
 
+// Same construction as the `quiet` button: transparent 3px outline
+// (so nothing shifts), outlined on hover, orange when active.
 function SidebarButton({
   icon,
   label,
@@ -1372,22 +1384,23 @@ function SidebarButton({
       type="button"
       onClick={onClick}
       title={label}
-      className={`flex w-full min-w-0 items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors ${
+      aria-current={active ? "page" : undefined}
+      className={`flex w-full min-w-0 items-center gap-2.5 rounded border-[3px] px-3 py-1.5 text-left text-gray-900 ${FOCUS} ${
         active
-          ? "bg-[#ddd9d2] text-[#2e2a26]"
-          : "text-[#5f5952] hover:bg-[#e5e2dc]"
+          ? "border-gray-900 bg-[#FCA847]"
+          : "border-transparent hover:border-gray-900 hover:bg-white"
       }`}
     >
       <span className="shrink-0">
         {icon}
       </span>
 
-      <span className="min-w-0 flex-1 truncate text-[12px]">
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
         {label}
       </span>
 
       {count !== undefined && (
-        <span className="shrink-0 text-[10px] text-[#918a81]">
+        <span className="shrink-0 text-sm text-gray-900">
           {count}
         </span>
       )}
@@ -1396,33 +1409,36 @@ function SidebarButton({
 }
 
 /* ============================================================
-   DETAIL TAB BUTTON
+   DETAIL TAB BUTTON  (toggle-segment pair, joined edge to edge)
    ============================================================ */
 
 function DetailTabButton({
   active,
   onClick,
   children,
+  edge,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  edge: "first" | "last";
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`relative mr-6 px-0 pb-2.5 pt-3 text-[11px] transition-colors ${
+      aria-pressed={active}
+      className={`border-[3px] border-gray-900 px-5 py-1.5 text-sm font-medium text-gray-900 ${FOCUS} ${
+        edge === "first"
+          ? "rounded-l rounded-r-none"
+          : "-ml-[3px] rounded-l-none rounded-r"
+      } ${
         active
-          ? "text-[#25211d]"
-          : "text-[#898279] hover:text-[#4e4841]"
+          ? "bg-[#FCA847]"
+          : "bg-white hover:bg-[#FFFDF8]"
       }`}
     >
       {children}
-
-      {active && (
-        <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#4c4842]" />
-      )}
     </button>
   );
 }
@@ -1444,7 +1460,7 @@ function DetailsPanel({
     );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
 
       {/* ======================================================
           BIBLIOGRAPHIC INFORMATION
@@ -1453,10 +1469,10 @@ function DetailsPanel({
       <div>
 
         <DetailSectionTitle>
-          Bibliographic Information
+          Bibliographic information
         </DetailSectionTitle>
 
-        <div className="overflow-hidden rounded-md border border-[#ddd8d0] bg-white">
+        <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
 
           <InfoRow
             label="Author"
@@ -1486,7 +1502,7 @@ function DetailsPanel({
           />
 
           <InfoRow
-            label="Document Type"
+            label="Document type"
             value={
               paper.document_type ||
               "—"
@@ -1520,7 +1536,7 @@ function DetailsPanel({
       </div>
 
       {/* ======================================================
-          KEYWORDS
+          KEYWORDS  (example-chip)
           ====================================================== */}
 
       <div>
@@ -1536,7 +1552,7 @@ function DetailsPanel({
               (keyword, index) => (
                 <span
                   key={`${keyword}-${index}`}
-                  className="max-w-full rounded-full border border-[#ddd8d0] bg-white px-2.5 py-1.5 text-[10px] text-[#686159]"
+                  className="max-w-full rounded border-[3px] border-gray-900 bg-white px-2.5 py-0.5 text-sm text-gray-900"
                 >
                   {keyword}
                 </span>
@@ -1545,7 +1561,7 @@ function DetailsPanel({
 
           </div>
         ) : (
-          <p className="text-[11px] text-[#99938a]">
+          <p className="text-sm text-gray-600">
             No keywords available.
           </p>
         )}
@@ -1562,7 +1578,7 @@ function DetailsPanel({
           Record
         </DetailSectionTitle>
 
-        <div className="overflow-hidden rounded-md border border-[#ddd8d0] bg-white">
+        <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
 
           <InfoRow
             label="Added"
@@ -1594,7 +1610,7 @@ function DetailsPanel({
             Extraction
           </DetailSectionTitle>
 
-          <div className="rounded-md border border-[#ddd8d0] bg-white px-3 py-3 text-[11px] text-[#686159]">
+          <div className="rounded border-[3px] border-gray-900 bg-white px-3 py-3 text-sm text-gray-900">
             {paper.extraction_method}
           </div>
 
@@ -1603,26 +1619,42 @@ function DetailsPanel({
 
       {/* ======================================================
           RECOMMENDATION SIGNAL
+          No green/red: state is carried by icon, wording and
+          outline style (solid = valid, dashed = not valid).
           ====================================================== */}
 
       <div>
 
         <DetailSectionTitle>
-          Recommendation Signal
+          Recommendation signal
         </DetailSectionTitle>
 
         <div
-          className={`rounded-md border px-3 py-3 text-[11px] ${
+          className={`flex items-start gap-2 rounded border-[3px] border-gray-900 px-3 py-3 text-sm font-medium text-gray-900 ${
             paper.is_valid_for_recommendation
-              ? "border-[#d4e1d7] bg-[#f1f7f2] text-[#59715f]"
-              : "border-[#e3d8d0] bg-[#faf4f0] text-[#826b5d]"
+              ? "bg-white"
+              : "border-dashed bg-[#FFFDF8]"
           }`}
         >
-          {paper.is_valid_for_recommendation
-            ? "Valid for recommendation."
-            : paper.missing_fields
-              ? `Missing: ${paper.missing_fields}`
-              : "Not currently valid for recommendation."}
+          {paper.is_valid_for_recommendation ? (
+            <Check
+              size={16}
+              className="mt-0.5 shrink-0"
+            />
+          ) : (
+            <AlertCircle
+              size={16}
+              className="mt-0.5 shrink-0"
+            />
+          )}
+
+          <span className="min-w-0 break-words">
+            {paper.is_valid_for_recommendation
+              ? "Valid for recommendation."
+              : paper.missing_fields
+                ? `Missing: ${paper.missing_fields}`
+                : "Not currently valid for recommendation."}
+          </span>
         </div>
 
       </div>
@@ -1648,9 +1680,9 @@ function DetailsPanel({
         </DetailSectionTitle>
 
         {!paper.stored_path ? (
-          <div className="rounded-md border border-[#ddd8d0] bg-white px-4 py-4">
+          <div className="rounded border-[3px] border-dashed border-gray-900 bg-[#FFFDF8] px-4 py-4">
 
-            <p className="text-[11px] text-[#777169]">
+            <p className="text-sm text-gray-600">
               This paper does not
               have an attached file.
             </p>
@@ -1705,19 +1737,20 @@ function SimilarPapersSection({
   return (
     <section className="pb-2">
 
-      <div className="overflow-hidden rounded-md border border-[#ddd8d0] bg-white">
+      <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
 
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left hover:bg-[#faf9f7]"
+          aria-expanded={open}
+          className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[#FFFDF8] ${FOCUS}`}
         >
           <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#686159]">
-              Similar Papers
+            <p className="text-lg font-bold leading-snug text-gray-900">
+              Similar papers
             </p>
 
-            <p className="mt-1 truncate text-[10px] text-[#99938a]">
+            <p className="mt-0.5 truncate text-sm text-gray-600">
               {open
                 ? "Repository papers ranked by the selected recommendation pipeline."
                 : `Using ${activePipelineLabel}`}
@@ -1725,31 +1758,33 @@ function SimilarPapersSection({
           </div>
 
           <ChevronDown
-            size={15}
-            className={`shrink-0 text-[#918a81] transition-transform ${
+            size={18}
+            className={`shrink-0 text-gray-900 transition-transform motion-reduce:transition-none ${
               open ? "rotate-180" : ""
             }`}
           />
         </button>
 
         {open && (
-          <div className="border-t border-[#e5e0d9] p-3">
+          <div className="border-t-[3px] border-gray-900 p-4">
 
             <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[9px] uppercase tracking-[0.14em] text-[#918a81]">
-                  Recommendation Pipeline
-                </p>
-              </div>
+              <label
+                htmlFor="recommendation-pipeline"
+                className="min-w-0 text-sm font-bold text-gray-900"
+              >
+                Recommendation pipeline
+              </label>
 
               <select
+                id="recommendation-pipeline"
                 value={pipeline}
                 onChange={(event) =>
                   setPipeline(
                     event.target.value as RecommendationPipeline
                   )
                 }
-                className="max-w-[220px] rounded-md border border-[#d9d5ce] bg-[#faf9f7] px-2.5 py-1.5 text-[10px] text-[#514b44] outline-none focus:border-[#aaa49b]"
+                className={`max-w-[220px] rounded border-[3px] border-gray-900 bg-white px-2.5 py-1 text-sm font-medium text-gray-900 ${FOCUS}`}
               >
                 {RECOMMENDATION_PIPELINES.map((item) => (
                   <option
@@ -1762,12 +1797,12 @@ function SimilarPapersSection({
               </select>
             </div>
 
-            <p className="mb-3 text-[10px] leading-5 text-[#777169]">
+            <p className="mb-3 text-sm leading-relaxed text-gray-600">
               These are similar papers already available in your repository.
               The selected paper is the center node.
             </p>
 
-            <div className="min-h-[430px] w-full overflow-hidden rounded-md border border-[#e3dfd8] bg-[#faf9f7]">
+            <div className="min-h-[430px] w-full overflow-hidden rounded border-[3px] border-gray-900 bg-white">
               <ConnectedPapersGraph
                 paperId={paper.id}
                 pipeline={pipeline}
@@ -1810,17 +1845,21 @@ function AttachmentCard({
           : undefined
       }
       disabled={!pdf}
-      className={`group flex w-full items-center gap-3 rounded-md border border-[#ddd8d0] bg-white px-3 py-3 text-left transition ${
+      className={`group flex w-full items-center gap-3 rounded border-[3px] border-gray-900 bg-white px-3 py-3 text-left ${FOCUS} ${
         pdf
-          ? "cursor-pointer hover:bg-[#f7f5f1]"
+          ? "cursor-pointer hover:bg-[#FCA847]"
           : "cursor-default"
       }`}
     >
 
       {/* FILE ICON */}
 
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#eaf2ed] text-[#668b72]">
-        <Paperclip size={16} />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border-[3px] border-gray-900 bg-white text-gray-900">
+        {pdf ? (
+          <FaRegFilePdf size={16} />
+        ) : (
+          <CiFileOff size={16} />
+        )}
       </div>
 
       {/* FILE INFORMATION */}
@@ -1832,13 +1871,13 @@ function AttachmentCard({
             fileName ||
             undefined
           }
-          className="truncate text-[11px] font-medium text-[#403b35]"
+          className="truncate text-sm font-bold text-gray-900"
         >
           {fileName ||
             "Attached file"}
         </p>
 
-        <p className="mt-1 text-[9px] text-[#918a81]">
+        <p className="mt-0.5 text-sm text-gray-600 group-hover:text-gray-900">
           {pdf
             ? "PDF document"
             : "Attached file"}
@@ -1850,8 +1889,8 @@ function AttachmentCard({
 
       {pdf && (
         <ChevronRight
-          size={15}
-          className="shrink-0 text-[#918a81] transition-transform group-hover:translate-x-0.5"
+          size={18}
+          className="shrink-0 text-gray-900 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
         />
       )}
 
@@ -1876,11 +1915,11 @@ function AbstractPanel({
       </DetailSectionTitle>
 
       {paper.abstract ? (
-        <div className="whitespace-pre-wrap text-[12px] leading-6 text-[#5f5952]">
+        <div className="whitespace-pre-wrap text-base leading-normal text-gray-900">
           {paper.abstract}
         </div>
       ) : (
-        <div className="rounded-md border border-[#ddd8d0] bg-white px-4 py-5 text-[11px] text-[#99938a]">
+        <div className="rounded border-[3px] border-dashed border-gray-900 bg-[#FFFDF8] px-4 py-5 text-sm text-gray-600">
           No abstract available
           for this paper.
         </div>
@@ -1900,9 +1939,9 @@ function DetailSectionTitle({
   children: React.ReactNode;
 }) {
   return (
-    <p className="mb-3 text-[9px] uppercase tracking-[0.16em] text-[#837b71]">
+    <h3 className="mb-3 text-lg font-bold leading-snug text-gray-900">
       {children}
-    </p>
+    </h3>
   );
 }
 
@@ -1917,20 +1956,20 @@ function InfoRow({
 }) {
   return (
     <div
-      className={`grid grid-cols-[116px_minmax(0,1fr)] gap-3 px-3 py-3 ${
+      className={`grid grid-cols-[120px_minmax(0,1fr)] gap-3 px-3 py-3 ${
         !last
-          ? "border-b border-[#e5e0d9]"
+          ? "border-b border-gray-200"
           : ""
       }`}
     >
 
-      <span className="truncate text-[10px] text-[#918a81]">
+      <span className="truncate text-sm text-gray-600">
         {label}
       </span>
 
       <span
         title={value}
-        className="min-w-0 break-words text-[11px] text-[#514b44]"
+        className="min-w-0 break-words text-sm text-gray-900"
       >
         {value}
       </span>
@@ -1949,17 +1988,17 @@ function EmptyDetails() {
 
       <div className="text-center">
 
-        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#efede8] text-[#9a948c]">
+        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded border-[3px] border-dashed border-gray-900 text-gray-900">
           <ChevronRight
-            size={17}
+            size={18}
           />
         </div>
 
-        <p className="font-serif text-[17px] text-[#5b554e]">
+        <p className="text-xl font-bold leading-snug text-gray-900">
           Select a paper
         </p>
 
-        <p className="mt-1 text-[11px] text-[#99938a]">
+        <p className="mt-1 text-sm text-gray-600">
           Paper details will
           appear here.
         </p>
@@ -1968,4 +2007,3 @@ function EmptyDetails() {
     </div>
   );
 }
-

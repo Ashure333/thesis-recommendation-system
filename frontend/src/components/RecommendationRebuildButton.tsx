@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { rebuildRecommendationIndex } from "../api";
+import { Button } from "./ui";
 
 interface RecommendationRebuildButtonProps {
   onRebuilt?: () => void;
@@ -28,16 +29,21 @@ export default function RecommendationRebuildButton({
   };
 
   return (
-    <button
+    // button-utility: white fill, 3px outline, 4px radius, body-sm.
+    // Hover swaps the fill to brand orange (the fill swap is the state cue,
+    // no gold tint). Secondary rather than primary because it lives inside
+    // an alert panel, where a full-size orange slab button would dominate.
+    <Button
       type="button"
+      variant="secondary"
       onClick={handleRebuild}
       disabled={isRebuilding}
-      className="shrink-0 rounded border border-gold/40 bg-gold/10 px-3 py-1.5 text-xs font-medium text-gold hover:border-gold hover:bg-gold/20 disabled:cursor-not-allowed disabled:opacity-50"
+      aria-busy={isRebuilding}
+      className="shrink-0"
     >
       {isRebuilding
         ? "Rebuilding..."
         : "Rebuild Index"}
-    </button>
+    </Button>
   );
 }
-
