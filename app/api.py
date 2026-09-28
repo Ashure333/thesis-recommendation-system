@@ -57,6 +57,11 @@ from app.schemas import (
     AttachPdfRequest,
 )
 
+from app.services.research_chat import (
+    ResearchChatRequest,
+    ResearchChatResponse,
+    answer_research_question,
+)
 
 app = FastAPI(title="PaperRec API")
 
@@ -1520,3 +1525,33 @@ def get_similar_papers_graph(
         "nodes": nodes,
         "edges": edges,
     }
+
+# ============================================================
+# RESEARCH ASSISTANT
+# ============================================================
+
+@app.post(
+    "/api/research-chat",
+    response_model=ResearchChatResponse,
+)
+def research_chat(
+    request: ResearchChatRequest,
+    db: Session = Depends(get_session),
+):
+    try:
+        return answer_research_question(
+            db=db,
+            request=request,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+    except Exception as error:
+        print("RESEARCH CHAT FAILED")
+        print(error)
+        raise HTTPException(
+            status_code=500,
+            detail="Research chat failed.",
+        ) from error
