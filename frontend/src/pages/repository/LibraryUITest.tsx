@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
 import {
   Folder,
@@ -25,6 +25,9 @@ import {
   getRepositoryStats,
   getPaperPdfUrl,
   saveToLibrary,
+  uploadPaper,
+  updatePaper,
+  deletePaper,
   Paper,
   RepositoryStats,
   ResearchChatSource,
@@ -121,6 +124,46 @@ function splitKeywords(value: string | null): string[] {
     .filter(Boolean);
 }
 
+type UploadMetadataDraft = {
+  title: string;
+  author: string;
+  abstract: string;
+  keywords: string;
+  publication_year: string;
+  doi: string;
+  subject_category: string;
+  document_type: string;
+  citation_count: string;
+};
+
+function emptyUploadDraft(): UploadMetadataDraft {
+  return {
+    title: "",
+    author: "",
+    abstract: "",
+    keywords: "",
+    publication_year: "",
+    doi: "",
+    subject_category: "",
+    document_type: "",
+    citation_count: "",
+  };
+}
+
+function paperToUploadDraft(paper: Paper): UploadMetadataDraft {
+  return {
+    title: paper.title || "",
+    author: paper.author || "",
+    abstract: paper.abstract || "",
+    keywords: paper.keywords || "",
+    publication_year: paper.publication_year?.toString() || "",
+    doi: paper.doi || "",
+    subject_category: paper.subject_category || "",
+    document_type: paper.document_type || "",
+    citation_count: paper.citation_count?.toString() || "",
+  };
+}
+
 /* ============================================================
    MAIN PAGE
    ============================================================ */
@@ -166,6 +209,25 @@ export default function LibraryUITest() {
 
   const [researchSources, setResearchSources] =
     useState<ResearchChatSource[]>([]);
+
+  /* ==========================================================
+     TABLE DROP / UPLOAD EDITOR
+     ========================================================== */
+
+  const [uploading, setUploading] =
+    useState(false);
+
+  const [uploadError, setUploadError] =
+    useState<string | null>(null);
+
+  const [uploadingPaperId, setUploadingPaperId] =
+    useState<number | null>(null);
+
+  const [uploadFileName, setUploadFileName] =
+    useState<string | null>(null);
+
+  const [uploadDraft, setUploadDraft] =
+    useState<UploadMetadataDraft>(emptyUploadDraft());
 
   /* ============================================================
      LOAD WHOLE REPOSITORY
@@ -427,6 +489,169 @@ export default function LibraryUITest() {
   function showResearchAssistant() {
     setActiveView("research");
     setActivePdfTabId(null);
+  }
+
+  /* ============================================================
+     TABLE DROP / UPLOAD
+     ============================================================ */
+
+  async function handleUploadFile(file: File) {
+    const lowerName = file.name.toLowerCase();
+    const isPdf =
+      file.type === "application/pdf" ||
+      lowerName.endsWith(".pdf");
+    const isBib =
+      lowerName.endsWith(".bib") ||
+      file.type === "application/x-bibtex";
+
+    if (!isPdf && !isBib) {
+      setUploadError(
+        "Only PDF or BibTeX (.bib) files can be uploaded."
+      );
+      return;
+    }
+
+    if (uploading) return;
+
+    setUploading(true);
+    setUploadError(null);
+    setSaveMessage(null);
+    setActivePdfTabId(null);
+    setSelectedPaper(null);
+
+    try {
+      const createdPaper = await uploadPaper(file);
+
+      setPapers((current) => [
+        createdPaper,
+        ...current,
+      ]);
+
+      setUploadingPaperId(createdPaper.id);
+      setUploadFileName(file.name);
+      setUploadDraft(paperToUploadDraft(createdPaper));
+      setSelectedPaper(createdPaper);
+      setDetailTab("details");
+    } catch (err) {
+      setUploadError(
+        err instanceof Error
+          ? err.message
+          : "Failed to upload paper."
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSaveUploadedPaper() {
+    if (!uploadingPaperId || uploading) return;
+
+    const title = uploadDraft.title.trim();
+
+    if (!title) {
+      setUploadError("Title is required before saving.");
+      return;
+    }
+
+    const year = uploadDraft.publication_year.trim();
+    const citations = uploadDraft.citation_count.trim();
+
+    if (year && !/^\d{4}$/.test(year)) {
+      setUploadError("Publication year must be a four-digit year.");
+      return;
+    }
+
+    if (citations && !/^\d+$/.test(citations)) {
+      setUploadError("Citation count must be a whole number.");
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+
+    try {
+      const updatedPaper = await updatePaper(
+        uploadingPaperId,
+        {
+          title,
+          author: uploadDraft.author.trim() || null,
+          abstract: uploadDraft.abstract.trim() || null,
+          keywords: uploadDraft.keywords.trim() || null,
+          publication_year: year ? Number(year) : null,
+          doi: uploadDraft.doi.trim() || null,
+          subject_category:
+            uploadDraft.subject_category.trim() || null,
+          document_type:
+            uploadDraft.document_type.trim() || null,
+          citation_count: citations
+            ? Number(citations)
+            : null,
+        }
+      );
+
+      setPapers((current) =>
+        current.map((paper) =>
+          paper.id === updatedPaper.id
+            ? updatedPaper
+            : paper
+        )
+      );
+
+      setSelectedPaper(updatedPaper);
+      setStats(await getRepositoryStats());
+      setUploadingPaperId(null);
+      setUploadFileName(null);
+      setUploadDraft(emptyUploadDraft());
+      setSaveMessage("Paper saved to the repository.");
+
+      window.setTimeout(() => {
+        setSaveMessage(null);
+      }, 2500);
+    } catch (err) {
+      setUploadError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save paper metadata."
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleCancelUpload() {
+    if (!uploadingPaperId || uploading) return;
+
+    setUploading(true);
+    setUploadError(null);
+
+    try {
+      await deletePaper(uploadingPaperId);
+
+      setPapers((current) =>
+        current.filter(
+          (paper) => paper.id !== uploadingPaperId
+        )
+      );
+
+      setSelectedPaper(
+        filteredPapers.find(
+          (paper) => paper.id !== uploadingPaperId
+        ) || null
+      );
+
+      setStats(await getRepositoryStats());
+      setUploadingPaperId(null);
+      setUploadFileName(null);
+      setUploadDraft(emptyUploadDraft());
+    } catch (err) {
+      setUploadError(
+        err instanceof Error
+          ? err.message
+          : "Failed to cancel uploaded paper."
+      );
+    } finally {
+      setUploading(false);
+    }
   }
 
   /* ============================================================
@@ -773,6 +998,12 @@ export default function LibraryUITest() {
               onOpenPdf={
                 openPdfTab
               }
+              onUploadFile={
+                handleUploadFile
+              }
+              uploading={uploading}
+              uploadError={uploadError}
+              uploadingPaperId={uploadingPaperId}
             />
           ) : (
             <PdfViewer
@@ -810,6 +1041,16 @@ export default function LibraryUITest() {
 
           {activeView === "research" ? (
             <ResearchReferencePanel sources={researchSources} />
+          ) : uploadingPaperId !== null ? (
+            <UploadMetadataEditor
+              fileName={uploadFileName || "Uploaded paper"}
+              draft={uploadDraft}
+              setDraft={setUploadDraft}
+              saving={uploading}
+              error={uploadError}
+              onSave={handleSaveUploadedPaper}
+              onCancel={handleCancelUpload}
+            />
           ) : selectedPaper ? (
             <>
               {/* ==================================================
@@ -993,6 +1234,10 @@ function RepositoryView({
   selectedPaper,
   onSelectPaper,
   onOpenPdf,
+  onUploadFile,
+  uploading,
+  uploadError,
+  uploadingPaperId,
 }: {
   selectedCategory: string | null;
   filteredPapers: Paper[];
@@ -1007,9 +1252,57 @@ function RepositoryView({
   onOpenPdf: (
     paper: Paper
   ) => void;
+  onUploadFile: (file: File) => void;
+  uploading: boolean;
+  uploadError: string | null;
+  uploadingPaperId: number | null;
 }) {
   const TH =
     "border-b-[3px] border-gray-900 bg-white px-3 py-3 text-left text-sm font-bold text-gray-900";
+
+  const [isTableDragging, setIsTableDragging] =
+    useState(false);
+
+  const dragDepth = useRef(0);
+
+  function handleTableDragEnter(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepth.current += 1;
+    setIsTableDragging(true);
+  }
+
+  function handleTableDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setIsTableDragging(true);
+  }
+
+  function handleTableDragLeave(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepth.current -= 1;
+
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0;
+      setIsTableDragging(false);
+    }
+  }
+
+  function handleTableDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepth.current = 0;
+    setIsTableDragging(false);
+
+    if (uploading) return;
+
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+
+    onUploadFile(file);
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1066,7 +1359,34 @@ function RepositoryView({
           TABLE
           ====================================================== */}
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div
+        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+        onDragEnter={handleTableDragEnter}
+        onDragOver={handleTableDragOver}
+        onDragLeave={handleTableDragLeave}
+        onDrop={handleTableDrop}
+      >
+
+        {isTableDragging && (
+          <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded border-[3px] border-dashed border-gray-900 bg-[#FCA847]/90">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-900">
+                Drop paper here
+              </p>
+              <p className="mt-1 text-sm font-medium text-gray-900">
+                Release to upload a PDF or BibTeX file
+              </p>
+            </div>
+          </div>
+        )}
+
+        {uploadError && !uploadingPaperId && (
+          <div className="border-b-[3px] border-gray-900 bg-white px-5 py-3" role="alert">
+            <p className="text-sm font-medium text-gray-900">
+              {uploadError}
+            </p>
+          </div>
+        )}
 
         <table className="w-full table-fixed border-separate border-spacing-0">
 
@@ -1299,6 +1619,119 @@ function RepositoryView({
 
       </div>
     </div>
+  );
+}
+
+function UploadMetadataEditor({
+  fileName,
+  draft,
+  setDraft,
+  saving,
+  error,
+  onSave,
+  onCancel,
+}: {
+  fileName: string;
+  draft: UploadMetadataDraft;
+  setDraft: React.Dispatch<React.SetStateAction<UploadMetadataDraft>>;
+  saving: boolean;
+  error: string | null;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  function update<K extends keyof UploadMetadataDraft>(
+    field: K,
+    value: UploadMetadataDraft[K]
+  ) {
+    setDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-[#FFFDF8]">
+      <div className="shrink-0 border-b-[3px] border-gray-900 px-5 py-4">
+        <p className="text-sm font-bold text-gray-900">
+          New paper
+        </p>
+        <p className="mt-1 truncate text-xs text-gray-600" title={fileName}>
+          {fileName}
+        </p>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        {error && (
+          <div className="mb-4 rounded border-[3px] border-gray-900 bg-white px-3 py-2 text-sm font-medium text-gray-900" role="alert">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <MetadataField label="Title" value={draft.title} onChange={(value) => update("title", value)} required />
+          <MetadataField label="Author" value={draft.author} onChange={(value) => update("author", value)} />
+          <MetadataField label="Abstract" value={draft.abstract} onChange={(value) => update("abstract", value)} textarea />
+          <MetadataField label="Keywords" value={draft.keywords} onChange={(value) => update("keywords", value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <MetadataField label="Publication year" value={draft.publication_year} onChange={(value) => update("publication_year", value)} />
+            <MetadataField label="Citations" value={draft.citation_count} onChange={(value) => update("citation_count", value)} />
+          </div>
+          <MetadataField label="DOI" value={draft.doi} onChange={(value) => update("doi", value)} />
+          <MetadataField label="Subject / category" value={draft.subject_category} onChange={(value) => update("subject_category", value)} />
+          <MetadataField label="Document type" value={draft.document_type} onChange={(value) => update("document_type", value)} />
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t-[3px] border-gray-900 bg-[#FFFDF8] px-5 py-4">
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onSave} disabled={saving || !draft.title.trim()}>
+            {saving ? "Saving..." : "Save paper"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MetadataField({
+  label,
+  value,
+  onChange,
+  textarea = false,
+  required = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  textarea?: boolean;
+  required?: boolean;
+}) {
+  const className = "relative z-10 block w-full rounded border-[3px] border-gray-900 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:bg-[#E8F0FE]";
+
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-bold text-gray-900">
+        {label}{required ? " *" : ""}
+      </span>
+      {textarea ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          rows={6}
+          className={`${className} resize-y`}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={className}
+        />
+      )}
+    </label>
   );
 }
 
