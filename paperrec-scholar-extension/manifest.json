@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "PaperRec Google Scholar Importer",
+  "version": "1.0.0",
+  "description": "Imports Google Scholar BibTeX citations into PaperRec.",
+  "minimum_chrome_version": "110",
+  "permissions": [],
+  "host_permissions": [
+    "https://scholar.googleusercontent.com/*",
+    "https://scholar.google.com/*",
+    "http://localhost:5173/*",
+    "http://127.0.0.1:5173/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,2 +1,12 @@
 SQLAlchemy>=2.0
 pdfplumber>=0.11
+scikit-learn
+sentence-transformers
+joblib
+numpy
+yake
+fastapi>=0.111
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+requests
+python-dotenv>=1.0.1
