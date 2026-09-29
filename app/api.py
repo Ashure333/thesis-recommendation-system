@@ -612,41 +612,29 @@ def update_paper(
             detail="Paper not found.",
         )
 
-    changed_recommendation_fields = False
-
     update_data = updates.model_dump(
         exclude_unset=True
     )
 
-    for field, value in update_data.items():
-
-        if field in {
-            "title",
-            "abstract",
-            "keywords",
-            "publication_year",
-        }:
-            changed_recommendation_fields = True
-
-        if hasattr(paper, field):
-            setattr(
-                paper,
-                field,
-                value,
-            )
-
-    db.commit()
-    db.refresh(paper)
-
-    if changed_recommendation_fields:
-        set_recommendation_index_stale(True)
-
-        print(
-            f"Recommendation index is stale for paper {paper.id}. "
-            "Rebuild required."
+    try:
+        paper = complete_paper_manually(
+            db,
+            paper,
+            **update_data,
         )
+    except Exception as error:
+        print("PAPER METADATA UPDATE FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update paper metadata.",
+        ) from error
+
+    set_recommendation_index_stale(True)
 
     return paper
+
 
 
 # ============================================================
