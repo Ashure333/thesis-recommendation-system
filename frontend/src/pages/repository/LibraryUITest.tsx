@@ -1263,25 +1263,43 @@ function RepositoryView({
   const [isTableDragging, setIsTableDragging] =
     useState(false);
 
+  /*
+   * Same drag/drop pattern as the old working Upload.tsx:
+   * preventDefault() on dragover, then read dataTransfer.files
+   * on drop. The table itself is the drop target.
+   */
   const dragDepth = useRef(0);
 
-  function handleTableDragEnter(event: DragEvent<HTMLDivElement>) {
+  function handleTableDragEnter(
+    event: DragEvent<HTMLDivElement>
+  ) {
     event.preventDefault();
     event.stopPropagation();
+
     dragDepth.current += 1;
     setIsTableDragging(true);
   }
 
-  function handleTableDragOver(event: DragEvent<HTMLDivElement>) {
+  function handleTableDragOver(
+    event: DragEvent<HTMLDivElement>
+  ) {
+    // This is the important part from the old working Upload.tsx.
     event.preventDefault();
     event.stopPropagation();
-    event.dataTransfer.dropEffect = "copy";
+
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+
     setIsTableDragging(true);
   }
 
-  function handleTableDragLeave(event: DragEvent<HTMLDivElement>) {
+  function handleTableDragLeave(
+    event: DragEvent<HTMLDivElement>
+  ) {
     event.preventDefault();
     event.stopPropagation();
+
     dragDepth.current -= 1;
 
     if (dragDepth.current <= 0) {
@@ -1290,18 +1308,23 @@ function RepositoryView({
     }
   }
 
-  function handleTableDrop(event: DragEvent<HTMLDivElement>) {
+  function handleTableDrop(
+    event: DragEvent<HTMLDivElement>
+  ) {
+    // Same drop handling pattern as the old working Upload.tsx.
     event.preventDefault();
     event.stopPropagation();
+
     dragDepth.current = 0;
     setIsTableDragging(false);
 
     if (uploading) return;
 
     const file = event.dataTransfer.files?.[0];
+
     if (!file) return;
 
-    onUploadFile(file);
+    void onUploadFile(file);
   }
 
   return (
@@ -1360,7 +1383,7 @@ function RepositoryView({
           ====================================================== */}
 
       <div
-        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+        className="relative min-h-0 flex-1 overflow-hidden"
         onDragEnter={handleTableDragEnter}
         onDragOver={handleTableDragOver}
         onDragLeave={handleTableDragLeave}
@@ -1379,6 +1402,13 @@ function RepositoryView({
             </div>
           </div>
         )}
+
+        <div
+          className="h-full min-h-0 overflow-y-auto overflow-x-hidden"
+          onDragEnter={handleTableDragEnter}
+          onDragOver={handleTableDragOver}
+          onDrop={handleTableDrop}
+        >
 
         {uploadError && !uploadingPaperId && (
           <div className="border-b-[3px] border-gray-900 bg-white px-5 py-3" role="alert">
@@ -1617,6 +1647,7 @@ function RepositoryView({
           </div>
         )}
 
+        </div>
       </div>
     </div>
   );

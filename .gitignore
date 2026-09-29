@@ -5,3 +5,8 @@ __pycache__/
 .env.*
 !.env.example
 *.tex
+*.bib
+*.pdf
+*.bib
+*.db
+*.joblib
