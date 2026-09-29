@@ -4,3 +4,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.tex
+*.bib
+*.pdf
+*.bib
+*.db
+*.joblib
