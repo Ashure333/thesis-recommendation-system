@@ -28,7 +28,9 @@ import {
   uploadPaper,
   updatePaper,
   notifyRecommendationIndexStale,
+  attachPdf,
   Paper,
+  PdfCandidate,
   RepositoryStats,
   ResearchChatSource,
 } from "../../api";
@@ -190,6 +192,7 @@ type PaperPreview = {
   missing_fields: string | null;
   source_filename: string | null;
   extraction_method: string | null;
+  pdf_candidates?: PdfCandidate[];
 };
 
 function previewToUploadDraft(preview: PaperPreview): UploadMetadataDraft {
@@ -206,13 +209,19 @@ function previewToUploadDraft(preview: PaperPreview): UploadMetadataDraft {
   };
 }
 
+function getApiBaseUrl(): string {
+  return import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+}
+
+function getRemotePdfPreviewUrl(url: string): string {
+  return `${getApiBaseUrl()}/api/papers/preview-pdf?url=${encodeURIComponent(url)}`;
+}
+
 async function previewFile(file: File): Promise<PaperPreview> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const apiUrl =
-    import.meta.env.VITE_API_URL ??
-    "http://localhost:8000";
+  const apiUrl = getApiBaseUrl();
 
   const response = await fetch(`${apiUrl}/api/papers/preview`, {
     method: "POST",
@@ -301,6 +310,12 @@ export default function LibraryUITest() {
   const [pendingPdfPreviewUrl, setPendingPdfPreviewUrl] = useState<string | null>(null);
 
   const [uploadPreview, setUploadPreview] = useState<PaperPreview | null>(null);
+
+  // For BibTeX imports, the preview endpoint also runs the existing
+  // PDF finder against the temporary Paper metadata. Nothing is attached
+  // until the user saves the paper.
+  const [selectedPdfCandidate, setSelectedPdfCandidate] =
+    useState<PdfCandidate | null>(null);
 
   const [uploadFileName, setUploadFileName] = useState<string | null>(null);
 
@@ -625,6 +640,7 @@ export default function LibraryUITest() {
     setSelectedPaper(null);
     setPendingUploadFile(null);
     setUploadPreview(null);
+    setSelectedPdfCandidate(null);
     setUploadFileName(file.name);
     setUploadDraft(emptyUploadDraft());
 
@@ -635,6 +651,14 @@ export default function LibraryUITest() {
       setPendingUploadFile(file);
       setUploadPreview(preview);
       setUploadDraft(previewToUploadDraft(preview));
+
+      // BibTeX imports can already have a PDF discovered by the preview
+      // endpoint. Select the first candidate immediately so the import gets
+      // its own PDF preview tab just like a directly dropped PDF file.
+      if (isBib && preview.pdf_candidates?.length) {
+        setSelectedPdfCandidate(preview.pdf_candidates[0]);
+      }
+
       setDetailTab("details");
     } catch (err) {
       setPendingUploadFile(null);
@@ -682,6 +706,7 @@ export default function LibraryUITest() {
     setUploadFileName("google-scholar.bib");
     setPendingUploadFile(null);
     setUploadPreview(null);
+    setSelectedPdfCandidate(null);
     setUploadDraft(emptyUploadDraft());
     setSelectedPaper(null);
     setActivePdfTabId(null);
@@ -784,7 +809,7 @@ export default function LibraryUITest() {
       // Persist the actual file only after the user explicitly clicks Save.
       const createdPaper = await uploadPaper(pendingUploadFile);
 
-      const updatedPaper = await updatePaper(createdPaper.id, {
+      let updatedPaper = await updatePaper(createdPaper.id, {
         title,
         author: uploadDraft.author.trim() || null,
         abstract: uploadDraft.abstract.trim() || null,
@@ -795,6 +820,16 @@ export default function LibraryUITest() {
         document_type: uploadDraft.document_type.trim() || null,
         citation_count: citations ? Number(citations) : null,
       });
+
+      // If this was a BibTeX import and the user selected a PDF candidate,
+      // now that the paper has a real database ID we can use the existing
+      // attach-pdf flow. This is the first point where anything is persisted.
+      if (selectedPdfCandidate && !hasPdf(createdPaper)) {
+        updatedPaper = await attachPdf(
+          updatedPaper.id,
+          selectedPdfCandidate.url,
+        );
+      }
 
       setPapers((current) => [updatedPaper, ...current]);
       setSelectedPaper(updatedPaper);
@@ -823,6 +858,7 @@ export default function LibraryUITest() {
       setPendingUploadFile(null);
       setPendingPdfPreviewUrl(null);
       setUploadPreview(null);
+      setSelectedPdfCandidate(null);
       setUploadFileName(null);
       setUploadDraft(emptyUploadDraft());
       setSaveMessage("Paper saved to the repository.");
@@ -847,6 +883,7 @@ export default function LibraryUITest() {
     setPendingUploadFile(null);
     setPendingPdfPreviewUrl(null);
     setUploadPreview(null);
+    setSelectedPdfCandidate(null);
     setUploadFileName(null);
     setUploadDraft(emptyUploadDraft());
     setUploadError(null);
@@ -1129,7 +1166,7 @@ export default function LibraryUITest() {
 
             {/* TEMPORARY IMPORT PREVIEW TAB */}
 
-            {pendingPdfPreviewUrl && uploadFileName ? (
+            {(pendingPdfPreviewUrl || selectedPdfCandidate?.url) && uploadFileName ? (
               <div
                 className="flex h-10 min-w-0 max-w-[280px] shrink-0 items-center rounded border-[3px] border-gray-900 bg-[#FCA847]"
               >
@@ -1144,7 +1181,12 @@ export default function LibraryUITest() {
                   className={`flex min-w-0 flex-1 items-center gap-2 truncate pl-3 pr-1 text-left text-sm font-medium text-gray-900 ${FOCUS}`}
                 >
                   <FaRegFilePdf size={14} className="shrink-0" />
-                  <span className="truncate">Preview · {uploadFileName}</span>
+                  <span className="truncate">
+                    Preview · {
+                      uploadPreview?.title ||
+                      uploadFileName.replace(/\.(bib|pdf)$/i, "")
+                    }
+                  </span>
                 </button>
 
                 <button
@@ -1201,10 +1243,18 @@ export default function LibraryUITest() {
 
           {activeView === "research" ? (
             <ResearchAssistant onSourcesChange={setResearchSources} />
-          ) : pendingPdfPreviewUrl !== null ? (
+          ) : pendingPdfPreviewUrl !== null || selectedPdfCandidate?.url ? (
             <PendingPdfViewer
-              fileName={uploadFileName || "Imported PDF"}
-              pdfUrl={pendingPdfPreviewUrl}
+              fileName={
+                uploadPreview?.title ||
+                uploadFileName ||
+                "Imported PDF"
+              }
+              pdfUrl={
+                pendingPdfPreviewUrl ||
+                getRemotePdfPreviewUrl(selectedPdfCandidate!.url)
+              }
+              isRemote={Boolean(selectedPdfCandidate?.url && !pendingPdfPreviewUrl)}
             />
           ) : activePdfTabId === null ? (
             <RepositoryView
@@ -1277,6 +1327,11 @@ export default function LibraryUITest() {
                   draft={uploadDraft}
                   setDraft={setUploadDraft}
                   preview={uploadPreview}
+                  pdfCandidates={uploadPreview?.pdf_candidates ?? []}
+                  selectedPdfCandidate={selectedPdfCandidate}
+                  onSelectPdfCandidate={(candidate) => {
+                    setSelectedPdfCandidate(candidate);
+                  }}
                   saving={uploading}
                   error={uploadError}
                   onSave={handleSaveUploadedPaper}
@@ -1556,7 +1611,7 @@ function RepositoryView({
         onDragLeaveCapture={handleTableDragLeave}
         onDropCapture={handleTableDrop}
       >
-        {isTableDragging && (
+        {isTableDragging && !uploading && (
           <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded border-[3px] border-dashed border-gray-900 bg-[#FCA847]/90">
             <div className="text-center">
               <p className="text-2xl font-bold text-gray-900">
@@ -1748,6 +1803,9 @@ function UploadMetadataEditor({
   draft,
   setDraft,
   preview,
+  pdfCandidates,
+  selectedPdfCandidate,
+  onSelectPdfCandidate,
   saving,
   error,
   onSave,
@@ -1757,6 +1815,9 @@ function UploadMetadataEditor({
   draft: UploadMetadataDraft;
   setDraft: React.Dispatch<React.SetStateAction<UploadMetadataDraft>>;
   preview: PaperPreview | null;
+  pdfCandidates: PdfCandidate[];
+  selectedPdfCandidate: PdfCandidate | null;
+  onSelectPdfCandidate: (candidate: PdfCandidate | null) => void;
   saving: boolean;
   error: string | null;
   onSave: () => void;
@@ -1793,7 +1854,7 @@ function UploadMetadataEditor({
 
         {!preview && saving && (
           <div className="mb-4 rounded border-[3px] border-gray-900 bg-white px-3 py-3 text-sm font-medium text-gray-900">
-            Reading paper metadata...
+            Reading paper metadata and checking for an open-access PDF...
           </div>
         )}
 
@@ -1819,6 +1880,14 @@ function UploadMetadataEditor({
               </span>
             </div>
           </div>
+        )}
+
+        {preview?.extraction_method === "bibtex" && (
+          <BibPdfFinder
+            candidates={pdfCandidates}
+            selectedCandidate={selectedPdfCandidate}
+            onSelect={onSelectPdfCandidate}
+          />
         )}
 
         <div className="space-y-4">
@@ -1897,6 +1966,92 @@ function UploadMetadataEditor({
   );
 }
 
+
+function BibPdfFinder({
+  candidates,
+  selectedCandidate,
+  onSelect,
+}: {
+  candidates: PdfCandidate[];
+  selectedCandidate: PdfCandidate | null;
+  onSelect: (candidate: PdfCandidate | null) => void;
+}) {
+  return (
+    <div className="mb-5 rounded border-[3px] border-gray-900 bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold text-gray-900">
+            Find PDF Online
+          </p>
+          <p className="mt-1 text-xs leading-normal text-gray-600">
+            The imported BibTeX has no PDF yet. PaperRec searched its existing
+            open-access PDF sources using this citation's metadata.
+          </p>
+        </div>
+
+        <FaRegFilePdf size={18} className="shrink-0 text-gray-900" />
+      </div>
+
+      {candidates.length === 0 ? (
+        <p className="mt-4 text-sm text-gray-600">
+          No matching open-access PDF was found.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {candidates.map((candidate, index) => {
+            const selected =
+              selectedCandidate?.url === candidate.url;
+
+            return (
+              <div
+                key={`${candidate.url}-${index}`}
+                className={`rounded border-[3px] border-gray-900 p-3 ${
+                  selected ? "bg-[#FCA847]" : "bg-[#FFFDF8]"
+                }`}
+              >
+                <p className="line-clamp-3 text-sm font-bold text-gray-900">
+                  {candidate.title || "PDF candidate"}
+                </p>
+
+                <p className="mt-1 text-xs text-gray-600">
+                  {candidate.source} ·{" "}
+                  {(candidate.confidence * 100).toFixed(0)}% match
+                </p>
+
+                <div className="mt-3 flex gap-2">
+                  <a
+                    href={getRemotePdfPreviewUrl(candidate.url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`inline-flex items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 text-xs font-medium text-gray-900 hover:bg-[#FCA847] ${FOCUS}`}
+                  >
+                    Preview
+                  </a>
+
+                  <Button
+                    type="button"
+                    variant={selected ? "primary" : "secondary"}
+                    onClick={() =>
+                      onSelect(selected ? null : candidate)
+                    }
+                  >
+                    {selected ? "Selected" : "Use this PDF"}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+
+          <p className="text-xs leading-normal text-gray-600">
+            The selected PDF will be downloaded and attached only when you
+            click <strong className="text-gray-900">Save paper</strong>.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MetadataField({
   label,
   value,
@@ -1945,15 +2100,19 @@ function MetadataField({
 function PendingPdfViewer({
   fileName,
   pdfUrl,
+  isRemote = false,
 }: {
   fileName: string;
   pdfUrl: string;
+  isRemote?: boolean;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
       <div className="flex h-16 shrink-0 items-center justify-between border-b-[3px] border-gray-900 bg-[#FFFDF8] px-4">
         <div className="min-w-0">
-          <p className="text-xs font-bold text-gray-600">Imported PDF preview</p>
+          <p className="text-xs font-bold text-gray-600">
+            {isRemote ? "BibTeX PDF preview" : "Imported PDF preview"}
+          </p>
           <p title={fileName} className="truncate text-sm font-bold text-gray-900">
             {fileName}
           </p>
