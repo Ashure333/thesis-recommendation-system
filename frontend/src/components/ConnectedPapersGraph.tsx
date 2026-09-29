@@ -79,7 +79,9 @@ function getRingRadius(ring: number) {
     return RING_RADII[ring];
   }
 
-  return RING_RADII[RING_RADII.length - 1] + (ring - RING_RADII.length + 1) * 40;
+  return (
+    RING_RADII[RING_RADII.length - 1] + (ring - RING_RADII.length + 1) * 40
+  );
 }
 
 function assignRings(count: number) {
@@ -88,8 +90,7 @@ function assignRings(count: number) {
   let used = 0;
 
   for (let i = 0; i < count; i++) {
-    const capacity =
-      RING_CAPACITY[Math.min(ring, RING_CAPACITY.length - 1)];
+    const capacity = RING_CAPACITY[Math.min(ring, RING_CAPACITY.length - 1)];
 
     if (i - used >= capacity) {
       used += capacity;
@@ -104,7 +105,7 @@ function assignRings(count: number) {
 
 function layoutNodes(
   current: SimilarGraphNode | undefined,
-  similar: SimilarGraphNode[]
+  similar: SimilarGraphNode[],
 ): PositionedNode[] {
   const result: PositionedNode[] = [];
 
@@ -125,7 +126,7 @@ function layoutNodes(
   // How many nodes ended up on each ring (for even angular spacing).
   const ringCounts = new Map<number, number>();
   rings.forEach((ring) =>
-    ringCounts.set(ring, (ringCounts.get(ring) ?? 0) + 1)
+    ringCounts.set(ring, (ringCounts.get(ring) ?? 0) + 1),
   );
 
   const slotCursor = new Map<number, number>();
@@ -210,9 +211,7 @@ export default function ConnectedPapersGraph({
         }
 
         setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load similar papers."
+          err instanceof Error ? err.message : "Unable to load similar papers.",
         );
       })
       .finally(() => {
@@ -228,7 +227,7 @@ export default function ConnectedPapersGraph({
 
   const currentNode = useMemo(
     () => graph?.nodes.find((node) => node.relationship === "current"),
-    [graph]
+    [graph],
   );
 
   const positionedNodes = useMemo<PositionedNode[]>(() => {
@@ -237,7 +236,7 @@ export default function ConnectedPapersGraph({
     }
 
     const similarNodes = graph.nodes.filter(
-      (node) => node.relationship === "similar"
+      (node) => node.relationship === "similar",
     );
 
     return layoutNodes(currentNode, similarNodes);
@@ -245,12 +244,12 @@ export default function ConnectedPapersGraph({
 
   const nodeMap = useMemo(
     () => new Map(positionedNodes.map((node) => [node.id, node])),
-    [positionedNodes]
+    [positionedNodes],
   );
 
   const rankedNodes = useMemo(
     () => positionedNodes.filter((node) => node.relationship === "similar"),
-    [positionedNodes]
+    [positionedNodes],
   );
 
   const similarityRange = useMemo(() => {
@@ -323,8 +322,8 @@ export default function ConnectedPapersGraph({
     <div className={`${PANEL} overflow-hidden text-gray-900`}>
       {/* HEADER */}
       <div className="px-4 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+        <div className="flex min-w-0 items-start gap-2">
+          <div className="min-w-0 flex-1">
             <PanelTitle>Similar Papers</PanelTitle>
 
             <p className="mt-1 text-sm text-gray-600">
@@ -332,8 +331,14 @@ export default function ConnectedPapersGraph({
             </p>
           </div>
 
-          {/* example-chip treatment */}
-          <span className="shrink-0 rounded border-[3px] border-gray-900 bg-white px-2 py-0.5 text-sm font-bold leading-snug">
+          {/* Responsive related-paper indicator: follows the right panel width
+              without stealing enough space to force the title onto two lines. */}
+          <span
+            className="shrink-0 rounded border-[3px] border-gray-900 bg-white px-2 py-0.5 text-center text-sm font-bold leading-snug"
+            style={{
+              width: "clamp(72px, 22%, 140px)",
+            }}
+          >
             {graph.nodes.length - 1} related
           </span>
         </div>
@@ -415,13 +420,13 @@ export default function ConnectedPapersGraph({
               !graph.edges.some(
                 (edge) =>
                   (edge.source === activeId && edge.target === node.id) ||
-                  (edge.target === activeId && edge.source === node.id)
+                  (edge.target === activeId && edge.source === node.id),
               );
 
             const radius = getNodeRadius(
               node,
               similarityRange.min,
-              similarityRange.max
+              similarityRange.max,
             );
 
             // Flat fills only: ink = compared paper, orange = active, white = idle.
@@ -577,7 +582,9 @@ export default function ConnectedPapersGraph({
                 {/* rank chip: circular indicator, ink when selected */}
                 <span
                   className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[3px] border-gray-900 text-sm font-bold leading-none ${
-                    isSelected ? "bg-gray-900 text-white" : "bg-white text-gray-900"
+                    isSelected
+                      ? "bg-gray-900 text-white"
+                      : "bg-white text-gray-900"
                   }`}
                 >
                   {node.rank}
