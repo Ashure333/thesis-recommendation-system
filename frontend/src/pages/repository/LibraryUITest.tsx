@@ -27,7 +27,7 @@ import {
   saveToLibrary,
   uploadPaper,
   updatePaper,
-  deletePaper,
+  notifyRecommendationIndexStale,
   Paper,
   RepositoryStats,
   ResearchChatSource,
@@ -163,6 +163,73 @@ function paperToUploadDraft(paper: Paper): UploadMetadataDraft {
   };
 }
 
+interface ScholarBibtexMessage {
+  source: "paperrec-scholar-extension";
+  type: "PAPERREC_SCHOLAR_BIBTEX";
+  bibtex: string;
+  sourceUrl?: string;
+}
+
+interface ScholarErrorMessage {
+  source: "paperrec-scholar-extension";
+  type: "PAPERREC_SCHOLAR_ERROR";
+  error: string;
+}
+
+type PaperPreview = {
+  title: string | null;
+  author: string | null;
+  abstract: string | null;
+  keywords: string | null;
+  publication_year: number | null;
+  doi: string | null;
+  subject_category: string | null;
+  document_type: string | null;
+  citation_count: number | null;
+  is_valid_for_recommendation: boolean;
+  missing_fields: string | null;
+  source_filename: string | null;
+  extraction_method: string | null;
+};
+
+function previewToUploadDraft(preview: PaperPreview): UploadMetadataDraft {
+  return {
+    title: preview.title || "",
+    author: preview.author || "",
+    abstract: preview.abstract || "",
+    keywords: preview.keywords || "",
+    publication_year: preview.publication_year?.toString() || "",
+    doi: preview.doi || "",
+    subject_category: preview.subject_category || "",
+    document_type: preview.document_type || "",
+    citation_count: preview.citation_count?.toString() || "",
+  };
+}
+
+async function previewFile(file: File): Promise<PaperPreview> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const apiUrl =
+    import.meta.env.VITE_API_URL ??
+    "http://localhost:8000";
+
+  const response = await fetch(`${apiUrl}/api/papers/preview`, {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data?.detail ?? "Failed to preview the paper.",
+    );
+  }
+
+  return data as PaperPreview;
+}
+
 /* ============================================================
    MAIN PAGE
    ============================================================ */
@@ -226,12 +293,45 @@ export default function LibraryUITest() {
 
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const [uploadingPaperId, setUploadingPaperId] = useState<number | null>(null);
+  // The dropped file stays client-side while its metadata is previewed.
+  // It is not sent to /api/papers/upload until the user clicks Save paper.
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
+
+  // Client-side PDF preview for the currently dropped, unsaved PDF.
+  const [pendingPdfPreviewUrl, setPendingPdfPreviewUrl] = useState<string | null>(null);
+
+  const [uploadPreview, setUploadPreview] = useState<PaperPreview | null>(null);
 
   const [uploadFileName, setUploadFileName] = useState<string | null>(null);
 
   const [uploadDraft, setUploadDraft] =
     useState<UploadMetadataDraft>(emptyUploadDraft());
+
+  // Create a local object URL for a dropped PDF. This lets the browser's
+  // native PDF viewer render the file immediately without uploading it.
+  useEffect(() => {
+    if (!pendingUploadFile) {
+      setPendingPdfPreviewUrl(null);
+      return;
+    }
+
+    const lowerName = pendingUploadFile.name.toLowerCase();
+    const isPdf =
+      pendingUploadFile.type === "application/pdf" ||
+      lowerName.endsWith(".pdf");
+
+    if (!isPdf) {
+      setPendingPdfPreviewUrl(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(pendingUploadFile);
+    setPendingPdfPreviewUrl(objectUrl);
+
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [pendingUploadFile]);
 
   /* ============================================================
      LOAD WHOLE REPOSITORY
@@ -505,7 +605,8 @@ export default function LibraryUITest() {
 
   async function handleUploadFile(file: File) {
     const lowerName = file.name.toLowerCase();
-    const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
+    const isPdf =
+      file.type === "application/pdf" || lowerName.endsWith(".pdf");
     const isBib =
       lowerName.endsWith(".bib") || file.type === "application/x-bibtex";
 
@@ -519,30 +620,142 @@ export default function LibraryUITest() {
     setUploading(true);
     setUploadError(null);
     setSaveMessage(null);
+    setActiveView("repository");
     setActivePdfTabId(null);
     setSelectedPaper(null);
+    setPendingUploadFile(null);
+    setUploadPreview(null);
+    setUploadFileName(file.name);
+    setUploadDraft(emptyUploadDraft());
 
     try {
-      const createdPaper = await uploadPaper(file);
+      // IMPORTANT: preview only. This does NOT create a database record.
+      const preview = await previewFile(file);
 
-      setPapers((current) => [createdPaper, ...current]);
-
-      setUploadingPaperId(createdPaper.id);
-      setUploadFileName(file.name);
-      setUploadDraft(paperToUploadDraft(createdPaper));
-      setSelectedPaper(createdPaper);
+      setPendingUploadFile(file);
+      setUploadPreview(preview);
+      setUploadDraft(previewToUploadDraft(preview));
       setDetailTab("details");
     } catch (err) {
+      setPendingUploadFile(null);
+      setUploadPreview(null);
+      setUploadFileName(null);
+      setUploadDraft(emptyUploadDraft());
       setUploadError(
-        err instanceof Error ? err.message : "Failed to upload paper.",
+        err instanceof Error ? err.message : "Failed to preview paper.",
       );
     } finally {
       setUploading(false);
     }
   }
 
+  async function handleScholarBibtex(bibtex: string) {
+    const trimmed = bibtex.trim();
+
+    if (!/@\w+\s*\{/i.test(trimmed)) {
+      setUploadError(
+        "The Google Scholar response does not appear to be valid BibTeX.",
+      );
+      return;
+    }
+
+    const file = new File(
+      [trimmed],
+      "google-scholar.bib",
+      { type: "application/x-bibtex" },
+    );
+
+    await handleUploadFile(file);
+  }
+
+  async function handleScholarURL(url: string) {
+    const normalizedUrl = url.trim();
+
+    if (!/^https?:\/\//i.test(normalizedUrl)) {
+      setUploadError("The dropped item is not a valid HTTP/HTTPS URL.");
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+    setSaveMessage(null);
+    setUploadFileName("google-scholar.bib");
+    setPendingUploadFile(null);
+    setUploadPreview(null);
+    setUploadDraft(emptyUploadDraft());
+    setSelectedPaper(null);
+    setActivePdfTabId(null);
+
+    try {
+      // Google Scholar's BibTeX URL normally returns the citation as plain text.
+      const response = await fetch(normalizedUrl, {
+        method: "GET",
+        headers: {
+          Accept: "text/plain, application/x-bibtex, */*",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Could not retrieve the citation (${response.status} ${response.statusText}).`,
+        );
+      }
+
+      const content = (await response.text()).trim();
+
+      if (!/@\w+\s*\{/i.test(content)) {
+        throw new Error(
+          "The dropped link did not return a valid BibTeX citation.",
+        );
+      }
+
+      await handleScholarBibtex(content);
+    } catch (err) {
+      setUploadError(
+        err instanceof Error
+          ? err.message
+          : "Unable to import the Google Scholar citation.",
+      );
+      setUploadFileName(null);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  useEffect(() => {
+    function handleExtensionMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+
+      const data = event.data as
+        | ScholarBibtexMessage
+        | ScholarErrorMessage
+        | undefined;
+
+      if (!data || data.source !== "paperrec-scholar-extension") return;
+
+      if (data.type === "PAPERREC_SCHOLAR_BIBTEX") {
+        void handleScholarBibtex(data.bibtex);
+        return;
+      }
+
+      if (data.type === "PAPERREC_SCHOLAR_ERROR") {
+        setUploading(false);
+        setUploadError(
+          data.error ||
+            "The Google Scholar citation could not be retrieved.",
+        );
+      }
+    }
+
+    window.addEventListener("message", handleExtensionMessage);
+
+    return () => {
+      window.removeEventListener("message", handleExtensionMessage);
+    };
+  }, []);
+
   async function handleSaveUploadedPaper() {
-    if (!uploadingPaperId || uploading) return;
+    if (!pendingUploadFile || uploading) return;
 
     const title = uploadDraft.title.trim();
 
@@ -568,7 +781,10 @@ export default function LibraryUITest() {
     setUploadError(null);
 
     try {
-      const updatedPaper = await updatePaper(uploadingPaperId, {
+      // Persist the actual file only after the user explicitly clicks Save.
+      const createdPaper = await uploadPaper(pendingUploadFile);
+
+      const updatedPaper = await updatePaper(createdPaper.id, {
         title,
         author: uploadDraft.author.trim() || null,
         abstract: uploadDraft.abstract.trim() || null,
@@ -580,15 +796,33 @@ export default function LibraryUITest() {
         citation_count: citations ? Number(citations) : null,
       });
 
-      setPapers((current) =>
-        current.map((paper) =>
-          paper.id === updatedPaper.id ? updatedPaper : paper,
-        ),
-      );
-
+      setPapers((current) => [updatedPaper, ...current]);
       setSelectedPaper(updatedPaper);
       setStats(await getRepositoryStats());
-      setUploadingPaperId(null);
+
+      notifyRecommendationIndexStale();
+
+      // Turn the temporary import preview into the normal PDF tab after save.
+      if (hasPdf(updatedPaper)) {
+        setPdfTabs((current) => {
+          if (current.some((tab) => tab.id === updatedPaper.id)) {
+            return current;
+          }
+
+          return [
+            ...current,
+            {
+              id: updatedPaper.id,
+              title: updatedPaper.title || "Untitled Paper",
+            },
+          ];
+        });
+        setActivePdfTabId(updatedPaper.id);
+      }
+
+      setPendingUploadFile(null);
+      setPendingPdfPreviewUrl(null);
+      setUploadPreview(null);
       setUploadFileName(null);
       setUploadDraft(emptyUploadDraft());
       setSaveMessage("Paper saved to the repository.");
@@ -598,40 +832,30 @@ export default function LibraryUITest() {
       }, 2500);
     } catch (err) {
       setUploadError(
-        err instanceof Error ? err.message : "Failed to save paper metadata.",
+        err instanceof Error ? err.message : "Failed to save paper.",
       );
     } finally {
       setUploading(false);
     }
   }
 
-  async function handleCancelUpload() {
-    if (!uploadingPaperId || uploading) return;
+  function handleCancelUpload() {
+    if (uploading) return;
 
-    setUploading(true);
+    // Nothing has been persisted yet, so cancelling simply discards the
+    // client-side File and preview state. No DELETE request is necessary.
+    setPendingUploadFile(null);
+    setPendingPdfPreviewUrl(null);
+    setUploadPreview(null);
+    setUploadFileName(null);
+    setUploadDraft(emptyUploadDraft());
     setUploadError(null);
+    setSaveMessage(null);
 
-    try {
-      await deletePaper(uploadingPaperId);
-
-      setPapers((current) =>
-        current.filter((paper) => paper.id !== uploadingPaperId),
-      );
-
-      setSelectedPaper(
-        filteredPapers.find((paper) => paper.id !== uploadingPaperId) || null,
-      );
-
-      setStats(await getRepositoryStats());
-      setUploadingPaperId(null);
-      setUploadFileName(null);
-      setUploadDraft(emptyUploadDraft());
-    } catch (err) {
-      setUploadError(
-        err instanceof Error ? err.message : "Failed to cancel uploaded paper.",
-      );
-    } finally {
-      setUploading(false);
+    if (filteredPapers.length > 0) {
+      setSelectedPaper(filteredPapers[0]);
+    } else {
+      setSelectedPaper(null);
     }
   }
 
@@ -873,12 +1097,14 @@ export default function LibraryUITest() {
               type="button"
               onClick={showRepository}
               aria-current={
-                activeView === "repository" && activePdfTabId === null
+                activeView === "repository" &&
+                activePdfTabId === null &&
+                pendingPdfPreviewUrl === null
                   ? "page"
                   : undefined
               }
               className={`h-10 shrink-0 rounded border-[3px] border-gray-900 px-4 text-sm font-medium text-gray-900 ${FOCUS} ${
-                activePdfTabId === null
+                activePdfTabId === null && pendingPdfPreviewUrl === null
                   ? "bg-[#FCA847]"
                   : "bg-white hover:bg-[#FFFDF8]"
               }`}
@@ -900,6 +1126,37 @@ export default function LibraryUITest() {
             >
               Research Assistant
             </button>
+
+            {/* TEMPORARY IMPORT PREVIEW TAB */}
+
+            {pendingPdfPreviewUrl && uploadFileName ? (
+              <div
+                className="flex h-10 min-w-0 max-w-[280px] shrink-0 items-center rounded border-[3px] border-gray-900 bg-[#FCA847]"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveView("repository");
+                    setActivePdfTabId(null);
+                  }}
+                  title={`Preview ${uploadFileName}`}
+                  aria-current="page"
+                  className={`flex min-w-0 flex-1 items-center gap-2 truncate pl-3 pr-1 text-left text-sm font-medium text-gray-900 ${FOCUS}`}
+                >
+                  <FaRegFilePdf size={14} className="shrink-0" />
+                  <span className="truncate">Preview · {uploadFileName}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelUpload}
+                  aria-label={`Close preview for ${uploadFileName}`}
+                  className={`mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-900 hover:bg-gray-900 hover:text-white ${FOCUS}`}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : null}
 
             {/* PDF TABS */}
 
@@ -944,6 +1201,11 @@ export default function LibraryUITest() {
 
           {activeView === "research" ? (
             <ResearchAssistant onSourcesChange={setResearchSources} />
+          ) : pendingPdfPreviewUrl !== null ? (
+            <PendingPdfViewer
+              fileName={uploadFileName || "Imported PDF"}
+              pdfUrl={pendingPdfPreviewUrl}
+            />
           ) : activePdfTabId === null ? (
             <RepositoryView
               selectedCategory={selectedCategory}
@@ -954,9 +1216,9 @@ export default function LibraryUITest() {
               onSelectPaper={selectPaper}
               onOpenPdf={openPdfTab}
               onUploadFile={handleUploadFile}
+              onUploadUrl={handleScholarURL}
               uploading={uploading}
               uploadError={uploadError}
-              uploadingPaperId={uploadingPaperId}
             />
           ) : (
             <PdfViewer
@@ -1009,11 +1271,12 @@ export default function LibraryUITest() {
               </button>
               {activeView === "research" ? (
                 <ResearchReferencePanel sources={researchSources} />
-              ) : uploadingPaperId !== null ? (
+              ) : uploadFileName !== null ? (
                 <UploadMetadataEditor
                   fileName={uploadFileName || "Uploaded paper"}
                   draft={uploadDraft}
                   setDraft={setUploadDraft}
+                  preview={uploadPreview}
                   saving={uploading}
                   error={uploadError}
                   onSave={handleSaveUploadedPaper}
@@ -1163,9 +1426,9 @@ function RepositoryView({
   onSelectPaper,
   onOpenPdf,
   onUploadFile,
+  onUploadUrl,
   uploading,
   uploadError,
-  uploadingPaperId,
 }: {
   selectedCategory: string | null;
   filteredPapers: Paper[];
@@ -1175,9 +1438,9 @@ function RepositoryView({
   onSelectPaper: (paper: Paper) => void;
   onOpenPdf: (paper: Paper) => void;
   onUploadFile: (file: File) => void;
+  onUploadUrl: (url: string) => void;
   uploading: boolean;
   uploadError: string | null;
-  uploadingPaperId: number | null;
 }) {
   const TH =
     "border-b-[3px] border-gray-900 bg-white px-3 py-3 text-left text-sm font-bold text-gray-900";
@@ -1224,7 +1487,6 @@ function RepositoryView({
   }
 
   function handleTableDrop(event: DragEvent<HTMLDivElement>) {
-    // Same drop handling pattern as the old working Upload.tsx.
     event.preventDefault();
     event.stopPropagation();
 
@@ -1233,7 +1495,8 @@ function RepositoryView({
 
     if (uploading) return;
 
-    const file = event.dataTransfer.files?.[0];
+    const files = event.dataTransfer?.files;
+    const file = files && files.length > 0 ? files[0] : null;
 
     if (!file) return;
 
@@ -1286,11 +1549,12 @@ function RepositoryView({
           ====================================================== */}
 
       <div
+        data-paperrec-dropzone
         className="relative min-h-0 flex-1 overflow-hidden"
-        onDragEnter={handleTableDragEnter}
-        onDragOver={handleTableDragOver}
-        onDragLeave={handleTableDragLeave}
-        onDrop={handleTableDrop}
+        onDragEnterCapture={handleTableDragEnter}
+        onDragOverCapture={handleTableDragOver}
+        onDragLeaveCapture={handleTableDragLeave}
+        onDropCapture={handleTableDrop}
       >
         {isTableDragging && (
           <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded border-[3px] border-dashed border-gray-900 bg-[#FCA847]/90">
@@ -1307,11 +1571,8 @@ function RepositoryView({
 
         <div
           className="h-full min-h-0 overflow-y-auto overflow-x-hidden"
-          onDragEnter={handleTableDragEnter}
-          onDragOver={handleTableDragOver}
-          onDrop={handleTableDrop}
         >
-          {uploadError && !uploadingPaperId && (
+          {uploadError && (
             <div
               className="border-b-[3px] border-gray-900 bg-white px-5 py-3"
               role="alert"
@@ -1486,6 +1747,7 @@ function UploadMetadataEditor({
   fileName,
   draft,
   setDraft,
+  preview,
   saving,
   error,
   onSave,
@@ -1494,6 +1756,7 @@ function UploadMetadataEditor({
   fileName: string;
   draft: UploadMetadataDraft;
   setDraft: React.Dispatch<React.SetStateAction<UploadMetadataDraft>>;
+  preview: PaperPreview | null;
   saving: boolean;
   error: string | null;
   onSave: () => void;
@@ -1525,6 +1788,36 @@ function UploadMetadataEditor({
             role="alert"
           >
             {error}
+          </div>
+        )}
+
+        {!preview && saving && (
+          <div className="mb-4 rounded border-[3px] border-gray-900 bg-white px-3 py-3 text-sm font-medium text-gray-900">
+            Reading paper metadata...
+          </div>
+        )}
+
+        {preview && (
+          <div className="mb-5 rounded border-[3px] border-gray-900 bg-white p-3">
+            <p className="text-xs font-bold text-gray-600">Preview</p>
+            <p className="mt-1 text-sm font-medium text-gray-900">
+              {preview.extraction_method || "metadata extraction"}
+              {preview.source_filename ? ` · ${preview.source_filename}` : ""}
+            </p>
+            <div className="mt-3 flex items-start gap-2 text-sm font-medium text-gray-900">
+              {preview.is_valid_for_recommendation ? (
+                <Check size={16} className="mt-0.5 shrink-0" />
+              ) : (
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              )}
+              <span>
+                {preview.is_valid_for_recommendation
+                  ? "Currently valid for recommendation."
+                  : preview.missing_fields
+                    ? `Missing: ${preview.missing_fields}`
+                    : "Not currently valid for recommendation."}
+              </span>
+            </div>
           </div>
         )}
 
@@ -1648,6 +1941,39 @@ function MetadataField({
 /* ============================================================
    PDF VIEWER
    ============================================================ */
+
+function PendingPdfViewer({
+  fileName,
+  pdfUrl,
+}: {
+  fileName: string;
+  pdfUrl: string;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b-[3px] border-gray-900 bg-[#FFFDF8] px-4">
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-gray-600">Imported PDF preview</p>
+          <p title={fileName} className="truncate text-sm font-bold text-gray-900">
+            {fileName}
+          </p>
+        </div>
+
+        <div className="shrink-0 text-xs font-medium text-gray-600">
+          Not saved yet
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 bg-gray-100 p-3">
+        <iframe
+          title={`PDF preview: ${fileName}`}
+          src={pdfUrl}
+          className="h-full w-full border-[3px] border-gray-900 bg-white"
+        />
+      </div>
+    </div>
+  );
+}
 
 function PdfViewer({
   paperId,
