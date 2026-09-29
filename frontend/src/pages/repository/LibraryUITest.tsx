@@ -743,7 +743,7 @@ export default function LibraryUITest() {
             ====================================================== */}
 
         <aside
-          className={`relative h-full min-h-0 min-w-0 overflow-hidden border-r-[3px] border-gray-900 bg-[#FFFDF8] ${
+          className={`relative z-50 h-full min-h-0 min-w-0 overflow-visible border-r-[3px] border-gray-900 bg-[#FFFDF8] ${
             leftCollapsed ? "flex items-center justify-center" : ""
           }`}
         >
@@ -764,7 +764,7 @@ export default function LibraryUITest() {
                 onClick={() => setLeftCollapsed(true)}
                 title="Collapse sidebar"
                 aria-label="Collapse sidebar"
-                className={`absolute right-0 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border-[2px] border-gray-900 bg-[#FFFDF8] text-gray-900 shadow-md hover:bg-[#FCA847] ${FOCUS}`}
+                className={`absolute right-0 top-1/2 z-[100] flex h-9 w-9 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-md border-[2px] border-gray-900 bg-white text-gray-900 shadow-lg hover:bg-[#FCA847] ${FOCUS}`}
               >
                 <ChevronRight
                   size={18}
@@ -775,7 +775,7 @@ export default function LibraryUITest() {
 
               {/* HEADER */}
 
-              <div className="shrink-0 border-b-[3px] border-gray-900 px-5 py-5">
+              <div className="flex h-16 shrink-0 items-center border-b-[3px] border-gray-900 px-5">
                 <div className="flex items-center justify-between gap-2">
                   <h1 className="text-3xl font-bold leading-none tracking-tighter text-gray-900">
                     RE: Search
@@ -982,7 +982,7 @@ export default function LibraryUITest() {
             ====================================================== */}
 
         <aside
-          className={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l-[3px] border-gray-900 bg-[#FFFDF8] ${
+          className={`relative z-50 flex h-full min-h-0 min-w-0 flex-col overflow-visible border-l-[3px] border-gray-900 bg-[#FFFDF8] ${
             rightCollapsed ? "items-center justify-center" : ""
           }`}
         >
@@ -1003,7 +1003,7 @@ export default function LibraryUITest() {
                 onClick={() => setRightCollapsed(true)}
                 title="Collapse details panel"
                 aria-label="Collapse details panel"
-                className={`absolute left-0 top-1/2 z-30 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[2px] border-gray-900 bg-[#FFFDF8] text-gray-900 shadow-md hover:bg-[#FCA847] ${FOCUS}`}
+                className={`absolute left-0 top-1/2 z-[100] flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border-[2px] border-gray-900 bg-white text-gray-900 shadow-lg hover:bg-[#FCA847] ${FOCUS}`}
               >
                 <ChevronRight size={18} strokeWidth={3} />
               </button>
@@ -1750,7 +1750,7 @@ function SidebarButton({
       className={`flex w-full min-w-0 items-center gap-2.5 rounded border-[3px] px-3 py-1.5 text-left text-gray-900 ${FOCUS} ${
         active
           ? "border-gray-900 bg-[#FCA847]"
-          : "border-transparent hover:border-gray-900 hover:bg-white"
+          : "border-transparent hover:border-transparent hover:bg-[#FFE7C7]"
       }`}
     >
       <span className="shrink-0">{icon}</span>

@@ -72,8 +72,6 @@ const COLORS = {
 const FOCUS_INSET =
   "focus-visible:outline focus-visible:outline-[3px] focus-visible:-outline-offset-[3px] focus-visible:outline-gray-900";
 
-const PANEL = "rounded border-[3px] border-gray-900 bg-white";
-
 function getRingRadius(ring: number) {
   if (ring < RING_RADII.length) {
     return RING_RADII[ring];
@@ -270,11 +268,7 @@ export default function ConnectedPapersGraph({
 
   if (loading) {
     return (
-      <div
-        role="status"
-        aria-live="polite"
-        className={`${PANEL} px-4 py-5 text-gray-900`}
-      >
+      <div role="status" aria-live="polite" className="px-4 py-5 text-gray-900">
         <div className="flex items-center justify-between gap-4">
           <div>
             <PanelTitle>Similar Papers</PanelTitle>
@@ -296,7 +290,7 @@ export default function ConnectedPapersGraph({
   if (error) {
     // No red: accents are never used for state. Ink text in an outlined panel.
     return (
-      <div role="alert" className={`${PANEL} px-4 py-4 text-gray-900`}>
+      <div role="alert" className="px-4 py-4 text-gray-900">
         <PanelTitle>Similar Papers</PanelTitle>
         <p className="mt-1 text-sm font-medium leading-normal text-gray-900">
           {error}
@@ -307,7 +301,7 @@ export default function ConnectedPapersGraph({
 
   if (!graph || graph.nodes.length <= 1) {
     return (
-      <div className={`${PANEL} px-4 py-4 text-gray-900`}>
+      <div className="px-4 py-4 text-gray-900">
         <PanelTitle>Similar Papers</PanelTitle>
         <p className="mt-1 text-sm text-gray-600">
           No similar papers were found in the repository.
@@ -319,7 +313,7 @@ export default function ConnectedPapersGraph({
   const ringCount = Math.max(...rankedNodes.map((node) => node.ring), 0) + 1;
 
   return (
-    <div className={`${PANEL} overflow-hidden text-gray-900`}>
+    <div className="overflow-hidden text-gray-900">
       {/* HEADER */}
       <div className="px-4 py-4">
         <div className="flex min-w-0 items-start gap-2">
