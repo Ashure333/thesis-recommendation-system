@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.database import init_db, get_session
@@ -330,6 +330,66 @@ def get_paper_pdf(
 
 
 # ============================================================
+# ============================================================
+# PDF PREVIEW PROXY
+# ============================================================
+
+@app.get("/api/papers/preview-pdf")
+def preview_pdf(url: str):
+    """
+    Fetch a discovered remote PDF and return it inline so the frontend
+    PDF viewer can render it instead of the remote server forcing a
+    browser download via Content-Disposition: attachment.
+    """
+
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=400,
+            detail="Only HTTP(S) PDF URLs can be previewed.",
+        )
+
+    try:
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": "PaperRec/1.0 PDF Preview",
+                "Accept": "application/pdf,*/*;q=0.8",
+            },
+            timeout=30,
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+
+    except requests.RequestException as error:
+        print()
+        print("PDF PREVIEW PROXY FAILED")
+        print(error)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not fetch the PDF for preview.",
+        )
+
+    content_type = (response.headers.get("content-type") or "").lower()
+    content = response.content
+
+    # Some OA providers omit or mislabel the content type. Accept it when
+    # the downloaded payload has the normal PDF signature.
+    if not content.startswith(b"%PDF") and "application/pdf" not in content_type:
+        raise HTTPException(
+            status_code=415,
+            detail="The selected source did not return a PDF file.",
+        )
+
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "inline",
+            "Cache-Control": "private, max-age=300",
+        },
+    )
+
+
 # FIND PDF ONLINE
 # ============================================================
 
@@ -763,6 +823,18 @@ def preview_paper(
             print("WARNING: Paper preview text preparation failed")
             print(error)
 
+        # BibTeX/BibLaTeX is citation metadata, so it has no PDF file of
+        # its own. Run the existing PDF finder immediately against this
+        # temporary Paper object. Nothing is persisted or downloaded here.
+        pdf_candidates = []
+
+        if suffix == ".bib" and paper.title:
+            try:
+                pdf_candidates = find_pdf_candidates(paper)
+            except Exception as error:
+                print("WARNING: Paper preview PDF discovery failed")
+                print(error)
+
         return {
             "title": paper.title,
             "author": paper.author,
@@ -779,6 +851,10 @@ def preview_paper(
             "missing_fields": paper.missing_fields,
             "source_filename": paper.source_filename,
             "extraction_method": paper.extraction_method,
+            "pdf_candidates": [
+                candidate.to_dict()
+                for candidate in pdf_candidates
+            ],
         }
 
     except HTTPException:
