@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   getLibrary,
@@ -15,6 +15,7 @@ import HuntItem from "../../components/retro/HuntItem";
 import { crumpledBallDataURL } from "../../components/retro/CrumpledPaper";
 import { HUNT_ITEMS } from "../../data/hunt";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
+import { CITATION_FORMATS, downloadCitations } from "../../utils/exportCitations";
 
 /* ============================================================
    PAPER DRAG GHOST — the drag ghost for a library row.
@@ -71,6 +72,54 @@ export default function MyLibrary() {
   // PDF Viewer State
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+  /* --------------------------------------------------------
+     Batch export: tick rows, then download every selected
+     paper's citation as ONE file (BibTeX / RIS / EndNote /
+     RefMan).
+     -------------------------------------------------------- */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        exportRef.current &&
+        !exportRef.current.contains(event.target as Node)
+      ) {
+        setExportOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [exportOpen]);
+
+  /* Selection counts against the papers still in the list, so a
+     row the pet just ate never shows up as "selected". */
+  const selectedPapers = entries
+    .map((entry) => entry.paper)
+    .filter((paper) => selected.has(paper.id));
+  const selectedCount = selectedPapers.length;
+  const allSelected = entries.length > 0 && selectedCount === entries.length;
+
+  function togglePaper(paperId: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(paperId)) next.delete(paperId);
+      else next.add(paperId);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(
+      allSelected ? new Set() : new Set(entries.map((entry) => entry.paper.id)),
+    );
+  }
 
   async function load() {
     setLoading(true);
@@ -204,9 +253,81 @@ export default function MyLibrary() {
       ) : (
         <>
         <p className="mb-4 text-xs text-muted">
-          Tip: drag a saved paper onto the pixel pet. It will dispose of
-          it (zap, eat, crumple, or burn) and remove it from the library.
+          Tip: drag a saved paper onto the pixel pet. Each character
+          disposes of it in its own way — only the slime forms eat
+          papers; Gojo zaps them with Cursed Techniques, Glaucira
+          burns them with Storm Breath, Mashiro Rima punches them
+          flat — and the paper leaves your library.
         </p>
+
+        {/* Batch export toolbar: select rows, export one file. */}
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              className="h-4 w-4 cursor-pointer accent-gray-900"
+            />
+            Select all ({entries.length})
+          </label>
+
+          <span className="text-xs text-muted">
+            {selectedCount} selected
+          </span>
+
+          {selectedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-xs font-semibold text-ink underline hover:decoration-2"
+            >
+              Clear
+            </button>
+          )}
+
+          <div ref={exportRef} className="relative ml-auto">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={selectedCount === 0}
+              onClick={() => setExportOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              title={
+                selectedCount === 0
+                  ? "Tick the papers you want to export"
+                  : undefined
+              }
+            >
+              Export{selectedCount > 0 ? ` (${selectedCount})` : ""} ▾
+            </Button>
+
+            {exportOpen && (
+              <ul
+                role="menu"
+                aria-label="Batch export"
+                className="absolute right-0 top-full z-30 mt-1 w-60 overflow-hidden rounded border-[3px] border-gray-900 bg-white py-0.5"
+              >
+                {CITATION_FORMATS.map((format) => (
+                  <li key={format.id}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        downloadCitations(selectedPapers, format.id);
+                        setExportOpen(false);
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-sm font-medium text-gray-900 transition-colors pixel-ease hover:bg-accentSoft"
+                    >
+                      {format.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
 
         <section className="overflow-hidden rounded border-[3px] border-gray-900 bg-white" data-tips="library-shortlist">
           {entries.map(({ paper }) => {
@@ -243,6 +364,14 @@ export default function MyLibrary() {
                   <div className="min-w-0">
                     {/* Metadata Header with Tags */}
                     <div className="mb-2 flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(paper.id)}
+                        onChange={() => togglePaper(paper.id)}
+                        aria-label={`Select ${paper.title} for batch export`}
+                        title="Select for batch export"
+                        className="h-4 w-4 shrink-0 cursor-pointer accent-gray-900"
+                      />
                       {subject ? (
                         <span
                           className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-ink"
