@@ -56,7 +56,11 @@ PIPELINE_COMPONENTS: dict[str, frozenset[str]] = {
 }
 
 
-def _independence_weight(a: str, b: str) -> float:
+def _independence_weight(
+    a: str,
+    b: str,
+    component_sets: dict[str, frozenset[str]],
+) -> float:
     """1 - Jaccard(component sets): how much of pipeline a's evidence
     is not already contained in pipeline b.
 
@@ -67,8 +71,8 @@ def _independence_weight(a: str, b: str) -> float:
     offspring.
     """
 
-    components_a = PIPELINE_COMPONENTS[a]
-    components_b = PIPELINE_COMPONENTS[b]
+    components_a = component_sets[a]
+    components_b = component_sets[b]
 
     union = components_a | components_b
     if not union:
@@ -81,6 +85,11 @@ class CompareRequest(BaseModel):
     query: str | None = None
     seed_paper_id: int | None = None
     top_k: int = Field(default=10, ge=1, le=25)
+    # Lab battles: a custom recipe joins the six presets as a 7th
+    # pipeline (weights must be non-negative, not all zero).
+    custom_weights: dict[str, float] | None = None
+    # Lab simulations should not pollute the Arena's battle history.
+    record_battle: bool = True
 
 
 class RankedPaper(BaseModel):
@@ -151,6 +160,7 @@ def _run_one(
     query: str | None,
     seed_paper_id: int | None,
     top_k: int,
+    custom_weights: dict[str, float] | None = None,
 ) -> tuple[dict[int, int], dict[int, float], list[RankedPaper]]:
     """Run one pipeline; return (rank_map, score_map, ranked list)."""
 
@@ -160,6 +170,7 @@ def _run_one(
         seed_paper_id=seed_paper_id,
         pipeline=pipeline,
         top_k=top_k,
+        custom_weights=custom_weights,
     )
 
     ranked: list[RankedPaper] = []
@@ -191,20 +202,48 @@ def compare_pipelines(
     query: str | None,
     seed_paper_id: int | None,
     top_k: int,
+    custom_weights: dict[str, float] | None = None,
 ) -> CompareResponse:
-    """Run all six pipelines and assemble the comparison payload."""
+    """Run the six pipelines, plus an optional custom recipe as a
+    seventh "custom" pipeline (the Lab's recipes), and assemble the
+    comparison payload."""
 
     rank_maps: dict[str, dict[int, int]] = {}
     score_maps: dict[str, dict[int, float]] = {}
     battles: list[PipelineBattle] = []
 
-    for pipeline in PIPELINE_ORDER:
+    pipeline_order = list(PIPELINE_ORDER)
+
+    # The custom recipe's component set derives from its weights:
+    # any signal with a positive share is part of the pipeline.
+    component_sets = dict(PIPELINE_COMPONENTS)
+
+    if custom_weights is not None:
+        if not any(
+            (custom_weights.get(signal) or 0) > 0
+            for signal in ("tfidf", "sbert", "metadata")
+        ):
+            raise ValueError(
+                "Custom recipe needs at least one signal above zero."
+            )
+
+        pipeline_order.append("custom")
+        component_sets["custom"] = frozenset(
+            signal
+            for signal, weight in custom_weights.items()
+            if (weight or 0) > 0
+        )
+
+    for pipeline in pipeline_order:
         rank_map, score_map, ranked = _run_one(
             db=db,
             pipeline=pipeline,
             query=query,
             seed_paper_id=seed_paper_id,
             top_k=top_k,
+            custom_weights=(
+                custom_weights if pipeline == "custom" else None
+            ),
         )
 
         rank_maps[pipeline] = rank_map
@@ -272,8 +311,8 @@ def compare_pipelines(
 
     pairwise: list[PairwiseAgreement] = []
 
-    for i, pipeline_a in enumerate(PIPELINE_ORDER):
-        for pipeline_b in PIPELINE_ORDER[i + 1:]:
+    for i, pipeline_a in enumerate(pipeline_order):
+        for pipeline_b in pipeline_order[i + 1:]:
             set_a = set(rank_maps[pipeline_a])
             set_b = set(rank_maps[pipeline_b])
 
@@ -312,6 +351,7 @@ def compare_pipelines(
     winner = _pick_winner(
         rank_maps=rank_maps,
         consensus=consensus,
+        component_sets=component_sets,
     )
 
     return CompareResponse(
@@ -329,6 +369,7 @@ def _pick_winner(
     *,
     rank_maps: dict[str, dict[int, int]],
     consensus: list[ConsensusEntry],
+    component_sets: dict[str, frozenset[str]],
 ) -> WinnerResult | None:
     """Pick the winner by independence-weighted consensus share.
 
@@ -348,10 +389,10 @@ def _pick_winner(
         for position, entry in enumerate(consensus, start=1)
     }
 
-    pipelines = list(PIPELINE_ORDER)
+    pipelines = list(rank_maps.keys())
 
     independence = {
-        (a, b): _independence_weight(a, b)
+        (a, b): _independence_weight(a, b, component_sets)
         for a in pipelines
         for b in pipelines
         if a != b

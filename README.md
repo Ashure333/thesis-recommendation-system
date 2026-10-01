@@ -87,6 +87,7 @@ The project is designed around three main areas:
 - Online PDF finder.
 - Recommendation-index update banner and rebuild button.
 - Pixel pet companion (Rimuru-inspired slime) with ten selectable Tempest forms, speech lines, tip hover-reveals, and paper-destruction reactions.
+- Lab: the recipe workshop — mix TF-IDF, S-BERT, and metadata percentages into your own algorithm recipe, simulate battles against the six presets, and climb a local leaderboard.
 - Scavenger hunt with six hidden treasures and an achievement rack.
 - Help library: the pet answers questions from the tip catalogue after the hunt is complete.
 - Encyclopedia-style Walkthrough and Engine pages documenting the whole system.
@@ -97,7 +98,7 @@ The project is designed around three main areas:
 
 The pet is a clipper-style companion that explains the interface, runs a scavenger hunt, hands out achievements, and becomes a help library. It lives in the bottom-right corner, is draggable, and its position persists.
 
-**Character.** The pet is a self-aware slime in the spirit of Rimuru Tempest (転生したらスライムだった件): playful and gluttonous, it "predates" on library papers dragged onto it, leans on its inner Great Sage to analyze recommendations, and names everything it likes. It speaks a second voice — Japanese lines always shown with their translation — and shifts into any of ten Tempest forms, each in the character's own palette.
+**Character.** The pet is a self-aware slime in the spirit of Rimuru Tempest (転生したらスライムだった件): playful and gluttonous, it "predates" on library papers dragged onto it, leans on its inner Great Sage to analyze recommendations, and names everything it likes. It speaks a second voice — Japanese lines always shown with their translation — and each form talks in character: Gojo casts Ryoiki Tenkai, Kabi asks for apples, Ciel reports "calculation complete", and the others speak their own signature lines.
 
 ### Interactions
 
@@ -114,18 +115,18 @@ The pet is a clipper-style companion that explains the interface, runs a scaveng
 
 | Form | Character | Palette |
 | --- | --- | --- |
-| Rimuru | The slime himself | `#38bdf8` slime blue |
-| Veldora | Storm dragon, sealed inside | `#14b8a6` storm teal |
-| Benimaru | Kijin with twin flames | `#ef4444` crimson |
-| Shion | The demon secretary | `#a855f7` violet |
-| Ranga | Tempest wolf, loyal to a fault | `#f3f4f6` wolf white |
-| Shuna | The gentle priestess | `#ec4899` pink |
-| Gobta | Goblin with big ears | `#4ade80` goblin green |
-| Ciel | The personified Great Sage | `#cbd5e1` silver |
-| Diablo | Primordial demon butler | `#334155` demon black |
-| Milim | Destroyer, in a good mood | `#f9a8d4` destroyer pink |
+| Rimuru | Blue-haired sword-bearing slime hero | Petdex Rimuru sheet |
+| Glaucira | Mythical blue dragon, aurora-tinted | Petdex Glaucira dragon sheet |
+| Crimson Blossom | Chibi floral spirit with a crimson bloom | Petdex crimson-blossom sheet |
+| Sion | Soft violet steadiness, calm as moonlight | Petdex sioning sheet |
+| Wangcai | Calm fluffy cat with blue eyes | Petdex Wangcai cat sheet |
+| Yinyue Fox | Silver-moon fox with a curled tail | Petdex yinyue fox sheet |
+| Kabi | Sleepy, apple-munching bundle of naps | Petdex Kabi sheet |
+| Ciel | Calm hooded girl, red eyes, white cloak | Petdex Ciel sheet |
+| Gojo | White-haired sorcerer, blindfolded | Petdex Gojo sheet |
+| Mashiro Rima | Blonde idol of the stage, always in balance | Petdex Mashiro Rima sheet |
 
-Forms are pure CSS, so every shape follows the theme and animates with the same bob, bounce, and reaction keyframes. The chosen form is remembered per browser (localStorage); old selections fall back to Rimuru.
+Every form plays its own real Petdex sprite sheet — a curated pet from the public gallery, renamed to fit the roster: Glaucira the blue dragon, Wangcai the calm cat, Yinyue Fox, Kabi the sleepy napper, Gojo the blindfolded sorcerer, Mashiro Rima the stage idol, and more. Sheets are 8×9 atlases of 192×208 frames; the idle animation loops the first six frames, and the canvas renders at native resolution with hard pixels. All forms still follow the theme and animate with the same bob, bounce, and reaction keyframes. The chosen form is remembered per browser (localStorage); old selections fall back to Rimuru.
 
 ### Scavenger hunt
 
@@ -1219,6 +1220,7 @@ The selected file is downloaded, checked against the paper, and stored using the
 | `/upload`          | Upload          | Import papers                        |
 | `/library`         | My Library      | View saved papers                    |
 | `/evaluation`      | Arena           | Comparative evaluation of the six pipelines  |
+| `/lab`             | Lab             | Recipe workshop: custom algorithm recipes, simulated battles, leaderboard |
 | `/walkthrough`     | Walkthrough     | Encyclopedia-style guide to every feature    |
 | `/walkthrough-engine` | Engine      | The mathematics & computer science of the engine |
 | `/faq`             | FAQ             | Frequently asked questions          |

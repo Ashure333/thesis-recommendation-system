@@ -61,6 +61,11 @@ export const TIPS: Tip[] = [
     body: "The study's comparative view: run all six pipelines on one query or seed paper and watch them compete: consensus ranking, pairwise agreement, and the independence-weighted winner.",
   },
   {
+    id: "nav-lab",
+    title: "Lab",
+    body: "The recipe workshop: mix TF-IDF, S-BERT, and metadata percentages into your own algorithm recipe, simulate a battle against the six presets, and climb the leaderboard.",
+  },
+  {
     id: "nav-walkthrough",
     title: "Walkthrough",
     body: "An encyclopedia-style manual for the whole system: every page, the six pipelines, the similar-papers graph, the Arena, and the pixel pet, laid out like a game walkthrough.",

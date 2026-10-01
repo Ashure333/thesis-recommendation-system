@@ -123,16 +123,17 @@ const OTHER_PAGES = [
 ] as const;
 
 const FORMS = [
-  ["rimuru", "Rimuru", "The slime himself", "#38bdf8 slime blue"],
-  ["veldora", "Veldora", "Storm dragon, sealed inside", "#14b8a6 storm teal"],
-  ["benimaru", "Benimaru", "Kijin with twin flames", "#ef4444 crimson"],
-  ["shion", "Shion", "The demon secretary", "#a855f7 violet"],
-  ["ranga", "Ranga", "Tempest wolf, loyal to a fault", "#f3f4f6 wolf white"],
-  ["shuna", "Shuna", "The gentle priestess", "#ec4899 pink"],
-  ["gobta", "Gobta", "Goblin with big ears", "#4ade80 goblin green"],
-  ["ciel", "Ciel", "The personified Great Sage", "#cbd5e1 silver"],
-  ["diablo", "Diablo", "Primordial demon butler", "#334155 demon black"],
-  ["milim", "Milim", "Destroyer, in a good mood", "#f9a8d4 destroyer pink"],
+  ["original", "Original", "The classic slime blob, theme-accented", "Code-rendered blob"],
+  ["rimuru", "Rimuru", "Blue-haired sword-bearing slime hero", "Petdex Rimuru sheet"],
+  ["veldora", "Glaucira", "Mythical blue dragon, aurora-tinted", "Petdex Glaucira dragon sheet"],
+  ["benimaru", "Crimson Blossom", "Chibi floral spirit with a crimson bloom", "Petdex crimson-blossom sheet"],
+  ["shion", "Sion", "Soft violet steadiness, calm as moonlight", "Petdex sioning sheet"],
+  ["ranga", "Wangcai", "Calm fluffy cat with blue eyes", "Petdex Wangcai cat sheet"],
+  ["shuna", "Yinyue Fox", "Silver-moon fox with a curled tail", "Petdex yinyue fox sheet"],
+  ["gobta", "Kabi", "Sleepy, apple-munching bundle of naps", "Petdex Kabi sheet"],
+  ["ciel", "Ciel", "Calm hooded girl, red eyes, white cloak", "Petdex Ciel sheet"],
+  ["diablo", "Gojo", "White-haired sorcerer, blindfolded", "Petdex Gojo sheet"],
+  ["milim", "Mashiro Rima", "Blonde idol of the stage, always in balance", "Petdex Mashiro Rima sheet"],
 ] as const;
 
 const GALLERY = [
@@ -457,8 +458,10 @@ export default function Walkthrough() {
               dragged onto it, leans on its inner Great Sage to analyze
               recommendations, and names everything it likes. It speaks a
               second voice — Japanese lines always shown with their
-              translation — and shifts into any of ten Tempest forms, each
-              in the character's own palette.
+              translation — and each form talks in character: Gojo casts
+              Ryoiki Tenkai, Kabi asks for apples, Ciel reports
+              "calculation complete", and the others speak their own
+              signature lines.
             </p>
 
             <WikiSub id="forms" title="The ten forms">
@@ -472,10 +475,16 @@ export default function Walkthrough() {
               />
             </WikiSub>
             <p className="text-sm leading-6 text-ink">
-              Forms are pure CSS, so every shape follows the theme and
-              animates with the same bob, bounce, and reaction keyframes.
-              The chosen form is remembered per browser; old selections
-              fall back to Rimuru.
+              Every form plays its own real Petdex sprite sheet — a curated
+              pet from the public gallery, renamed to fit the roster:
+              Glaucira the blue dragon, Wangcai the calm cat, Yinyue Fox,
+              Kabi the sleepy napper, Gojo the blindfolded sorcerer,
+              Mashiro Rima the stage idol, and more. Sheets are 8×9 atlases
+              of 192×208 frames; the idle animation loops the first six
+              frames, and the canvas renders at native resolution with hard
+              pixels. All forms still follow the theme and animate with the
+              same bob, bounce, and reaction keyframes. The chosen form is
+              remembered per browser; old selections fall back to Rimuru.
             </p>
             <WikiTable
               headers={["Interaction", "What happens"]}

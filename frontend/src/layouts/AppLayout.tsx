@@ -60,6 +60,11 @@ const navItems = [
     label: "Arena",
     tip: "nav-evaluation",
   },
+  {
+    to: "/lab",
+    label: "Lab",
+    tip: "nav-lab",
+  },
   ...(SHOW_WALKTHROUGH_TAB
     ? [
         {

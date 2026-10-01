@@ -1,15 +1,12 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef } from "react";
 import type { PetVariant } from "../../data/petForms";
 
 /* ============================================================
-   PET BLOB — renders any of the ten pet forms.
-   Every form shares the original architecture: an ink-outlined
-   body with white eyes. Forms are distinct Tempest characters —
-   the slime shifts into a dragon, kijin, wolf, goblin, flame
-   spirit, demons, and more — and each wears the character's own
-   palette (slime blue, crimson, wolf-white, demon-black…).
-   Features (horns, ears, wings, tails, flames) are ink silhouettes
-   pinned to the body edge. All proportions scale from `size`.
+   PET BLOB — renders every pet form from its real Petdex sprite
+   sheet: an 8×9 atlas of 192×208 frames. Idle animation plays
+   the first 6 frames of row 0, looping like the Petdex web
+   client. Frames are drawn at native resolution with
+   image-rendering: pixelated.
    ============================================================ */
 
 interface PetBlobProps {
@@ -19,240 +16,131 @@ interface PetBlobProps {
   className?: string;
 }
 
-const INK = "#1f2937"; // gray-900, the outline color
-const TRI = "polygon(50% 0%, 0% 100%, 100% 100%)";
+const FRAME_W = 192; // native Petdex frame width
+const FRAME_H = 208; // native Petdex frame height
+const SPRITE_FRAMES = 6;
+const SPRITE_LOOP_MS = 1100;
+const INK = "#171923";
 
-/** Canonical Tempest palettes: the body hue plus the feature (ink) color. */
-const PALETTE: Record<PetVariant, { body: string; feature: string }> = {
-  rimuru: { body: "#38bdf8", feature: INK }, // slime blue
-  veldora: { body: "#14b8a6", feature: INK }, // storm dragon teal
-  benimaru: { body: "#ef4444", feature: INK }, // kijin crimson
-  shion: { body: "#a855f7", feature: INK }, // demon violet
-  ranga: { body: "#f3f4f6", feature: INK }, // white wolf, black tips
-  shuna: { body: "#ec4899", feature: INK }, // priestess pink
-  gobta: { body: "#4ade80", feature: INK }, // goblin green
-  ciel: { body: "#cbd5e1", feature: "#f8fafc" }, // silver sage, white hair
-  diablo: { body: "#334155", feature: "#f8fafc" }, // black demon, silver hair
-  milim: { body: "#f9a8d4", feature: INK }, // destroyer pink
-};
-
-const RADIUS: Record<PetVariant, string> = {
-  rimuru: "50% 50% 45% 45% / 60% 60% 40% 40%",
-  veldora: "52% 52% 44% 44% / 66% 66% 40% 40%",
-  benimaru: "52% 52% 46% 46% / 64% 64% 42% 42%",
-  shion: "52% 52% 46% 46% / 64% 64% 42% 42%",
-  ranga: "50% 50% 44% 44% / 56% 56% 44% 44%",
-  shuna: "50% 50% 45% 45% / 60% 60% 40% 40%",
-  gobta: "48% 48% 44% 44% / 56% 56% 46% 46%",
-  ciel: "50% 50% 44% 44% / 68% 68% 40% 40%",
-  diablo: "50% 50% 44% 44% / 70% 70% 42% 42%",
-  milim: "50% 50% 45% 45% / 60% 60% 40% 40%",
-};
-
-const SHAPE: Record<PetVariant, { w: number; h: number }> = {
-  rimuru: { w: 1, h: 1 },
-  veldora: { w: 1.14, h: 0.9 },
-  benimaru: { w: 0.92, h: 1.04 },
-  shion: { w: 0.92, h: 1.04 },
-  ranga: { w: 1.2, h: 0.82 },
-  shuna: { w: 0.98, h: 0.98 },
-  gobta: { w: 1.06, h: 0.94 },
-  ciel: { w: 0.92, h: 1.08 },
-  diablo: { w: 0.88, h: 1.1 },
-  milim: { w: 0.98, h: 0.98 },
-};
-
-/** An ink triangle pinned to the body edge (horns, ears, flames…). */
-function spike(
+/** Grow a uniform ink ring around the silhouette: *passes* dilation
+ *  passes over the alpha channel. */
+function pixelOutline(
+  data: Uint8ClampedArray,
   w: number,
   h: number,
-  top: number,
-  left: number,
-  color: string,
-  rotate = 0,
-): CSSProperties {
-  return {
-    position: "absolute",
-    top: `${top}%`,
-    left: `${left}%`,
-    width: w,
-    height: h,
-    background: color,
-    clipPath: TRI,
-    transform: rotate ? `rotate(${rotate}deg)` : undefined,
-  };
+  passes: number,
+) {
+  const at = (x: number, y: number) =>
+    x < 0 || y < 0 || x >= w || y >= h ? 0 : data[(y * w + x) * 4 + 3];
+
+  const solid = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      solid[y * w + x] = at(x, y) > 0 ? 1 : 0;
+    }
+  }
+
+  const ring: Uint8Array[] = [];
+  let prev = solid;
+  for (let pass = 0; pass < passes; pass++) {
+    const next = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (prev[y * w + x]) continue;
+        let near = 0;
+        for (let dy = -1; dy <= 1 && !near; dy++) {
+          for (let dx = -1; dx <= 1 && !near; dx++) {
+            if (dx || dy) near = prev[(y + dy) * w + (x + dx)];
+          }
+        }
+        next[y * w + x] = near;
+      }
+    }
+    ring.push(next);
+    prev = next;
+  }
+
+  for (const layer of ring) {
+    for (let i = 0; i < layer.length; i++) {
+      if (layer[i]) {
+        const o = i * 4;
+        data[o] = 0x17;
+        data[o + 1] = 0x19;
+        data[o + 2] = 0x23;
+        data[o + 3] = 255;
+      }
+    }
+  }
 }
 
-function features(variant: PetVariant, size: number) {
-  const u = (v: number) => v * size;
-  const ink = PALETTE[variant].feature;
+const SPRITE_SHEETS: Record<PetVariant, string> = {
+  rimuru: "/pets/rimuru.webp",
+  veldora: "/pets/veldora.webp",
+  benimaru: "/pets/benimaru.webp",
+  shion: "/pets/shion.webp",
+  ranga: "/pets/ranga.webp",
+  shuna: "/pets/shuna.webp",
+  gobta: "/pets/gobta.webp",
+  ciel: "/pets/ciel.webp",
+  diablo: "/pets/diablo.webp",
+  milim: "/pets/milim.webp",
+  original: "", // handled by the procedural blob
+};
 
-  switch (variant) {
-    case "veldora":
-      return (
-        <>
-          {/* horns */}
-          <span style={spike(u(0.16), u(0.17), -6, 22, ink)} />
-          <span style={spike(u(0.16), u(0.17), -6, 62, ink)} />
-          {/* wings */}
-          <span
-            style={{
-              position: "absolute",
-              top: "34%",
-              left: u(-0.14),
-              width: u(0.22),
-              height: u(0.3),
-              background: ink,
-              clipPath: "polygon(0 50%, 100% 0%, 100% 100%)",
-            }}
-          />
-          <span
-            style={{
-              position: "absolute",
-              top: "34%",
-              right: u(-0.14),
-              width: u(0.22),
-              height: u(0.3),
-              background: ink,
-              clipPath: "polygon(100% 50%, 0% 0%, 0% 100%)",
-            }}
-          />
-          {/* tail */}
-          <span
-            style={{
-              position: "absolute",
-              top: "70%",
-              left: u(-0.1),
-              width: u(0.18),
-              height: u(0.14),
-              background: ink,
-              clipPath: "polygon(100% 50%, 0% 0%, 0% 100%)",
-            }}
-          />
-        </>
-      );
-    case "benimaru":
-      return (
-        <>
-          <span style={spike(u(0.15), u(0.2), -8, 27, ink)} />
-          <span style={spike(u(0.15), u(0.2), -8, 58, ink)} />
-        </>
-      );
-    case "shion":
-      return <span style={spike(u(0.15), u(0.2), -8, 40, ink)} />;
-    case "ranga":
-      return (
-        <>
-          <span style={spike(u(0.16), u(0.2), -7, 16, ink)} />
-          <span style={spike(u(0.16), u(0.2), -7, 68, ink)} />
-          {/* bushy tail */}
-          <span
-            style={{
-              position: "absolute",
-              top: "26%",
-              right: u(-0.18),
-              width: u(0.22),
-              height: u(0.16),
-              borderRadius: "999px",
-              background: ink,
-              transform: "rotate(-18deg)",
-            }}
-          />
-        </>
-      );
-    case "shuna":
-      return (
-        <>
-          <span style={spike(u(0.18), u(0.2), -8, 10, ink, -18)} />
-          <span style={spike(u(0.18), u(0.2), -8, 72, ink, 18)} />
-        </>
-      );
-    case "gobta":
-      return (
-        <>
-          <span
-            style={{
-              position: "absolute",
-              top: "30%",
-              left: u(-0.11),
-              width: u(0.24),
-              height: u(0.24),
-              borderRadius: "50%",
-              background: ink,
-            }}
-          />
-          <span
-            style={{
-              position: "absolute",
-              top: "30%",
-              right: u(-0.11),
-              width: u(0.24),
-              height: u(0.24),
-              borderRadius: "50%",
-              background: ink,
-            }}
-          />
-        </>
-      );
-    case "ciel":
-      return (
-        <>
-          {/* sage sparkle above the head */}
-          <span
-            style={{
-              position: "absolute",
-              top: u(-0.16),
-              left: "52%",
-              width: u(0.14),
-              height: u(0.14),
-              background: ink,
-              clipPath: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)",
-            }}
-          />
-          {/* flowing hair locks */}
-          <span
-            style={{
-              position: "absolute",
-              top: u(-0.06),
-              right: "6%",
-              width: u(0.2),
-              height: u(0.56),
-              borderRadius: "999px",
-              background: ink,
-              transform: "rotate(14deg)",
-            }}
-          />
-          <span
-            style={{
-              position: "absolute",
-              top: u(0.14),
-              right: u(-0.09),
-              width: u(0.16),
-              height: u(0.34),
-              borderRadius: "999px",
-              background: ink,
-              transform: "rotate(-12deg)",
-            }}
-          />
-        </>
-      );
-    case "diablo":
-      return (
-        <>
-          <span style={spike(u(0.14), u(0.2), -6, 24, ink, -30)} />
-          <span style={spike(u(0.14), u(0.2), -6, 62, ink, 30)} />
-        </>
-      );
-    case "milim":
-      return (
-        <>
-          <span style={spike(u(0.1), u(0.13), -4, 32, ink)} />
-          <span style={spike(u(0.1), u(0.13), -4, 58, ink)} />
-        </>
-      );
-    default:
-      return null;
+/** The original pet: a theme-accent slime blob with ink-outlined eyes.
+ *  Reads the live --accent token, so the blob follows the active theme. */
+function drawOriginalBlob(canvas: HTMLCanvasElement, hungry: boolean, blink = false) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  canvas.width = FRAME_W;
+  canvas.height = FRAME_H;
+  ctx.clearRect(0, 0, FRAME_W, FRAME_H);
+
+  const accent = getComputedStyle(document.documentElement)
+    .getPropertyValue("--accent")
+    .trim();
+  const bodyColor = accent ? `rgb(${accent})` : "#f39c12";
+
+  /* blob body */
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.ellipse(96, 106, 58, 72, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  /* eyes — hungry opens wide, blink closes them */
+  if (blink) {
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 6;
+    for (const x of [68, 124]) {
+      ctx.beginPath();
+      ctx.moveTo(x - 14, 94);
+      ctx.quadraticCurveTo(x, 88, x + 14, 94);
+      ctx.stroke();
+    }
+  } else {
+    const eyeY = hungry ? 108 : 88;
+    const eyeH = hungry ? 22 : 26;
+    for (const x of [68, 124]) {
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.ellipse(x, eyeY, 16, eyeH, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 5;
+      ctx.stroke();
+    }
   }
+
+  /* threshold + ink ring, matching the sprite forms */
+  const img = ctx.getImageData(0, 0, FRAME_W, FRAME_H);
+  const data = img.data;
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = data[i] > 128 ? 255 : 0;
+  }
+  pixelOutline(data, FRAME_W, FRAME_H, 2);
+  ctx.putImageData(img, 0, 0);
 }
 
 export default function PetBlob({
@@ -261,75 +149,87 @@ export default function PetBlob({
   hungry = false,
   className = "",
 }: PetBlobProps) {
-  const shape = SHAPE[variant];
-  const width = size * shape.w;
-  const height = size * shape.h;
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
-  const eye = Math.max(3, size * 0.17);
-  const eyeGap = Math.max(2, size * 0.08);
-  const mouth = size * 0.1;
+  useEffect(() => {
+    if (variant === "original") {
+      const canvas = ref.current;
+      if (!canvas) return;
+      drawOriginalBlob(canvas, hungry);
+
+      /* idle blink loop + live theme reactivity: redraw whenever the
+         --accent token changes or the blink timer fires. */
+      let blinkTimer: number | null = null;
+      const draw = () => drawOriginalBlob(canvas, hungry, false);
+      const root = document.documentElement;
+      let lastAccent = getComputedStyle(root).getPropertyValue("--accent").trim();
+      const observer = new MutationObserver(() => {
+        const next = getComputedStyle(root).getPropertyValue("--accent").trim();
+        if (next !== lastAccent) {
+          lastAccent = next;
+          draw();
+        }
+      });
+      observer.observe(root, { attributes: true, attributeFilter: ["style"] });
+
+      const blink = () => {
+        drawOriginalBlob(canvas, hungry, true);
+        blinkTimer = window.setTimeout(() => draw(), 150);
+      };
+      const blinkLoop = window.setInterval(blink, 3400);
+
+      return () => {
+        observer.disconnect();
+        window.clearInterval(blinkLoop);
+        if (blinkTimer !== null) window.clearTimeout(blinkTimer);
+      };
+    }
+    const img = new Image();
+    img.onload = () => {
+      imgRef.current = img;
+    };
+    img.src = SPRITE_SHEETS[variant];
+    return () => {
+      imgRef.current = null;
+    };
+  }, [variant, hungry]);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    if (variant === "original") return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let raf = 0;
+    const loop = (time: number) => {
+      const img = imgRef.current;
+      if (img) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.clearRect(0, 0, FRAME_W, FRAME_H);
+        const frame = Math.floor(time / (SPRITE_LOOP_MS / SPRITE_FRAMES)) % SPRITE_FRAMES;
+        ctx.drawImage(img, frame * FRAME_W, 0, FRAME_W, FRAME_H, 0, 0, FRAME_W, FRAME_H);
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [variant]);
+
+  void hungry;
 
   return (
-    <span
-      className={`flex shrink-0 items-center justify-center ${className}`}
-      style={{ width, height }}
-    >
-      <span
-        className="relative flex items-center justify-center border-[3px] border-gray-900"
-        style={{
-          width: "100%",
-          height: "100%",
-          borderRadius: RADIUS[variant],
-          background: PALETTE[variant].body,
-        }}
-      >
-        {features(variant, size)}
-
-        {/* Eyes */}
-        <span className="flex items-center justify-center" style={{ gap: eyeGap }}>
-          {variant === "shuna" || variant === "ciel" ? (
-            <>
-              <span
-                className="rounded-full bg-gray-900"
-                style={{ width: eye * 1.2, height: Math.max(2, eye * 0.28) }}
-              />
-              <span
-                className="rounded-full bg-gray-900"
-                style={{ width: eye * 1.2, height: Math.max(2, eye * 0.28) }}
-              />
-            </>
-          ) : (
-            <>
-              <span
-                className={`rounded-full border-2 border-gray-900 bg-white transition-transform duration-100 pixel-ease ${
-                  hungry ? "scale-y-75" : ""
-                }`}
-                style={{ width: eye, height: eye }}
-              />
-              <span
-                className={`rounded-full border-2 border-gray-900 bg-white transition-transform duration-100 pixel-ease ${
-                  hungry ? "scale-y-75" : ""
-                }`}
-                style={{ width: eye, height: eye }}
-              />
-            </>
-          )}
-        </span>
-
-        {/* Smile */}
-        {(variant === "shuna" || variant === "milim") && (
-          <span
-            className="absolute"
-            style={{
-              width: mouth * 1.6,
-              height: mouth * 0.8,
-              bottom: size * 0.16,
-              borderBottom: "2px solid #2c3e50",
-              borderRadius: "0 0 999px 999px",
-            }}
-          />
-        )}
-      </span>
-    </span>
+    <canvas
+      ref={ref}
+      width={FRAME_W}
+      height={FRAME_H}
+      className={className}
+      style={{
+        width: size * (FRAME_W / FRAME_H),
+        height: size,
+        imageRendering: "pixelated",
+      }}
+    />
   );
 }

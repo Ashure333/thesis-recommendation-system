@@ -534,6 +534,8 @@ export function comparePipelines(params: {
   query?: string;
   seedPaperId?: number;
   topK?: number;
+  customWeights?: { tfidf: number; sbert: number; metadata: number };
+  recordBattle?: boolean;
 }): Promise<CompareResponse> {
   return fetch(`${API_URL}/api/recommendations/compare`, {
     method: "POST",
@@ -544,6 +546,8 @@ export function comparePipelines(params: {
       query: params.query ?? null,
       seed_paper_id: params.seedPaperId ?? null,
       top_k: params.topK ?? 10,
+      custom_weights: params.customWeights ?? null,
+      record_battle: params.recordBattle ?? true,
     }),
   }).then(handle<CompareResponse>);
 }

@@ -30,6 +30,7 @@ Then open the URL it prints (usually http://localhost:5173).
 | `/upload` | `pages/repository/Upload.tsx` | Upload a PDF, review auto-extracted fields |
 | `/library` | `pages/repository/MyLibrary.tsx` | Papers the user saved |
 | `/evaluation` | `pages/evaluation/Evaluation.tsx` | The Arena: compare the six pipelines |
+| `/lab` | `pages/lab/Lab.tsx` | The recipe workshop: custom recipes, simulated battles, leaderboard |
 | `/walkthrough` | `pages/walkthrough/Walkthrough.tsx` | Encyclopedia-style guide to every feature |
 | `/walkthrough-engine` | `pages/walkthrough/MathWalkthrough.tsx` | The mathematics & CS of the engine |
 | `/faq` | `pages/FAQ.tsx` | Frequently asked questions |
@@ -49,8 +50,11 @@ a help library. Its data lives in `data/`:
 - `data/hunt.ts` — the six hidden treasures
 - `data/achievements.ts` — the achievement rack
 
-`components/retro/PetBlob.tsx` renders every form as pure CSS with the
-character's own palette; `state/petForm.tsx` persists the selection.
+`components/retro/PetBlob.tsx` renders every form from its real Petdex
+sprite sheet (8×9 atlas, 192×208 frames) with a live idle loop — the
+sheets live in `public/pets/` and are named by form id. Forms are renamed
+to their Petdex identities (Glaucira, Wangcai, Yinyue Fox, Kabi, Gojo,
+Mashiro Rima…); `state/petForm.tsx` persists the selection.
 
 ## Structure
 

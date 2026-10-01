@@ -8,6 +8,7 @@
    ============================================================ */
 
 export type PetVariant =
+  | "original"
   | "rimuru"
   | "veldora"
   | "benimaru"
@@ -28,64 +29,70 @@ export interface PetForm {
 
 export const PET_FORMS: PetForm[] = [
   {
+    id: "original",
+    name: "Original",
+    variant: "original",
+    blurb: "The classic slime blob — the pet's true original form.",
+  },
+  {
     id: "rimuru",
     name: "Rimuru",
     variant: "rimuru",
-    blurb: "The slime himself. True form.",
+    blurb: "Blue-haired sword-bearing slime hero.",
   },
   {
     id: "veldora",
-    name: "Veldora",
+    name: "Glaucira",
     variant: "veldora",
-    blurb: "Storm dragon, sealed inside.",
+    blurb: "Mythical blue dragon of the deep, aurora-tinted and sapphire-scaled.",
   },
   {
     id: "benimaru",
-    name: "Benimaru",
+    name: "Crimson Blossom",
     variant: "benimaru",
-    blurb: "Kijin with twin flames.",
+    blurb: "A chibi floral spirit with a crimson bloom.",
   },
   {
     id: "shion",
-    name: "Shion",
+    name: "Sion",
     variant: "shion",
-    blurb: "The demon secretary.",
+    blurb: "Soft violet steadiness, calm as a moonlit night.",
   },
   {
     id: "ranga",
-    name: "Ranga",
+    name: "Wangcai",
     variant: "ranga",
-    blurb: "Tempest wolf, loyal to a fault.",
+    blurb: "Calm fluffy cat with blue eyes and dark ears.",
   },
   {
     id: "shuna",
-    name: "Shuna",
+    name: "Yinyue Fox",
     variant: "shuna",
-    blurb: "The gentle priestess.",
+    blurb: "Silver-moon fox with dark ears and a curled tail.",
   },
   {
     id: "gobta",
-    name: "Gobta",
+    name: "Kabi",
     variant: "gobta",
-    blurb: "Goblin with big ears.",
+    blurb: "Sleepy, apple-munching bundle of naps.",
   },
   {
     id: "ciel",
     name: "Ciel",
     variant: "ciel",
-    blurb: "The personified Great Sage.",
+    blurb: "Calm hooded girl with red eyes and a white cloak.",
   },
   {
     id: "diablo",
-    name: "Diablo",
+    name: "Gojo",
     variant: "diablo",
-    blurb: "Primordial demon butler.",
+    blurb: "White-haired sorcerer, blindfolded and untouchable.",
   },
   {
     id: "milim",
-    name: "Milim",
+    name: "Mashiro Rima",
     variant: "milim",
-    blurb: "Destroyer, in a good mood.",
+    blurb: "Blonde idol of the stage, always in balance.",
   },
 ];
 

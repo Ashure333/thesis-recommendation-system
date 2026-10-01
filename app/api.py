@@ -2211,12 +2211,14 @@ def compare_recommendation_pipelines(
             query=request.query,
             seed_paper_id=request.seed_paper_id,
             top_k=request.top_k,
+            custom_weights=request.custom_weights,
         )
 
         # Log the run to the battle history so the frontend can
         # tally wins over time. Runs with no winner (empty
-        # repository) are not recorded.
-        if result.winner is not None:
+        # repository) are not recorded, and Lab simulations
+        # opt out so they don't pollute the Arena's records.
+        if result.winner is not None and request.record_battle:
             db.add(
                 BattleRun(
                     query=request.query,

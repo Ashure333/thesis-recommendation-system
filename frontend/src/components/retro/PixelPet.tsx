@@ -8,7 +8,7 @@ import {
 } from "../../data/tips";
 import { HUNT_ITEMS } from "../../data/hunt";
 import { ACHIEVEMENTS } from "../../data/achievements";
-import { PET_FORMS } from "../../data/petForms";
+import { PET_FORMS, type PetVariant } from "../../data/petForms";
 import { usePetForm } from "../../state/petForm";
 import PetBlob from "./PetBlob";
 import {
@@ -195,6 +195,9 @@ export default function PixelPet() {
   }, [seen]);
 
   const [hop, setHop] = useState(false);
+  const [transformForm, setTransformForm] = useState<PetVariant | null>(null);
+  const transformTimerRef = useRef<number | null>(null);
+  const transformIntervalRef = useRef<number | null>(null);
   const [coins, setCoins] = useState<number[]>([]);
   const coinId = useRef(0);
 
@@ -396,6 +399,59 @@ export default function PixelPet() {
       1000,
     );
   }, []);
+
+  /* While dragging, the pet hops along toward the pointer:
+     re-trigger the hop animation every hop cycle. */
+  const dragHopRef = useRef<number | null>(null);
+
+  /* Shapeshift through every form for a moment, then return to the
+     selected form. Runs when the pet eats a paper. */
+  const startTransform = useCallback(() => {
+    const all = PET_FORMS.map((f) => f.variant);
+    let index = all.indexOf(form.variant);
+    if (index === -1) index = 0;
+
+    if (transformIntervalRef.current !== null) {
+      window.clearInterval(transformIntervalRef.current);
+    }
+    if (transformTimerRef.current !== null) {
+      window.clearTimeout(transformTimerRef.current);
+    }
+
+    transformIntervalRef.current = window.setInterval(() => {
+      index = (index + 1) % all.length;
+      setTransformForm(all[index]);
+    }, 280);
+
+    transformTimerRef.current = window.setTimeout(() => {
+      if (transformIntervalRef.current !== null) {
+        window.clearInterval(transformIntervalRef.current);
+        transformIntervalRef.current = null;
+      }
+      setTransformForm(null);
+    }, 1_700);
+  }, [form.variant]);
+  useEffect(() => {
+    if (dragging) {
+      setHop(true);
+      dragHopRef.current = window.setInterval(() => {
+        setHop(true);
+        window.setTimeout(() => setHop(false), 450);
+      }, 500);
+    } else {
+      if (dragHopRef.current !== null) {
+        window.clearInterval(dragHopRef.current);
+        dragHopRef.current = null;
+      }
+      setHop(false);
+    }
+    return () => {
+      if (dragHopRef.current !== null) {
+        window.clearInterval(dragHopRef.current);
+        dragHopRef.current = null;
+      }
+    };
+  }, [dragging]);
 
   /* --------------------------------------------------------
      Reveal a tip (from the hover engine)
@@ -795,7 +851,7 @@ export default function PixelPet() {
 
   const destructionTimerRef = useRef<number | null>(null);
 
-  const speechLines = getPetLines(count, total, complete);
+  const speechLines = getPetLines(count, total, complete, form.variant);
   const speechLine = speechLines[speechIndex % speechLines.length];
 
   /* The bubble speaks the hungry line while a paper hovers over
@@ -852,6 +908,12 @@ export default function PixelPet() {
     setDropFx({ mode, title: paper.title ?? `Paper #${paper.id}` });
     celebrate();
 
+    /* Eating a paper makes the pet shapeshift through the forms,
+       then return to the selected form (Rimuru-style transformation). */
+    if (mode === "eat") {
+      startTransform();
+    }
+
     if (destructionTimerRef.current !== null) {
       window.clearTimeout(destructionTimerRef.current);
     }
@@ -871,6 +933,12 @@ export default function PixelPet() {
     return () => {
       if (destructionTimerRef.current !== null) {
         window.clearTimeout(destructionTimerRef.current);
+      }
+      if (transformIntervalRef.current !== null) {
+        window.clearInterval(transformIntervalRef.current);
+      }
+      if (transformTimerRef.current !== null) {
+        window.clearTimeout(transformTimerRef.current);
       }
     };
   }, []);
@@ -1189,7 +1257,7 @@ export default function PixelPet() {
                 }`}
               >
                 <PetBlob
-                  variant={form.variant}
+                  variant={transformForm ?? form.variant}
                   size={48}
                   hungry={petHungry}
                   className="drop-shadow-[1px_2px_0_rgba(0,0,0,0.15)]"

@@ -15,6 +15,7 @@ import Recommendations from "./pages/evaluation/Recommendations";
 import Upload from "./pages/repository/Upload";
 import MyLibrary from "./pages/repository/MyLibrary";
 import Evaluation from "./pages/evaluation/Evaluation";
+import Lab from "./pages/lab/Lab";
 import Walkthrough from "./pages/walkthrough/Walkthrough";
 import MathWalkthrough from "./pages/walkthrough/MathWalkthrough";
 
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="/upload" element={<Upload />} />
           <Route path="/library" element={<MyLibrary />} />
           <Route path="/evaluation" element={<Evaluation />} />
+          <Route path="/lab" element={<Lab />} />
           <Route path="/walkthrough" element={<Walkthrough />} />
           <Route path="/walkthrough-engine" element={<MathWalkthrough />} />
           <Route path="/faq" element={<FAQ />} />
