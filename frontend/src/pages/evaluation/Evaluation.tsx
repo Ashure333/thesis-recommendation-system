@@ -255,7 +255,7 @@ export default function Evaluation() {
       <PageHeader
         eyebrow="Arena"
         title="Pipeline battle"
-        description="Run all six configurations against one query and watch them compete — consensus ranking, per-pipeline ranks, and pairwise agreement."
+        description="Run all six configurations against one query and watch them compete: consensus ranking, per-pipeline ranks, and pairwise agreement."
       />
 
       {/* ======================================================
@@ -281,7 +281,7 @@ export default function Evaluation() {
                 }
               }}
               placeholder="e.g. neural network text similarity"
-              className="ui-input text-lg"
+              className="ui-input text-base"
             />
           </div>
 
@@ -349,7 +349,7 @@ export default function Evaluation() {
             in by the most pipelines, and the battle grid details
             every rank. The pipeline that captures the largest
             share of independence-weighted consensus is crowned the
-            winner — agreement with a rival counts only as much as
+            winner. Agreement with a rival counts only as much as
             that rival is built from different signals, so no
             pipeline can win through its own hybrids. The raw
             numbers for the evaluation chapter.
@@ -403,7 +403,7 @@ export default function Evaluation() {
                       : ""}
                     . Agreement with a rival pipeline counts only as
                     much as that rival is built from different
-                    signals — a pipeline can't be confirmed by its
+                    signals, a pipeline can.t be confirmed by its
                     own hybrids.
                   </p>
                 </div>
@@ -460,7 +460,7 @@ export default function Evaluation() {
               if (maxRanks === 0) {
                 return (
                   <p className="px-5 py-6 text-sm leading-6 text-muted">
-                    No scores to chart — the repository returned
+                    No scores to chart. The repository returned
                     no results for this query.
                   </p>
                 );
@@ -993,7 +993,7 @@ export default function Evaluation() {
                     {currentStreak > 1 && (
                       <div className="bg-canvas px-5 py-3">
                         <p className="font-mono text-xs font-bold tracking-[0.2em] text-accent">
-                          STREAK ×{currentStreak} — {configById.get(leader.id)?.codename ?? leader.id} won the last {currentStreak} battles in a row
+                          STREAK ×{currentStreak}: {configById.get(leader.id)?.codename ?? leader.id} won the last {currentStreak} battles in a row
                         </p>
                       </div>
                     )}
@@ -1003,7 +1003,7 @@ export default function Evaluation() {
                 <div>
                   <div className="border-b border-gray-200 px-5 py-4">
                     <p className="text-xs leading-5 text-muted">
-                      Recorded runs, newest first — page {historyPage} of{" "}
+                      Recorded runs, newest first. Page {historyPage} of{" "}
                       {historyPages} ({historyTotal} total).
                     </p>
                   </div>

@@ -1,5 +1,5 @@
 /* ============================================================
-   HELP LIBRARY — the pet's chatbot brain
+   HELP LIBRARY, the pet chatbot brain
    Unlocked once every scavenger-hunt treasure is found. The pet
    answers free-text questions by keyword-matching them against
    every tip (base + deep) plus a few special entries.
@@ -24,7 +24,7 @@ const FALLBACK: HelpEntry = {
   body:
     "I didn't quite catch that. Try asking about pipelines, TF-IDF, " +
     "S-BERT, imports, filters, themes, evaluation, or the scavenger " +
-    "hunt — or just ask \"help\".",
+    "hunt, or just ask \"help\".",
 };
 
 /* Special entries that aren't tips. */
@@ -51,7 +51,7 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
     title: "WHO AM I",
     keywords: ["who", "your name", "introduce", "yourself", "about you", "pet"],
     body:
-      "I'm the Re:Search pet — the arcade companion of the thesis " +
+      "I.m the Re:Search pet, the arcade companion of the thesis " +
       "recommendation system. I started as a tip guide, and after " +
       "you found every treasure I grew into this help library.",
   },
@@ -69,7 +69,7 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
     ],
     body:
       `There are ${HUNT_ITEMS.length} hidden treasures, one per page. ` +
-      "Each is a small dim sparkle — spot it and click it. The pet " +
+      "Each is a small dim sparkle. Spot it and click it. The pet " +
       "whispers hints for the ones you're missing, and finding all " +
       `${HUNT_ITEMS.length} unlocks the deep tips and this chat.`,
   },
@@ -78,7 +78,7 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
     keywords: ["reset", "restart", "wipe", "clear", "progress"],
     body:
       "Once the library is unlocked, a tiny RESET appears in the " +
-      "bubble footer — it clears your discovered tips and treasure " +
+      "bubble footer. It clears your discovered tips and treasure " +
       "progress so you can replay the hunt.",
   },
 ];

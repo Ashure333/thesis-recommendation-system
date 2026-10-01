@@ -326,7 +326,7 @@ export default function PipelineMath({
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-accentSoft"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold transition-colors hover:bg-accentSoft"
       >
         <span className="flex flex-col gap-0.5">
           <span className="flex items-center gap-2 text-sm font-bold text-ink">
@@ -344,7 +344,7 @@ export default function PipelineMath({
             <span className="font-semibold text-ink">
               {math.label}
             </span>{" "}
-            pipeline — with the live values from the current search.
+            pipeline, with the live values from the current search.
           </span>
         </span>
 
@@ -536,7 +536,7 @@ export default function PipelineMath({
 
                     <p className="mb-2 text-xs leading-5 text-muted">
                       s_meta(d) = 0.25·s_title + 0.25·s_abstract +
-                      0.25·s_keywords + 0.25·s_year — missing fields
+                      0.25·s_keywords + 0.25·s_year; missing fields
                       contribute 0.
                     </p>
 

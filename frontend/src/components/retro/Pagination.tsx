@@ -56,7 +56,7 @@ export default function Pagination({
   const to = total != null && pageSize ? Math.min(page * pageSize, total) : null;
 
   const pageButton =
-    "flex h-7 min-w-7 items-center justify-center rounded border-[2px] border-gray-900 px-1.5 font-mono text-xs font-bold transition-colors pixel-ease disabled:cursor-not-allowed disabled:opacity-40";
+    "flex h-7 min-w-7 items-center justify-center rounded border-[2px] border-gray-900 px-1.5 font-mono text-sm font-semibold transition-colors pixel-ease disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
     <div

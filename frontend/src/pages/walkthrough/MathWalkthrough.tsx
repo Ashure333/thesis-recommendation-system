@@ -11,7 +11,7 @@ import {
 } from "./wiki";
 
 /* ============================================================
-   ENGINE WALKTHROUGH — the mathematics and computer science
+   ENGINE WALKTHROUGH: the mathematics and computer science
    behind Re:Search, documented the way a walkthrough documents
    a game world: every formula, its role, and a worked example.
    Temporary tab: hide it by flipping SHOW_ENGINE_TAB in
@@ -22,11 +22,11 @@ const INFOBOX_ROWS: [string, string][] = [
   ["Name", "The Re:Search engine"],
   ["Core models", "Vector space (TF-IDF) · sentence embeddings (S-BERT) · metadata fusion · weighted graph"],
   ["Algorithms", "TF-IDF · cosine similarity · min-max normalization · Dijkstra's shortest paths · independence-weighted voting"],
-  ["Embedding model", "all-MiniLM-L6-v2 — 6 layers, 384 dimensions"],
+  ["Embedding model", "all-MiniLM-L6-v2, 6 layers, 384 dimensions"],
   ["Signals", "TF-IDF (lexical) · S-BERT (semantic) · Metadata (4 fields)"],
   ["Pipelines", "6 fixed configurations + 1 custom dial"],
   ["Scale", "n = 146 valid papers · per-search work O(n·d)"],
-  ["Determinism", "Deterministic — total tie-breaks, fixed seeds"],
+  ["Determinism", "Deterministic (total tie-breaks, fixed seeds"],
   ["Status", "Local research prototype"],
 ];
 
@@ -74,8 +74,8 @@ const INDEPENDENCE_ROWS = [
 ] as const;
 
 const COMPLEXITY_ROWS = [
-  ["Index build — TF-IDF", "Fit vocabulary + IDF over the corpus", "O(n·L̄) tokenization; O(n·d_tfidf) storage"],
-  ["Index build — S-BERT", "Encode every paper once", "n model forward passes; O(n·384) storage"],
+  ["Index build (TF-IDF)", "Fit vocabulary + IDF over the corpus", "O(n·L̄) tokenization; O(n·d_tfidf) storage"],
+  ["Index build (S-BERT)", "Encode every paper once", "n model forward passes; O(n·384) storage"],
   ["One search (any pipeline)", "Score all valid candidates", "O(n·d) cosine work per active component; O(n) small metadata fits"],
   ["Arena battle", "Six searches + comparisons", "6 × search, then O(36·k) pairwise and O(6n) consensus"],
   ["Similar-papers graph", "Edges between graph papers + Dijkstra", "O(V²) candidate pairs (V = k + 1), then O(E log V)"],
@@ -83,7 +83,7 @@ const COMPLEXITY_ROWS = [
 ] as const;
 
 const ENGINEERING_ROWS = [
-  ["Prepared text", "Title + Abstract + Keywords, normalized (lowercase, punctuation stripped, whitespace collapsed) — the single input to every component."],
+  ["Prepared text", "Title + Abstract + Keywords, normalized (lowercase, punctuation stripped, whitespace collapsed). The single input to every component."],
   ["Validation gate", "A paper is searchable only when title, abstract, keywords, and publication year are present (is_valid_for_recommendation)."],
   ["Index rebuild", "Repository changes flag the index stale (JSON status file); a rebuild re-runs classification → validation → prepared text → TF-IDF → S-BERT."],
   ["Duplicate detection", "Uploads are blocked with HTTP 409 on an exact DOI or a blended title similarity ≥ 0.85."],
@@ -101,7 +101,7 @@ export default function MathWalkthrough() {
       <WikiHeader
         eyebrow="ENGINE · ENCYCLOPEDIA-STYLE"
         title="The mathematics & computer science of Re:Search"
-        description="Every formula the system computes, explained: the vector space model, sentence embeddings, metadata fusion, the similar-papers graph, and the Arena's voting system — plus a worked example you can follow by hand."
+        description="Every formula the system computes, explained: the vector space model, sentence embeddings, metadata fusion, the similar-papers graph, and the Arena's voting system, plus a worked example you can follow by hand."
         categories={["Category: Mathematics", "Category: Computer Science", "Category: Walkthrough"]}
       />
 
@@ -119,9 +119,9 @@ export default function MathWalkthrough() {
                   answer is a pipeline of linear algebra: papers are turned
                   into vectors, the query is turned into a vector, and
                   relatedness is scored with the cosine of the angle between
-                  them. Three vector families are combined — a sparse
+                  them. Three vector families are combined: a sparse
                   lexical one (TF-IDF), a dense semantic one (S-BERT), and a
-                  small four-field metadata one — under configurable
+                  small four-field metadata one, under configurable
                   weights. Two richer structures sit on top: a weighted
                   graph of similar papers, and the Arena, a voting system
                   that compares the six pipeline configurations against one
@@ -149,7 +149,7 @@ export default function MathWalkthrough() {
               The lexical component is the classic vector space model: every
               paper becomes a vector over the corpus vocabulary, and
               relatedness is cosine similarity. The weight of a term inside
-              a vector is its TF-IDF value — high when the term is frequent
+              a vector is its TF-IDF value. High when the term is frequent
               in that paper, low when it is common across the corpus.
             </p>
             <MathBlock
@@ -171,12 +171,12 @@ export default function MathWalkthrough() {
               most common term from receiving a zero weight. Every vector
               is L2-normalized, so cosine similarity reduces to a dot
               product between unit vectors. The vocabulary is fitted once
-              at index build and never refit at request time — the query
+              at index build and never refit at request time. The query
               must live in the same vector space as the stored papers.
             </p>
             <p className="text-sm leading-6 text-ink">
               Strength and weakness: exact term matching is precise but
-              blind to paraphrase — a paper on "neural networks" can miss a
+              blind to paraphrase; a paper on "neural networks" can miss a
               search for "deep learning". That gap is what the semantic
               component exists to close.
             </p>
@@ -245,7 +245,7 @@ export default function MathWalkthrough() {
             />
             <p className="text-sm leading-6 text-ink">
               Two design decisions deserve attention. First, missing fields
-              contribute 0 while the fixed weights stay — a paper with only
+              contribute 0 while the fixed weights stay. A paper with only
               one available field cannot inflate its score by omission.
               Second, the year signal decays smoothly: identical years
               score 1, one year apart scores 0.5, three years apart 0.25.
@@ -258,7 +258,7 @@ export default function MathWalkthrough() {
 
           <WikiSection id="fusion" title="Normalization & weighted fusion">
             <p className="text-sm leading-6 text-ink">
-              Three components produce scores on different scales — raw
+              Three components produce scores on different scales: raw
               cosines in different vector spaces, plus an already-bounded
               metadata score. Before combination, TF-IDF and S-BERT raw
               scores are min-max normalized across the candidate set;
@@ -279,7 +279,7 @@ export default function MathWalkthrough() {
               identically (e.g. an empty vocabulary match), the raw
               normalization would divide by zero, so the implementation
               maps the whole set to 1.0 and lets the tie-breaks decide.
-              The six configurations fix the weights — linear combinations
+              The six configurations fix the weights: linear combinations
               of the same three signals:
             </p>
             <WikiTable
@@ -304,8 +304,8 @@ export default function MathWalkthrough() {
               ]}
             />
             <p className="text-sm leading-6 text-ink">
-              The tie-breaks form a total order — score, then year, then
-              title — so the ranking is deterministic: the same query,
+              The tie-breaks form a total order: score, then year, then
+              title, so the ranking is deterministic: the same query,
               pipeline, and corpus always produce the identical list. The
               score &gt; 0 filter drops papers that matched nothing.
             </p>
@@ -317,7 +317,7 @@ export default function MathWalkthrough() {
               weighted graph: the selected paper is the origin node, the
               top_k results are its neighbors, and every pair of graph
               papers is joined by a blended edge weight that reuses the
-              active pipeline's own components — so the graph can never
+              active pipeline's own components, so the graph can never
               disagree with the pipeline that selected its nodes.
             </p>
             <MathBlock
@@ -344,7 +344,7 @@ export default function MathWalkthrough() {
               suggest. The graph uses raw component similarities, not the
               min-max normalized scores of the ranked list. Because the
               repository stores no reference lists, shared authors and
-              shared topics stand in for bibliographic coupling — a
+              shared topics stand in for bibliographic coupling, a
               deliberate substitution, not a claim of equivalence.
             </p>
           </WikiSection>
@@ -361,7 +361,7 @@ export default function MathWalkthrough() {
               <p className="text-sm leading-6 text-ink">
                 Every paper any pipeline ranked collects votes (how many
                 pipelines included it); papers are ordered by votes, then
-                by average rank, then by paper id — the same total-order
+                by average rank, then by paper id, the same total-order
                 discipline as the ranking rule.
               </p>
             </WikiSub>
@@ -375,7 +375,7 @@ export default function MathWalkthrough() {
             <WikiSub id="winner" title="The independence-weighted winner">
               <p className="text-sm leading-6 text-ink">
                 A naive vote count would let a hybrid win by agreeing with
-                its own components — the hybrid is literally built from
+                its own components. The hybrid is literally built from
                 them. The Arena instead weights each vote by the
                 independence of the two voters: the Jaccard distance
                 between their component sets.
@@ -410,7 +410,7 @@ export default function MathWalkthrough() {
               <p className="text-sm leading-6 text-ink">
                 The share normalizes hybrids and pure pipelines onto one
                 scale. The winner is a measure of agreement breadth under
-                independence weighting — not of correctness: pipelines can
+                independence weighting, not of correctness: pipelines can
                 agree in error together, and the Arena never claims more
                 than that.
               </p>
@@ -483,7 +483,7 @@ export default function MathWalkthrough() {
               />
               <p className="text-sm leading-6 text-ink">
                 Ranking: A (0.868), C (0.866), B (0.030). The full hybrid
-                separates A from C by two thousandths — the exact lesson
+                separates A from C by two thousandths. That is the exact lesson
                 of fusion: when components disagree, the weights decide,
                 and the ranking can flip on a small change.
               </p>
@@ -513,7 +513,7 @@ export default function MathWalkthrough() {
               />
               <p className="text-sm leading-6 text-ink">
                 All three edges clear the 0.15 threshold, and every direct
-                edge beats the two-hop route through the origin — Dijkstra
+                edge beats the two-hop route through the origin. Dijkstra
                 keeps the direct paths. A→C is the tightest connection:
                 two papers on neural text methods, 0.236 apart.
               </p>
@@ -524,7 +524,7 @@ export default function MathWalkthrough() {
             <ul className="list-inside list-disc space-y-1.5 text-sm leading-6 text-ink">
               <li>
                 Smoothed IDF never lets a term reach weight zero, and the
-                ln((1+n)/(1+df)) form is scikit-learn's exact default —
+                ln((1+n)/(1+df)) form is scikit-learn's exact default: 
                 the same numbers the stored vectors were built with.
               </li>
               <li>
@@ -534,7 +534,7 @@ export default function MathWalkthrough() {
               </li>
               <li>
                 Year proximity is a bounded decay: 1/(1+|Δy|) equals 1 at
-                Δy = 0, 0.5 at Δy = 1, 0.25 at Δy = 3 — never 0 for any
+                Δy = 0, 0.5 at Δy = 1, 0.25 at Δy = 3, never 0 for any
                 finite gap.
               </li>
               <li>
@@ -545,7 +545,7 @@ export default function MathWalkthrough() {
               </li>
               <li>
                 The Arena winner is a Borda-flavored consensus summary, not
-                a relevance judgment — two pipelines agreeing can both be
+                a relevance judgment. Two pipelines agreeing can both be
                 wrong together.
               </li>
               <li>
@@ -554,7 +554,7 @@ export default function MathWalkthrough() {
                 runs and rankings are reproducible to the last paper.
               </li>
               <li>
-                The search path is O(n·d) with n = 146 valid papers — the
+                The search path is O(n·d) with n = 146 valid papers. The
                 whole corpus is scored per query, and nothing is indexed
                 beyond the stored vectors and embeddings.
               </li>

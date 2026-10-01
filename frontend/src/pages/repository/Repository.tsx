@@ -348,7 +348,7 @@ export default function Repository() {
   }, [searchMode, search, subject, category, documentType, minYear, maxYear, sortBy]);
 
   /* ------------------------------------------------------------
-     Web search — legitimate APIs only (OpenAlex + Crossref),
+     Web search uses legitimate APIs only (OpenAlex + Crossref),
      peer-reviewed types by default, server-side filtering.
      ------------------------------------------------------------ */
 
@@ -709,7 +709,7 @@ export default function Repository() {
                     <span>
                       Peer-reviewed only
                       <span className="block text-xs leading-4 text-muted">
-                        Journals, conferences, book chapters — no
+                        Journals, conferences, book chapters, no
                         preprints, datasets, or retracted work.
                       </span>
                     </span>
@@ -793,7 +793,7 @@ export default function Repository() {
                         type="button"
                         onClick={() => setSystemView(id)}
                         aria-pressed={systemView === id}
-                        className={`block w-full rounded border-[2px] border-gray-900 px-2.5 py-1.5 text-left text-xs font-bold transition-colors pixel-ease ${
+                        className={`block w-full rounded border-[2px] border-gray-900 px-2.5 py-1.5 text-left text-sm font-semibold transition-colors pixel-ease ${
                           systemView === id
                             ? "bg-accent text-onAccent"
                             : "bg-surface text-ink hover:bg-accentSoft"
@@ -876,7 +876,7 @@ export default function Repository() {
                         key={config.id}
                         type="button"
                         onClick={() => setPipelineId(config.id)}
-                        className={`w-full rounded border-[3px] border-gray-900 px-2.5 py-2 text-left transition pixel-ease ${
+                        className={`w-full rounded border-[3px] border-gray-900 px-2.5 py-2 text-left text-sm font-semibold transition pixel-ease ${
                           active
                             ? "bg-accent"
                             : "bg-surface hover:bg-accentSoft"
@@ -938,7 +938,7 @@ export default function Repository() {
               <button
                 type="button"
                 onClick={() => navigate("/upload")}
-                className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-xs font-bold text-ink hover:bg-accentSoft transition-colors pixel-ease"
+                className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease"
               >
                 + Add
               </button>
@@ -946,14 +946,14 @@ export default function Repository() {
                 type="button"
                 onClick={() => void handleSync()}
                 disabled={syncing}
-                className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-xs font-bold text-ink hover:bg-accentSoft transition-colors pixel-ease disabled:opacity-50"
+                className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease disabled:opacity-50"
               >
                 {syncing ? "Syncing…" : "⟳ Sync"}
               </button>
               <button
                 type="button"
                 onClick={() => navigate("/faq")}
-                className="rounded border-[2px] border-gray-900 bg-white px-2.5 py-1 text-xs font-bold text-ink hover:bg-accentSoft transition-colors pixel-ease"
+                className="rounded border-[2px] border-gray-900 bg-white px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease"
               >
                 ? Help
               </button>
@@ -997,7 +997,7 @@ export default function Repository() {
                 <div className="p-6">
                   <EmptyState
                     title="Search the open scholarly web."
-                    description="Peer-reviewed journal articles, conference papers, and book chapters from OpenAlex and Crossref — then import any hit straight into your repository."
+                    description="Peer-reviewed journal articles, conference papers, and book chapters from OpenAlex and Crossref. Import any hit straight into your repository."
                   />
                 </div>
               ) : webResults.length === 0 ? (
@@ -1146,7 +1146,7 @@ export default function Repository() {
                         <button
                           type="button"
                           onClick={() => toggleSort(key)}
-                          className={`inline-flex items-center gap-1 font-mono text-xs font-bold uppercase tracking-wide transition-colors pixel-ease ${
+                          className={`inline-flex items-center gap-1 font-mono text-sm font-semibold uppercase tracking-wide transition-colors pixel-ease ${
                             sortColumn === key ? "text-ink" : "text-muted hover:text-ink"
                           }`}
                         >
@@ -1276,14 +1276,14 @@ export default function Repository() {
                   <button
                     type="button"
                     onClick={() => void handleBatchDelete()}
-                    className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-surface px-3 text-xs font-bold text-ink hover:bg-accent hover:text-onAccent transition-colors"
+                    className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-surface px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
                   >
                     Delete
                   </button>
                   <button
                     type="button"
                     onClick={clearSelection}
-                    className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-surface px-3 text-xs font-bold text-ink hover:bg-accentSoft transition-colors"
+                    className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-surface px-3 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors"
                   >
                     Clear
                   </button>
@@ -1319,7 +1319,7 @@ export default function Repository() {
                   NO WEB RESULT SELECTED
                 </p>
                 <p className="max-w-xs text-sm leading-6 text-muted">
-                  Click a web result to see its record here — then
+                  Click a web result to see its record here. Then
                   import it into the repository.
                 </p>
               </div>
@@ -1440,7 +1440,7 @@ export default function Repository() {
                     type="button"
                     onClick={() => setDetailTab(tab)}
                     aria-pressed={detailTab === tab}
-                    className={`flex-1 rounded border-[3px] border-gray-900 px-2 py-1.5 text-xs font-bold transition-colors pixel-ease ${
+                    className={`flex-1 rounded border-[3px] border-gray-900 px-2 py-1.5 text-sm font-semibold transition-colors pixel-ease ${
                       detailTab === tab
                         ? "bg-accent text-onAccent"
                         : "bg-surface text-ink hover:bg-accentSoft"
@@ -1506,7 +1506,7 @@ export default function Repository() {
                           href={getPaperPdfUrl(selected.id)}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-xs font-bold text-ink hover:bg-accent hover:text-onAccent transition-colors"
+                          className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
                         >
                           Open full PDF ↗
                         </a>
@@ -1514,14 +1514,14 @@ export default function Repository() {
                         <button
                           type="button"
                           onClick={() => handleDeletePdf(selected)}
-                          className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-xs font-bold text-ink hover:bg-accent hover:text-onAccent transition-colors"
+                          className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
                         >
                           Delete PDF
                         </button>
                       </div>
 
                       <p className="mt-3 text-xs leading-5 text-muted">
-                        Deleting the PDF keeps the bibliographic record —
+                        Deleting the PDF keeps the bibliographic record. The PDF
                         you can fetch a different open-access copy here
                         afterwards.
                       </p>
@@ -1666,7 +1666,7 @@ export default function Repository() {
                     <button
                       type="button"
                       onClick={() => handleDelete(selected.id, selected.title)}
-                      className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-xs font-bold text-ink hover:bg-accent hover:text-onAccent transition-colors"
+                      className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
                     >
                       Delete
                     </button>

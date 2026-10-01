@@ -425,7 +425,7 @@ export default function ConnectedPapersGraph({
             <PanelTitle>Similar Papers</PanelTitle>
 
             <p className="mt-1 text-sm text-gray-600">
-              Similar papers cluster together — selecting a node
+              Similar papers cluster together. Selecting a node
               highlights the similarity path back to the origin.
             </p>
           </div>
@@ -830,7 +830,7 @@ export default function ConnectedPapersGraph({
         {dotNodes.length > 0 && (
           <p className="mt-1.5 text-xs leading-normal text-gray-600">
             The small dots suggest {dotNodes.length} further related papers
-            beyond the ranked list — raise the link count to include them.
+            beyond the ranked list. Raise the link count to include them.
           </p>
         )}
       </div>

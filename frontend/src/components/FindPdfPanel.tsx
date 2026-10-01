@@ -143,7 +143,7 @@ export default function FindPdfPanel({ paper, onAttached, onPreview }: FindPdfPa
       {candidates.length > 0 && (
         <div className="mt-6 space-y-4">
           <p className="text-sm font-bold text-gray-900">
-            Found {candidates.length} possible match{candidates.length > 1 ? "es" : ""} — confirm before attaching:
+            Found {candidates.length} possible match{candidates.length > 1 ? "es" : ""}. Confirm before attaching:
           </p>
 
           {candidates.map((candidate) => (

@@ -100,7 +100,7 @@ const INTRO: Tip = {
   title: "Re:Search Pet",
   body:
     "Hold your cursor on any part of the app and I will explain it. " +
-    "Click me to replay the tips you have already found — and keep " +
+    "Click me to replay the tips you have already found, and keep " +
     "an eye out: six hidden treasures are scattered across the " +
     "pages. Find them all and I become a full help library.",
 };
@@ -594,7 +594,7 @@ export default function PixelPet() {
           title: item ? item.name : "TREASURE FOUND",
           body:
             `Treasure collected: ${item?.name ?? "?"}! ` +
-            `${Math.min(count + 1, total)}/${total} — ` +
+            `${Math.min(count + 1, total)}/${total}. ` +
             (count + 1 >= total
               ? "that was the last one. The help library is mine to give…"
               : "keep hunting. Click me for a hint."),
@@ -637,7 +637,7 @@ export default function PixelPet() {
         setCurrentTip({
           id: `achievement-${achievement.id}`,
           title: "ACHIEVEMENT UNLOCKED",
-          body: `"${achievement.name}" — ${achievement.description}`,
+          body: `"${achievement.name}": ${achievement.description}`,
         });
       }
 
@@ -955,7 +955,7 @@ export default function PixelPet() {
                     key={question}
                     type="button"
                     onClick={() => ask(question)}
-                    className="rounded border-2 border-gray-700 px-1.5 py-0.5 font-mono text-[10px] font-bold text-onInk transition-colors pixel-ease hover:border-accent hover:text-accent"
+                    className="rounded border-2 border-gray-700 px-1.5 py-0.5 font-mono text-xs font-bold text-onInk transition-colors pixel-ease hover:border-accent hover:text-accent"
                   >
                     {question}
                   </button>
@@ -989,7 +989,7 @@ export default function PixelPet() {
               <button
                 type="button"
                 onClick={handleReset}
-                className="mt-1.5 font-mono text-[10px] font-bold tracking-[0.2em] text-gray-500 transition-colors pixel-ease hover:text-accent"
+                className="mt-1.5 font-mono text-xs font-bold tracking-[0.2em] text-gray-500 transition-colors pixel-ease hover:text-accent"
               >
                 RESET PROGRESS
               </button>
@@ -1020,7 +1020,7 @@ export default function PixelPet() {
       {!open && !charging && (
           <div
             key={dropFx ? dropFx.mode : speechIndex}
-            className={`animate-pop-in absolute z-20 max-w-[min(220px,calc(100vw-40px))] rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-[11px] leading-4 text-ink ${
+            className={`animate-pop-in absolute z-20 max-w-[min(220px,calc(100vw-40px))] rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-xs leading-4 text-ink ${
               speechFlipY ? "top-full mt-2" : "bottom-full mb-2"
             } ${speechFlipX ? "left-0" : "right-0"}`}
           >
@@ -1049,7 +1049,7 @@ export default function PixelPet() {
         {dropFx && (
           <div className="pointer-events-none absolute -top-10 left-1/2 z-30 -translate-x-1/2">
             <span
-              className={`drop-fx-chip drop-fx-${dropFx.mode} block max-w-[200px] truncate rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-[10px] font-bold text-ink`}
+              className={`drop-fx-chip drop-fx-${dropFx.mode} block max-w-[200px] truncate rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-xs font-bold text-ink`}
             >
               {dropFx.title}
             </span>
@@ -1217,7 +1217,7 @@ export default function PixelPet() {
                     >
                       {achievement.name}
                     </p>
-                    <p className="mt-0.5 text-[10px] leading-3.5 text-muted">
+                    <p className="mt-0.5 text-xs leading-3.5 text-muted">
                       {achievement.description}
                     </p>
                   </div>
@@ -1237,7 +1237,7 @@ export default function PixelPet() {
                   type="button"
                   role="menuitem"
                   onClick={() => dock(corner)}
-                  className="rounded border-2 border-gray-900 bg-surface px-1 py-1 text-center font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+                  className="rounded border-2 border-gray-900 bg-surface px-1 py-1 text-center font-mono text-xs font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
                 >
                   {corner.toUpperCase()}
                 </button>

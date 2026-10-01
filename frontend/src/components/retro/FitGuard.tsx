@@ -111,7 +111,7 @@ export default function FitGuard({
 
         <p className="mt-2 text-sm leading-5 text-muted">
           Some panels can't lay out properly at this size.
-          Please use a wider device — or widen this window.
+          Please use a wider device, or widen this window.
         </p>
 
         <p className="mt-3 font-mono text-xs text-muted">

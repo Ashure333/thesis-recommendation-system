@@ -83,7 +83,7 @@ const navItems = [
 
 const NAV_LINK =
   "font-pixelify flex shrink-0 items-center gap-1.5 rounded border-[3px] px-2.5 py-1.5 lg:px-3 " +
-  "text-sm font-medium text-ink pixel-ease " +
+  "text-sm font-semibold text-ink pixel-ease " +
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 " +
   "focus-visible:outline-gray-900";
 

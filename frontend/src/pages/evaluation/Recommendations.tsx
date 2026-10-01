@@ -443,7 +443,7 @@ export default function Recommendations() {
       <PageHeader
         eyebrow="Search"
         title="Search the repository"
-        description="Query modes, six pipelines, live results, and a similar-papers graph — three panes, reference-manager style."
+        description="Query modes, six pipelines, live results, and a similar-papers graph: three panes, reference-manager style."
       />
 
       <div
@@ -476,7 +476,7 @@ export default function Recommendations() {
                 role="tab"
                 aria-selected={mode === queryMode.id}
                 onClick={() => setMode(queryMode.id)}
-                className={`flex-1 rounded border-[3px] border-gray-900 px-2 py-1.5 text-sm font-bold transition-colors pixel-ease ${
+                className={`flex-1 rounded border-[3px] border-gray-900 px-2 py-1.5 text-sm font-semibold transition-colors pixel-ease ${
                   mode === queryMode.id
                     ? "bg-accent text-onAccent"
                     : "bg-surface text-ink hover:bg-accentSoft"
@@ -499,7 +499,7 @@ export default function Recommendations() {
             {mode === "seed" ? (
               seedPaper ? (
                 <div className="rounded border-[3px] border-gray-900 bg-field px-3 py-2.5">
-                  <p className="truncate text-base leading-7 text-ink lg:text-lg">
+                  <p className="truncate text-base leading-7 text-ink">
                     {seedPaper.title ?? `Paper #${seedPaperId}`}
                   </p>
                 </div>
@@ -507,7 +507,7 @@ export default function Recommendations() {
                 <Link
                   to="/repository"
                   state={{ selectSeed: true, pipeline }}
-                  className="ui-input flex items-center text-base text-muted hover:border-gray-900 hover:text-ink lg:text-lg"
+                  className="ui-input flex items-center text-base text-muted hover:border-gray-900 hover:text-ink"
                 >
                   Choose a paper from the repository
                 </Link>
@@ -528,7 +528,7 @@ export default function Recommendations() {
                     ? "Enter a paper title…"
                     : "e.g. neural network text similarity"
                 }
-                className="ui-input text-base lg:text-lg"
+                className="ui-input text-base"
               />
             )}
           </div>
@@ -580,7 +580,7 @@ export default function Recommendations() {
                   }
                 }}
                 aria-pressed={pipeline !== "custom"}
-                className={`rounded-l border-[3px] border-gray-900 px-3 py-1 text-xs font-bold transition pixel-ease ${FOCUS_INSET} ${
+                className={`rounded-l border-[3px] border-gray-900 px-3 py-1 text-sm font-semibold transition pixel-ease ${FOCUS_INSET} ${
                   pipeline !== "custom"
                     ? "bg-accent text-onAccent"
                     : "bg-surface text-ink hover:bg-accentSoft"
@@ -596,7 +596,7 @@ export default function Recommendations() {
                   setPipelineId("custom");
                 }}
                 aria-pressed={pipeline === "custom"}
-                className={`-ml-[3px] rounded-r border-[3px] border-gray-900 px-3 py-1 text-xs font-bold transition pixel-ease ${FOCUS_INSET} ${
+                className={`-ml-[3px] rounded-r border-[3px] border-gray-900 px-3 py-1 text-sm font-semibold transition pixel-ease ${FOCUS_INSET} ${
                   pipeline === "custom"
                     ? "bg-accent text-onAccent"
                     : "bg-surface text-ink hover:bg-accentSoft"
@@ -630,7 +630,7 @@ export default function Recommendations() {
                       }
                     }}
                     title={implemented ? undefined : "Not implemented"}
-                    className={`w-full rounded border-[3px] border-gray-900 px-2.5 py-2 text-left transition pixel-ease ${
+                    className={`w-full rounded border-[3px] border-gray-900 px-2.5 py-2 text-left text-sm font-semibold transition pixel-ease ${
                       active
                         ? "bg-accent"
                         : "bg-surface hover:bg-accentSoft"
@@ -644,7 +644,7 @@ export default function Recommendations() {
                       }`}
                     >
                       <span
-                        className={`whitespace-nowrap text-xs font-bold ${
+                        className={`whitespace-nowrap text-sm font-semibold ${
                           active ? "text-onAccent" : "text-ink"
                         }`}
                       >
@@ -880,7 +880,7 @@ export default function Recommendations() {
                 NO GRAPH YET
               </p>
               <p className="max-w-xs text-sm leading-6 text-muted">
-                Run a search — the top result becomes the graph
+                Run a search. The top result becomes the graph
                 center. Click any result's rank badge to re-center.
               </p>
             </div>

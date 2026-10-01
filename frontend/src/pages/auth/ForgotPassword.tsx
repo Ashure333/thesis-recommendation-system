@@ -40,7 +40,7 @@ export default function ForgotPassword() {
             <Check className="h-6 w-6" />
           </div>
 
-          <h1 className="text-xl font-bold leading-snug text-ink">
+          <h1 className="font-pixelify text-xl font-bold leading-snug text-ink">
             Check your email
           </h1>
 
@@ -59,7 +59,7 @@ export default function ForgotPassword() {
       ) : (
         <>
           <div className="mb-5">
-            <h1 className="text-2xl font-bold leading-none tracking-tight text-ink">
+            <h1 className="font-pixelify text-2xl font-bold leading-none text-ink">
               Forgot your password?
             </h1>
 

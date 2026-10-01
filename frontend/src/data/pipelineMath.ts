@@ -54,7 +54,7 @@ const PREPARATION: MathBlock = {
 };
 
 const TFIDF_COMPONENT: MathBlock = {
-  heading: "2a. TF-IDF component — lexical similarity",
+  heading: "2a. TF-IDF component (lexical similarity)",
   lines: [
     "Offline (index build, one-time per repository):",
     "",
@@ -67,7 +67,7 @@ const TFIDF_COMPONENT: MathBlock = {
     "Online (per request):",
     "",
     "  v(Q)       = same fitted vectorizer applied to text(Q)",
-    "               (never refit — both vectors must live in",
+    "               (never refit; both vectors must live in",
     "                the same vector space)",
     "  s_tfidf(d) = cos( v(Q), v(d) )",
     "             = ( v(Q) . v(d) ) / ( ||v(Q)||_2 * ||v(d)||_2 )",
@@ -76,7 +76,7 @@ const TFIDF_COMPONENT: MathBlock = {
 };
 
 const SBERT_COMPONENT: MathBlock = {
-  heading: "2b. S-BERT component — semantic similarity",
+  heading: "2b. S-BERT component (semantic similarity)",
   lines: [
     "  e(d)      = SBERT( text(d) )  in R^384   all-MiniLM-L6-v2",
     "  e(Q)      = SBERT( text(Q) )",
@@ -87,7 +87,7 @@ const SBERT_COMPONENT: MathBlock = {
 };
 
 const METADATA_COMPONENT: MathBlock = {
-  heading: "2c. Metadata component — field-level similarity",
+  heading: "2c. Metadata component (field-level similarity)",
   lines: [
     "For each text field f in { title, abstract, keywords } :",
     "",
@@ -95,7 +95,7 @@ const METADATA_COMPONENT: MathBlock = {
     "           (pairwise vectorizer fitted on the two texts)",
     "         = 0  if the field is missing in Q or d",
     "",
-    "Publication year — temporal proximity:",
+    "Publication year (temporal proximity):",
     "",
     "  s_year(d) = 1 / ( 1 + | year(Q) - year(d) | )",
     "            = 0  if either year is missing",

@@ -103,7 +103,7 @@ export function WikiNav({
             <Link
               key={to}
               to={to}
-              className="rounded border-2 border-gray-900 bg-surface px-1.5 py-0.5 font-mono text-[11px] font-bold text-ink transition-colors pixel-ease hover:bg-accent hover:text-onAccent"
+              className="rounded border-2 border-gray-900 bg-surface px-1.5 py-0.5 font-mono text-xs font-bold text-ink transition-colors pixel-ease hover:bg-accent hover:text-onAccent"
             >
               {label}
             </Link>

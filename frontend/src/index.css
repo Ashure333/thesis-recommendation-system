@@ -423,7 +423,10 @@ h1, h2, h3 {
   position: absolute;
   width: 8px;
   height: 8px;
-  background: rgb(var(--ink) / 1);
+  /* Accent stays fixed across modes and contrasts with the ticker
+     bar (dark in light mode, light in dark mode). Ink matched the
+     bar in light mode, which hid the explosion entirely. */
+  background: rgb(var(--accent) / 1);
   animation: retro-pixel-explode 0.85s steps(10) forwards;
 }
 @keyframes retro-pixel-explode {

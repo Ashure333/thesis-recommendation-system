@@ -25,7 +25,7 @@ export const TIPS: Tip[] = [
   {
     id: "login-card",
     title: "Demo sign-in",
-    body: "This is a demo login — any email and password will get you in. Nothing is sent to a server; your session is only remembered in this browser.",
+    body: "This is a demo login; any email and password will get you in. Nothing is sent to a server; your session is only remembered in this browser.",
   },
 
   /* ---------- Top navigation ---------- */
@@ -38,7 +38,7 @@ export const TIPS: Tip[] = [
   {
     id: "nav-repository",
     title: "Repository",
-    body: "Browse and filter every paper in the system — subject, category, document type and year range. You can also drop a PDF or .bib file onto the table to import it.",
+    body: "Browse and filter every paper in the system: subject, category, document type and year range. You can also drop a PDF or .bib file onto the table to import it.",
   },
   {
     id: "nav-recommendations",
@@ -48,7 +48,7 @@ export const TIPS: Tip[] = [
   {
     id: "nav-upload",
     title: "Upload",
-    body: "Add new papers. Upload a PDF or a BibTeX (.bib) file — metadata is extracted automatically and stays editable until you confirm the save.",
+    body: "Add new papers. Upload a PDF or a BibTeX (.bib) file; metadata is extracted automatically and stays editable until you confirm the save.",
   },
   {
     id: "nav-library",
@@ -58,17 +58,17 @@ export const TIPS: Tip[] = [
   {
     id: "nav-evaluation",
     title: "Arena",
-    body: "The study's comparative view: run all six pipelines on one query or seed paper and watch them compete — consensus ranking, pairwise agreement, and the independence-weighted winner.",
+    body: "The study's comparative view: run all six pipelines on one query or seed paper and watch them compete: consensus ranking, pairwise agreement, and the independence-weighted winner.",
   },
   {
     id: "nav-walkthrough",
     title: "Walkthrough",
-    body: "An encyclopedia-style manual for the whole system: every page, the six pipelines, the similar-papers graph, the Arena, and the pixel pet — laid out like a game walkthrough.",
+    body: "An encyclopedia-style manual for the whole system: every page, the six pipelines, the similar-papers graph, the Arena, and the pixel pet, laid out like a game walkthrough.",
   },
   {
     id: "nav-engine",
     title: "Engine",
-    body: "The mathematics and computer science behind Re:Search: the vector space model, S-BERT embeddings, metadata fusion, the similar-papers graph, and the Arena's voting system — with a worked example.",
+    body: "The mathematics and computer science behind Re:Search: the vector space model, S-BERT embeddings, metadata fusion, the similar-papers graph, and the Arena's voting system, with a worked example.",
   },
 
   /* ---------- Header utilities ---------- */
@@ -81,7 +81,7 @@ export const TIPS: Tip[] = [
   {
     id: "theme-picker",
     title: "Theme color",
-    body: "Pick your accent color. The cream canvas and dark outlines stay the same — only the active fills change. Your choice is saved in this browser.",
+    body: "Pick your accent color. The cream canvas and dark outlines stay the same; only the active fills change. Your choice is saved in this browser.",
   },
 
   /* ---------- Search page ---------- */
@@ -107,12 +107,12 @@ export const TIPS: Tip[] = [
   {
     id: "repo-filters",
     title: "Filters",
-    body: "Filters apply as you change them — no Apply button. Combine subject, category, document type and a year range, then sort the result list.",
+    body: "Filters apply as you change them; no Apply button. Combine subject, category, document type and a year range, then sort the result list.",
   },
   {
     id: "repo-results",
     title: "Paper list",
-    body: "Click a title to preview the full record. Save sends it to My Library; double-check the outline icon — papers with a PDF can be opened in the viewer.",
+    body: "Click a title to preview the full record. Save sends it to My Library; double-check the outline icon: papers with a PDF can be opened in the viewer.",
   },
 
   /* ---------- Upload page ---------- */
@@ -120,7 +120,7 @@ export const TIPS: Tip[] = [
   {
     id: "upload-dropzone",
     title: "Drop zone",
-    body: "Drag a PDF or BibTeX file anywhere on this zone. You'll review the extracted metadata before anything is saved — Cancel discards everything.",
+    body: "Drag a PDF or BibTeX file anywhere on this zone. You'll review the extracted metadata before anything is saved; Cancel discards everything.",
   },
 
   /* ---------- Recommendations page ---------- */
@@ -133,7 +133,7 @@ export const TIPS: Tip[] = [
   {
     id: "rec-topk",
     title: "Top-K results",
-    body: "How many ranked papers to return for this query — larger K trades precision for coverage.",
+    body: "How many ranked papers to return for this query; larger K trades precision for coverage.",
   },
 
   /* ---------- Research assistant ---------- */
@@ -141,7 +141,7 @@ export const TIPS: Tip[] = [
   {
     id: "research-assistant",
     title: "Research assistant",
-    body: "Ask questions about the papers in your repository. Answers are grounded in your own documents — the sources used appear in the panel beside the chat.",
+    body: "Ask questions about the papers in your repository. Answers are grounded in your own documents; the sources used appear in the panel beside the chat.",
   },
 
   /* ---------- My Library ---------- */
@@ -167,7 +167,7 @@ export const TIPS: Tip[] = [
   {
     id: "ui-detail-tabs",
     title: "Details / Abstract",
-    body: "Details shows the catalog record, keywords and attachment; Abstract shows the summary text. Everything below scrolls — nothing is hidden at the bottom.",
+    body: "Details shows the catalog record, keywords and attachment; Abstract shows the summary text. Everything below scrolls; nothing is hidden at the bottom.",
   },
   {
     id: "ui-similar-papers",
@@ -183,7 +183,7 @@ export const TIP_BY_ID: Record<string, Tip> = Object.fromEntries(
 /* ============================================================
    LOCKED DEEP TIPS
    The help library's advanced entries. They stay locked until
-   every scavenger-hunt treasure is found — the pet then speaks
+   every scavenger-hunt treasure is found, the pet then speaks
    them through its click cycle and answers questions with them
    (see help.ts). `keywords` power the chat matcher.
    ============================================================ */
@@ -251,8 +251,8 @@ export const EXTRA_TIPS: DeepTip[] = [
       "S-BERT (all-MiniLM-L6-v2) maps a paper's prepared text into a " +
       "384-dimension semantic embedding: words with similar meaning, " +
       "not just spelling, end up near each other. It needs no fitting " +
-      "step — the pretrained model encodes any text into the same " +
-      "space — so 'neural networks' and 'deep learning' can match even " +
+      "step; the pretrained model encodes any text into the same " +
+      "space; so 'neural networks' and 'deep learning' can match even " +
       "with zero shared vocabulary.",
   },
   {
@@ -272,7 +272,7 @@ export const EXTRA_TIPS: DeepTip[] = [
       "Abstract, Keywords (each a small cosine comparison) and " +
       "Publication Year via 1 / (1 + |Δyear|), so a paper from the same " +
       "year scores 1.0 and each year apart halves the gap. Missing " +
-      "fields contribute 0 — a paper can't be inflated just because " +
+      "fields contribute 0; a paper can't be inflated just because " +
       "its neighbors are missing data.",
   },
   {
@@ -289,8 +289,8 @@ export const EXTRA_TIPS: DeepTip[] = [
     ],
     body:
       "Hybrid configurations first min-max normalize each component's " +
-      "raw scores into [0, 1] — an order-preserving rescale, so it " +
-      "never changes the ranking — then take a weighted average: " +
+      "raw scores into [0, 1], an order-preserving rescale, so it " +
+      "never changes the ranking; then take a weighted average: " +
       "S(d) = Σ w·score(d). The six study pipelines are every " +
       "combination of the TF-IDF, S-BERT and metadata signals with " +
       "weights summing to 1.",
@@ -311,7 +311,7 @@ export const EXTRA_TIPS: DeepTip[] = [
     ],
     body:
       "The Arena page measures pipelines against each other: " +
-      "consensus (how many pipelines ranked a paper — the more, the " +
+      "consensus (how many pipelines ranked a paper; the more, the " +
       "stronger the signal), pairwise overlap and mean rank gap " +
       "(lower gap = more agreement), and a winner crowned by " +
       "independence-weighted consensus so a pipeline can't be " +
@@ -337,7 +337,7 @@ export const EXTRA_TIPS: DeepTip[] = [
       "locally), a BibTeX .bib or LaTeX .tex export (parsed entry by " +
       "entry), an identifier lookup (DOI or arXiv link, filled from " +
       "Crossref/arXiv), or a fully manual entry. Nothing is saved " +
-      "until you approve the preview — missing fields are flagged " +
+      "until you approve the preview; missing fields are flagged " +
       "before the paper can join the recommendation corpus.",
   },
   {
@@ -374,7 +374,7 @@ export const EXTRA_TIPS: DeepTip[] = [
     ],
     body:
       "The similar-papers graph renders a paper at the center and " +
-      "ranks its neighborhood under the active pipeline — click any " +
+      "ranks its neighborhood under the active pipeline; click any " +
       "rank badge to re-center the graph on that paper. Small dots " +
       "are further connections the layout didn't fully expand.",
   },
@@ -414,7 +414,7 @@ export const EXTRA_TIPS: DeepTip[] = [
     body:
       "I started as a tip guide: hover anything for five seconds and " +
       "I explain it, or click me to replay what you've found. Find " +
-      "all six hidden treasures and I become a full help library — " +
+      "all six hidden treasures and I become a full help library; " +
       "the deep tips unlock and you can ask me questions directly.",
   },
 ];

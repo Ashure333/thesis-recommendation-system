@@ -54,7 +54,7 @@ export default function FAQ() {
           Help Center
         </p>
 
-        <h1 className="mt-2 text-3xl font-bold leading-none tracking-tight text-ink">
+        <h1 className="font-pixelify mt-2 text-3xl font-bold leading-none text-ink">
           Frequently Asked Questions
         </h1>
 

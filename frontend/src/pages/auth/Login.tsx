@@ -67,7 +67,7 @@ export default function Login() {
     <>
       <div data-tips="login-card" className="rounded border-[3px] border-gray-900 bg-white p-6">
       <div className="mb-5">
-        <h1 className="text-2xl font-bold leading-none tracking-tight text-ink">
+        <h1 className="font-pixelify text-2xl font-bold leading-none text-ink">
           Welcome back
         </h1>
 

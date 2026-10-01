@@ -469,7 +469,7 @@ export default function PaperViewerModal({
             {/* ----------------- METADATA PANEL ----------------- */}
             <aside className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-l-[3px] border-gray-900 bg-white">
               <div className="p-5">
-                <h3 className="text-xl font-bold leading-snug text-gray-900">
+                <h3 className="font-pixelify text-xl font-bold leading-snug text-gray-900">
                   Paper information
                 </h3>
 

@@ -668,7 +668,7 @@ export default function Upload() {
 
     if (!/@\w+\s*\{/i.test(trimmed)) {
       setError(
-        "That does not look like valid BibTeX — it should start with @article, @inproceedings, @book, and so on."
+        "That does not look like valid BibTeX. It should start with @article, @inproceedings, @book, and so on."
       );
       return;
     }
@@ -1194,7 +1194,7 @@ export default function Upload() {
   return (
     <div className="mx-auto max-w-2xl">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-cartridge")!} />
-      <h1 className="mb-1 text-3xl font-bold leading-none tracking-tight text-ink">
+      <h1 className="font-pixelify mb-1 text-3xl font-bold leading-none text-ink">
         Upload Paper
       </h1>
 
@@ -1241,7 +1241,7 @@ export default function Upload() {
 
         <p className="mt-1 text-xs text-muted">
           Multi-entry .bib exports (reference managers, journal
-          sites) import every paper — each entry goes through the
+          sites) import every paper. Each entry goes through the
           review navigator below.
         </p>
 
@@ -1291,7 +1291,7 @@ export default function Upload() {
         </div>
 
         <p className="mt-2 text-xs leading-5 text-muted">
-          Paste a DOI, an arXiv id, or a link to either — metadata
+          Paste a DOI, an arXiv id, or a link to either. Metadata
           comes from Crossref or arXiv, then flows through the same
           review form as a file. The open-access PDF is searched for
           in the background after you save.
@@ -1321,7 +1321,7 @@ export default function Upload() {
           </li>
           <li>
             <span className="font-mono font-bold text-ink">2.</span>{" "}
-            Drop that .bib file on the box above — every entry is
+            Drop that .bib file on the box above. Every entry is
             parsed and listed in the review navigator.
           </li>
           <li>
@@ -1397,7 +1397,7 @@ export default function Upload() {
               <span className="text-xs text-muted">
                 Paste one or more BibTeX entries (from Google
                 Scholar, a journal, or your own notes) and they
-                will be parsed below — approve each one, or all
+                will be parsed below. Approve each one, or all
                 at once.
               </span>
             </div>
@@ -1444,7 +1444,7 @@ export default function Upload() {
                       ? "Approved"
                       : manualEntries[currentIndex]?.status === "error"
                         ? manualEntries[currentIndex]?.error ?? "Failed"
-                        : "Ready to review — edit the fields below, then approve"}
+                        : "Ready to review. Edit the fields below, then approve"}
               </p>
             </div>
 
@@ -1869,8 +1869,8 @@ export default function Upload() {
               {manualEntries.length > 0
                 ? "Entry approved. Use the arrow keys to review the next one, or approve the rest."
                 : paper?.is_valid_for_recommendation
-                  ? "Paper saved successfully — this paper is valid for recommendation."
-                  : `Paper saved successfully — still missing: ${
+                  ? "Paper saved successfully. This paper is valid for recommendation."
+                  : `Paper saved successfully, but still missing: ${
                       paper?.missing_fields ??
                       "some required fields"
                     }.`}
@@ -1928,7 +1928,7 @@ export default function Upload() {
                 </div>
 
                 <p className="mt-3 text-sm leading-5 text-muted">
-                  Keep this window open — the batch is running in
+                  Keep this window open. The batch is running in
                   the background.
                 </p>
               </>
@@ -1946,7 +1946,7 @@ export default function Upload() {
                     <p className="mt-2 text-sm leading-5 text-muted">
                       The entries below could not be saved (often
                       duplicates). They are marked with an exclamation
-                      in the navigator — select them to see why.
+                      in the navigator. Select them to see why.
                     </p>
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {approveAllOutcome.failedKeys.map((key) => (

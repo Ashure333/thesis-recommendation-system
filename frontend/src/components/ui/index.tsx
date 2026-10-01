@@ -45,7 +45,7 @@ export function PageHeader({
     <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
         {eyebrow && <p className="mb-2 text-sm font-bold text-gray-600">{eyebrow}</p>}
-        <h1 className="text-3xl font-bold leading-none tracking-tighter text-gray-900 sm:text-4xl lg:text-5xl">
+        <h1 className="font-pixelify text-3xl font-bold leading-none text-gray-900 sm:text-4xl lg:text-5xl">
           {title}
           <BlockCursor className="animate-blink ml-2 inline-block h-[0.9em] w-[0.55em] text-accent" />
         </h1>
@@ -70,7 +70,7 @@ export function SectionHeading({
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="min-w-0">
-        <h2 className="text-xl font-bold leading-snug text-gray-900">{title}</h2>
+        <h2 className="font-pixelify text-xl font-bold leading-snug text-gray-900">{title}</h2>
         {description && <p className="mt-1 text-sm text-gray-600">{description}</p>}
       </div>
       {action}
@@ -88,23 +88,23 @@ export function SectionHeading({
 type ButtonVariant = "primary" | "secondary" | "quiet" | "danger";
 
 const BUTTON_BASE =
-  "relative z-10 inline-flex items-center justify-center gap-2 rounded border-[3px] font-bold " +
+  "relative z-10 inline-flex items-center justify-center gap-2 rounded border-[3px] text-sm font-semibold tracking-[0.025em] " +
   "transition-[transform,filter] duration-100 pixel-ease motion-reduce:transition-none " +
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gray-900 " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "border-gray-900 bg-accent text-onAccent px-6 py-3 text-lg leading-relaxed " +
+    "border-gray-900 bg-accent text-onAccent px-6 py-3 leading-relaxed " +
     "enabled:hover:translate-x-0.5 enabled:hover:translate-y-0.5 enabled:hover:brightness-110 enabled:active:translate-x-1 enabled:active:translate-y-1 enabled:active:brightness-90",
   secondary:
-    "border-gray-900 bg-white px-3 py-1.5 text-sm font-medium leading-snug text-ink " +
+    "border-gray-900 bg-white px-3 py-1.5 leading-snug text-ink " +
     "enabled:hover:bg-accent enabled:hover:text-onAccent enabled:active:translate-x-0.5 enabled:active:translate-y-0.5",
   quiet:
-    "border-transparent bg-transparent px-3 py-1.5 text-sm font-medium leading-snug text-ink " +
+    "border-transparent bg-transparent px-3 py-1.5 leading-snug text-ink " +
     "enabled:hover:border-gray-900 enabled:hover:bg-white",
   danger:
-    "border-gray-900 bg-gray-900 px-6 py-3 text-lg leading-relaxed text-onInk " +
+    "border-gray-900 bg-gray-900 px-6 py-3 leading-relaxed text-onInk " +
     "enabled:hover:translate-x-0.5 enabled:hover:translate-y-0.5 enabled:hover:brightness-125 enabled:active:translate-x-1 enabled:active:translate-y-1 enabled:active:brightness-90",
 };
 
@@ -180,7 +180,7 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
         {...rest}
         className={
           "relative z-10 block w-full rounded border-[3px] border-gray-900 bg-field px-6 py-3.5 " +
-          "text-lg font-medium text-gray-900 placeholder-gray-600 " +
+          "text-base font-medium text-gray-900 placeholder-gray-600 " +
           "transition-transform duration-100 pixel-ease motion-reduce:transition-none " +
           "focus:translate-x-0.5 focus:translate-y-0.5 focus:outline-none " +
           "disabled:cursor-not-allowed disabled:opacity-50 " +

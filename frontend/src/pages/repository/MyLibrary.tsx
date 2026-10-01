@@ -152,7 +152,7 @@ export default function MyLibrary() {
       ) : (
         <>
         <p className="mb-4 text-xs text-muted">
-          Tip: drag a saved paper onto the pixel pet — it will dispose of
+          Tip: drag a saved paper onto the pixel pet. It will dispose of
           it (zap, eat, crumple, or burn) and remove it from the library.
         </p>
 
@@ -197,7 +197,7 @@ export default function MyLibrary() {
                         </span>
                       ) : (
                         <span
-                          title="No subject assigned yet — the classifier couldn't place this one."
+                          title="No subject assigned yet; the classifier couldn't place this one."
                           className="rounded border-[2px] border-dashed border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-muted"
                         >
                           Unfiled
@@ -277,7 +277,7 @@ export default function MyLibrary() {
                     <button
                       type="button"
                       onClick={() => handleRemove(paper.id)}
-                      className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-xs font-bold text-ink hover:bg-accent hover:text-onAccent transition-colors"
+                      className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
                     >
                       Remove
                     </button>

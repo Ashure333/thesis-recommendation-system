@@ -10,7 +10,7 @@ import {
 } from "./wiki";
 
 /* ============================================================
-   WALKTHROUGH — an encyclopedia-style manual for the whole
+   WALKTHROUGH, an encyclopedia-style manual for the whole
    Re:Search system, laid out like a Bulbapedia walkthrough:
    sticky table of contents on the left, an infobox up top,
    heavily sectioned content, and detailed tables everywhere.
@@ -86,7 +86,7 @@ const SUBJECTS = [
 const INFOBOX_ROWS: [string, string][] = [
   ["Name", "Re:Search"],
   ["Type", "Academic paper repository + recommendation system"],
-  ["Developer", "BSMCS thesis project — Bulacan State University"],
+  ["Developer", "BSMCS thesis project at Bulacan State University"],
   ["Tech", "FastAPI · SQLAlchemy · SQLite · scikit-learn · sentence-transformers · React · TypeScript · Vite · Tailwind"],
   ["Models", "TF-IDF (scikit-learn) · S-BERT (all-MiniLM-L6-v2)"],
   ["Pipelines", "6 fixed configurations + 1 custom dial"],
@@ -125,7 +125,7 @@ export default function Walkthrough() {
       <WikiHeader
         eyebrow="MANUAL · ENCYCLOPEDIA-STYLE"
         title="Walkthrough of the Re:Search system"
-        description="A page-by-page guide to every feature of the prototype — the repository, the six recommendation pipelines, the similar-papers graph, the Arena, and the resident pixel pet — detailed the way a walkthrough documents a game world."
+        description="A page-by-page guide to every feature of the prototype: the repository, the six recommendation pipelines, the similar-papers graph, the Arena, and the resident pixel pet, detailed the way a walkthrough documents a game world."
         categories={["Category: Re:Search", "Category: Documentation", "Category: Walkthrough"]}
       />
 
@@ -174,7 +174,7 @@ export default function Walkthrough() {
             <WikiSub id="sign-in" title="Signing in">
               <p className="text-sm leading-6 text-ink">
                 The prototype runs in a single-user local mode. The sign-in
-                form accepts any well-formed email and any password — there
+                form accepts any well-formed email and any password. There
                 is no real authentication; the choice is remembered in this
                 browser. Everything after sign-in shares the top navigation.
               </p>
@@ -190,7 +190,7 @@ export default function Walkthrough() {
               </p>
               <p className="text-sm leading-6 text-ink">
                 Tip: hover any tab (or any labeled control) and hold the
-                pointer still — the pixel pet dwells for five seconds and
+                pointer still. The pixel pet dwells for five seconds and
                 then explains what that element does.
               </p>
             </WikiSub>
@@ -220,7 +220,7 @@ export default function Walkthrough() {
                 ],
                 [
                   "Custom dials",
-                  "Three dials (TF-IDF, S-BERT, Metadata) whose values are normalized so the weights sum to 1 — an all-zero dial falls back to an equal split.",
+                  "Three dials (TF-IDF, S-BERT, Metadata) whose values are normalized so the weights sum to 1. An all-zero dial falls back to an equal split.",
                 ],
                 [
                   "Results table",
@@ -293,7 +293,7 @@ export default function Walkthrough() {
               rows={[
                 [
                   "PDF upload",
-                  "Text and metadata are extracted with pdfplumber (heuristic — scanned PDFs without OCR may extract poorly).",
+                  "Text and metadata are extracted with pdfplumber (heuristic; scanned PDFs without OCR may extract poorly).",
                 ],
                 [
                   "BibTeX import",
@@ -338,7 +338,7 @@ export default function Walkthrough() {
                 ],
                 [
                   "Find Similar",
-                  "Runs the similar-papers graph with the library paper as the origin — the same graph that powers the Recommendations pane.",
+                  "Runs the similar-papers graph with the library paper as the origin. The same graph that powers the Recommendations pane.",
                 ],
               ]}
             />
@@ -356,7 +356,7 @@ export default function Walkthrough() {
               rows={[
                 [
                   "Winner banner",
-                  "The pipeline that captured the largest share of independence-weighted consensus — agreement with a rival counts only as much as that rival is built from different signals.",
+                  "The pipeline that captured the largest share of independence-weighted consensus. Agreement with a rival counts only as much as that rival is built from different signals.",
                 ],
                 [
                   "Score distribution",
@@ -470,7 +470,7 @@ export default function Walkthrough() {
               0.15 author-overlap bonus) and computes shortest paths with
               hop cost 1 − w, so the graph can never disagree with the
               pipeline that chose its nodes. The recommendation index is
-              rebuilt after repository changes — the banner in the header
+              rebuilt after repository changes. The banner in the header
               tracks staleness.
             </p>
           </WikiSection>
@@ -498,8 +498,8 @@ export default function Walkthrough() {
                 can win through confirmation by its own hybrids.
               </li>
               <li>
-                The six codenames — PIXEL PUNCH, GHOST WIRE, DUO MODE,
-                TRIVIA QUEST, ARCHIVE MAGE, FINAL BOSS — map one-to-one to
+                The six codenames, PIXEL PUNCH, GHOST WIRE, DUO MODE,
+                TRIVIA QUEST, ARCHIVE MAGE, FINAL BOSS, map one-to-one to
                 the pipeline configurations.
               </li>
               <li>
@@ -510,7 +510,7 @@ export default function Walkthrough() {
               <li>
                 The similar-papers graph stores no reference lists, so shared
                 authors and shared topics stand in for bibliographic coupling
-                — a deliberate substitution, not a claim of equivalence.
+               , a deliberate substitution rather than a claim of equivalence.
               </li>
               <li>
                 Free-text queries only activate the metadata component's

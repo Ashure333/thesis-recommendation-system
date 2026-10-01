@@ -283,7 +283,7 @@ export default function PipelineDials({
   return (
     <div className="rounded border-[3px] border-gray-900 bg-white p-3">
       <p className="text-xs leading-5 text-muted">
-        Turn the dials to allocate the three signals — shares
+        Turn the dials to allocate the three signals. Shares
         auto-normalize to 100%. A search re-runs as you dial.
       </p>
 
@@ -300,11 +300,11 @@ export default function PipelineDials({
               onChange={(next) => setDial(def.key, next)}
             />
 
-            <span className="text-[11px] font-bold text-ink">
+            <span className="text-xs font-bold text-ink">
               {def.label}
             </span>
 
-            <span className="text-[11px] text-muted">{def.hint}</span>
+            <span className="text-xs text-muted">{def.hint}</span>
 
             <span className="text-sm font-bold tabular-nums text-ink">
               {shares[def.key].toFixed(1)}%
@@ -318,14 +318,14 @@ export default function PipelineDials({
       </div>
 
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="font-mono text-[10px] tracking-[0.1em] text-muted">
+        <span className="font-mono text-xs tracking-[0.1em] text-muted">
           RAW {value.tfidf} / {value.sbert} / {value.metadata}
         </span>
 
         <button
           type="button"
           onClick={() => onChange(DEFAULT_DIAL_ALLOCATION)}
-          className="rounded border-[2px] border-gray-900 bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition pixel-ease hover:bg-accentSoft"
+          className="rounded border-[2px] border-gray-900 bg-white px-2 py-0.5 text-xs font-bold text-ink transition pixel-ease hover:bg-accentSoft"
         >
           Reset
         </button>
