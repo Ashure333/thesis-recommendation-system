@@ -14,6 +14,8 @@ import {
   type Paper,
 } from "../../api";
 import FindPdfPanel from "../../components/FindPdfPanel";
+import PixelProgress from "../../components/retro/PixelProgress";
+import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 import {
   SUBJECTS,
   CATEGORIES,
@@ -1095,6 +1097,8 @@ export default function Upload() {
       notifyRecommendationIndexStale();
 
       setPaper(updated);
+      // The pet eats the paper it just consumed.
+      triggerSlimeAnimation("eat");
       setJustSaved(true);
     } catch (e) {
       setError(
@@ -1192,7 +1196,13 @@ export default function Upload() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div
+      className={
+        paper
+          ? "mx-auto w-full max-w-[1200px]"
+          : "mx-auto max-w-2xl"
+      }
+    >
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-cartridge")!} />
       <h1 className="font-pixelify mb-1 text-3xl font-bold leading-none text-ink">
         Upload Paper
@@ -1219,6 +1229,13 @@ export default function Upload() {
         }}
       />
 
+      {/* ====================================================
+          IDLE LAYOUT — dropzone + identifier + import workflow.
+          Hidden once a paper is loaded for review.
+          ==================================================== */}
+
+      {!paper && (
+      <div className="space-y-6">
       <div
         data-paperrec-dropzone
         onClick={() => {
@@ -1238,6 +1255,14 @@ export default function Upload() {
             ? "Importing…"
             : "Drop a PDF or BibTeX (.bib) file here"}
         </p>
+
+        {uploading && (
+          <PixelProgress
+            value={null}
+            stage="EXTRACTING METADATA"
+            className="mt-4 max-w-xs"
+          />
+        )}
 
         <p className="mt-1 text-xs text-muted">
           Multi-entry .bib exports (reference managers, journal
@@ -1404,6 +1429,8 @@ export default function Upload() {
           </div>
         )}
       </div>
+      </div>
+      )}
 
       {/* Parsed entries navigator */}
       {manualEntries.length > 0 && (
@@ -1418,6 +1445,18 @@ export default function Upload() {
               /{manualEntries.length} approved · arrow keys to navigate
             </span>
           </div>
+
+          {approvingAll && approveAllProgress && (
+            <PixelProgress
+              value={
+                approveAllProgress.total > 0
+                  ? approveAllProgress.done / approveAllProgress.total
+                  : null
+              }
+              stage={`SAVING ${approveAllProgress.done}/${approveAllProgress.total}`}
+              className="mt-3"
+            />
+          )}
 
           <div className="mt-3 flex items-center gap-3">
             <button
@@ -1501,9 +1540,15 @@ export default function Upload() {
         </p>
       )}
 
+      {/* ====================================================
+          REVIEW LAYOUT — form left, status rail right.
+          ==================================================== */}
+
       {paper && (
-        <>
-          <div className="space-y-4">
+        <div className="grid gap-6 lg:grid-cols-5">
+          <div className="min-w-0 lg:col-span-3">
+            <div className="rounded border-[3px] border-gray-900 bg-white p-4">
+              <div className="space-y-4">
             <div>
               <label
                 htmlFor="title"
@@ -1732,8 +1777,12 @@ export default function Upload() {
               </div>
             </div>
           </div>
+            </div>
+          </div>
 
-          <div className="mt-6 rounded border-[3px] border-gray-900 bg-white p-4">
+          <aside className="min-w-0 lg:col-span-2">
+            <div className="space-y-4 lg:sticky lg:top-4">
+          <div className="rounded border-[3px] border-gray-900 bg-white p-4">
             <p className="mb-3 text-sm font-medium text-ink">
               Recommendation Signal Validation
             </p>
@@ -1768,8 +1817,23 @@ export default function Upload() {
             </p>
           </div>
 
+          {saving && (
+            <PixelProgress
+              value={null}
+              stage="SAVING RECORD"
+            />
+          )}
+
+          {justSaved && (
+            <PixelProgress
+              value={1}
+              stage="PAPER SAVED"
+              done
+            />
+          )}
+
           {isPersistedPaper && !isPdf && (
-            <div className="mt-6 rounded border-[3px] border-gray-900 bg-white p-4">
+            <div className="rounded border-[3px] border-gray-900 bg-white p-4">
               <p className="text-sm font-medium text-ink">
                 No PDF attached
               </p>
@@ -1788,7 +1852,7 @@ export default function Upload() {
           )}
 
           {manualEntries.length > 0 ? (
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={handleResetUpload}
@@ -1828,7 +1892,7 @@ export default function Upload() {
               )}
             </div>
           ) : (
-            <div className="mt-6 flex gap-3">
+            <div className="flex gap-3">
               <button
                 type="button"
                 onClick={handleResetUpload}
@@ -1876,7 +1940,9 @@ export default function Upload() {
                     }.`}
             </p>
           )}
-        </>
+            </div>
+          </aside>
+        </div>
       )}
 
       {/* Approve-all dialog — persistent: confirm → live progress → summary */}

@@ -10,6 +10,8 @@ import {
 } from "../../api";
 
 import { pipelineConfigs } from "../../data/pipelineConfigs";
+import { triggerSlimeAnimation } from "../../utils/slimeEvents";
+import PixelProgress from "../../components/retro/PixelProgress";
 import StaggerIn from "../../components/retro/StaggerIn";
 import Pagination from "../../components/retro/Pagination";
 import { ArrowRight, Star } from "../../components/retro/PixelIcons";
@@ -38,6 +40,14 @@ const BATTLE_IDS = [
   "sbert_metadata",
   "tfidf_sbert_metadata",
 ];
+
+/* Battle round names: the six pipelines in execution order. */
+const BATTLE_STAGES = BATTLE_IDS.map(
+  (id) => configById.get(id)?.codename ?? id,
+);
+
+/* Minimum loading-state duration so the battle rounds play. */
+const MIN_BATTLE_MS = 2_400;
 
 function formatScore(value: number | null): string {
   if (value === null || value === undefined) {
@@ -114,6 +124,24 @@ export default function Evaluation() {
     void loadHistory(1);
   }, []);
 
+  /* Battle-round ticker: walks the six codenames while loading. */
+  const [battleStageIndex, setBattleStageIndex] = useState(0);
+
+  useEffect(() => {
+    if (!loading) {
+      setBattleStageIndex(0);
+      return;
+    }
+
+    const id = window.setInterval(() => {
+      setBattleStageIndex((index) =>
+        Math.min(BATTLE_STAGES.length - 1, index + 1),
+      );
+    }, 400);
+
+    return () => window.clearInterval(id);
+  }, [loading]);
+
   async function runBattle() {
     if (!queryText.trim()) {
       setError("Enter a query to start the battle.");
@@ -123,11 +151,26 @@ export default function Evaluation() {
     setLoading(true);
     setError(null);
 
+    // The pet zaps when the battle starts.
+    triggerSlimeAnimation("zap");
+
+    // The local battle resolves in milliseconds; hold the loading
+    // state open long enough for the six battle rounds to play.
+    const startedAt = Date.now();
+
     try {
       const data = await comparePipelines({
         query: queryText.trim(),
         topK,
       });
+
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < MIN_BATTLE_MS) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, MIN_BATTLE_MS - elapsed),
+        );
+      }
+
       setBattle(data);
       void loadHistory();
     } catch (err) {
@@ -359,10 +402,17 @@ export default function Evaluation() {
 
       {loading && (
         <div className="empty-state">
-          <p className="animate-blink flex items-center justify-center gap-1.5 text-sm font-bold text-muted">
-            <ArrowRight className="h-3 w-3" />
-            Running 6 pipelines…
-          </p>
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
+            <p className="flex items-center justify-center gap-1.5 text-sm font-bold text-ink">
+              <ArrowRight className="h-3 w-3 text-accent" />
+              Battling: {BATTLE_STAGES[battleStageIndex]}
+            </p>
+            <PixelProgress
+              value={(battleStageIndex + 1) / BATTLE_STAGES.length}
+              stage={`ROUND ${battleStageIndex + 1} OF ${BATTLE_STAGES.length}`}
+              className="w-full"
+            />
+          </div>
         </div>
       )}
 

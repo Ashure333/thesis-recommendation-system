@@ -86,6 +86,62 @@ The project is designed around three main areas:
 - Google Scholar drag-and-drop/import workflow.
 - Online PDF finder.
 - Recommendation-index update banner and rebuild button.
+- Pixel pet companion (Rimuru-inspired slime) with ten selectable Tempest forms, speech lines, tip hover-reveals, and paper-destruction reactions.
+- Scavenger hunt with six hidden treasures and an achievement rack.
+- Help library: the pet answers questions from the tip catalogue after the hunt is complete.
+- Encyclopedia-style Walkthrough and Engine pages documenting the whole system.
+
+---
+
+## The Pixel Pet (Rimuru) & Scavenger Hunt
+
+The pet is a clipper-style companion that explains the interface, runs a scavenger hunt, hands out achievements, and becomes a help library. It lives in the bottom-right corner, is draggable, and its position persists.
+
+**Character.** The pet is a self-aware slime in the spirit of Rimuru Tempest (転生したらスライムだった件): playful and gluttonous, it "predates" on library papers dragged onto it, leans on its inner Great Sage to analyze recommendations, and names everything it likes. It speaks a second voice — Japanese lines always shown with their translation — and shifts into any of ten Tempest forms, each in the character's own palette.
+
+### Interactions
+
+| Interaction | What happens |
+| --- | --- |
+| Hover (main way) | Hold the pointer on any element labeled with a tip; the pet dwells for 5 seconds (progress ring + percent chip) and reveals the tip. A 3-second cooldown rests the pet between reveals. |
+| Click | Pets the pet and cycles through discovered tips; while treasures are missing, a hint for the next one is included. |
+| Double-click | Opens the pet menu: next tip, achievement rack, docking presets, and a reset. |
+| Drag | Moves the pet anywhere in the viewport; the tooltip flips sides to stay on screen. |
+| Drag a paper onto it | The pet destroys the paper (zap / eat / crumple / burn at random) and deletes it from the library — a Predator-style disposal. |
+| Chat (after the hunt) | The pet becomes a help library: quick questions and a free-text ask field answered from the tip catalogue. |
+
+### The ten forms
+
+| Form | Character | Palette |
+| --- | --- | --- |
+| Rimuru | The slime himself | `#38bdf8` slime blue |
+| Veldora | Storm dragon, sealed inside | `#14b8a6` storm teal |
+| Benimaru | Kijin with twin flames | `#ef4444` crimson |
+| Shion | The demon secretary | `#a855f7` violet |
+| Ranga | Tempest wolf, loyal to a fault | `#f3f4f6` wolf white |
+| Shuna | The gentle priestess | `#ec4899` pink |
+| Gobta | Goblin with big ears | `#4ade80` goblin green |
+| Ciel | The personified Great Sage | `#cbd5e1` silver |
+| Diablo | Primordial demon butler | `#334155` demon black |
+| Milim | Destroyer, in a good mood | `#f9a8d4` destroyer pink |
+
+Forms are pure CSS, so every shape follows the theme and animates with the same bob, bounce, and reaction keyframes. The chosen form is remembered per browser (localStorage); old selections fall back to Rimuru.
+
+### Scavenger hunt
+
+Six treasures hide on the pages — a coin on Login, a cassette on Recommendations, an orb on Repository, a cartridge on Upload, a star on My Library, and a key on the Arena. Clicking each one adds it to the hunt. Finding all six unlocks the pet's full capabilities: every tip becomes discovered (23/23), the deep tips join the click cycle, and the chat library opens.
+
+### Screenshots
+
+![Pet forms](frontend/public/walkthrough/08-pet-forms.png)
+
+**The ten forms** — the Tempest crew the slime shifts into, each in the character's own palette.
+
+![Pet speech](frontend/public/walkthrough/09-pet-speech.png)
+
+**The second voice** — the pet floats Japanese lines, always with their translation.
+
+The full screenshot gallery lives on the in-app Walkthrough page, which documents every feature in this README's style.
 
 ---
 
@@ -1163,6 +1219,9 @@ The selected file is downloaded, checked against the paper, and stored using the
 | `/upload`          | Upload          | Import papers                        |
 | `/library`         | My Library      | View saved papers                    |
 | `/evaluation`      | Arena           | Comparative evaluation of the six pipelines  |
+| `/walkthrough`     | Walkthrough     | Encyclopedia-style guide to every feature    |
+| `/walkthrough-engine` | Engine      | The mathematics & computer science of the engine |
+| `/faq`             | FAQ             | Frequently asked questions          |
 
 The shared application navigation is defined in:
 
@@ -1364,6 +1423,12 @@ Duplicate detection and cleanup remain a development concern before final evalua
 | React frontend                      | Implemented             |
 | Recommendation-index UI alert       | Implemented             |
 | Recommendation-index rebuild button | Implemented             |
+| Pixel pet companion (ten forms)     | Implemented             |
+| Pet speech lines & destruction FX   | Implemented             |
+| Scavenger hunt & treasures          | Implemented             |
+| Achievement rack                    | Implemented             |
+| Pet help library (chat)             | Implemented             |
+| Walkthrough & Engine pages          | Implemented             |
 | Hybrid recommendation scoring       | In development          |
 | Metadata similarity scoring         | In development          |
 | Recommendation evaluation scripts   | Planned                 |

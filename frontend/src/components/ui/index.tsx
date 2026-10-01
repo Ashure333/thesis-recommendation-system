@@ -197,13 +197,17 @@ export function EmptyState({
   title,
   description,
   action,
+  figure,
 }: {
   title: string;
   description?: string;
   action?: ReactNode;
+  /** Optional illustration (e.g. the pet figure) above the title. */
+  figure?: ReactNode;
 }) {
   return (
     <div className="rounded border-[3px] border-gray-900 bg-white p-6 text-center">
+      {figure && <div className="mb-4">{figure}</div>}
       <p className="text-xl font-bold leading-snug text-gray-900">{title}</p>
       {description && <p className="mx-auto mt-2 max-w-md text-sm text-gray-600">{description}</p>}
       {action && <div className="mt-4 flex justify-center">{action}</div>}

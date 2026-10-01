@@ -5,6 +5,8 @@ import { ThemeProvider } from "./theme";
 import { PipelineModeProvider } from "./state/pipelineMode";
 import { HuntProvider } from "./state/hunt";
 import { AchievementsProvider } from "./state/achievements";
+import { LayoutPrefsProvider } from "./state/layoutPrefs";
+import { PetFormProvider } from "./state/petForm";
 // @ts-ignore: CSS is handled by the bundler at runtime.
 import "./index.css";
 
@@ -14,7 +16,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <HuntProvider>
         <AchievementsProvider>
           <PipelineModeProvider>
-            <App />
+            <LayoutPrefsProvider>
+              <PetFormProvider>
+                <App />
+              </PetFormProvider>
+            </LayoutPrefsProvider>
           </PipelineModeProvider>
         </AchievementsProvider>
       </HuntProvider>

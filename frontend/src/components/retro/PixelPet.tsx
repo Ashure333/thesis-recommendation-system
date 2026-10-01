@@ -8,14 +8,18 @@ import {
 } from "../../data/tips";
 import { HUNT_ITEMS } from "../../data/hunt";
 import { ACHIEVEMENTS } from "../../data/achievements";
+import { PET_FORMS } from "../../data/petForms";
+import { usePetForm } from "../../state/petForm";
+import PetBlob from "./PetBlob";
 import {
   getPetLines,
   getDestructionLine,
-  HUNGRY_LINE,
+  getHungryLine,
 } from "../../data/petlines";
 import { removeFromLibrary } from "../../api";
 import { answerQuestion } from "../../data/help";
 import { useHunt, HUNT_FOUND_EVENT } from "../../state/hunt";
+import { SLIME_ANIMATION_EVENT, type SlimeAnimationMode } from "../../utils/slimeEvents";
 import {
   useAchievements,
   ACHIEVEMENT_UNLOCKED_EVENT,
@@ -178,6 +182,8 @@ function clampPetPos(pos: PetPos): PetPos {
 export default function PixelPet() {
   const [open, setOpen] = useState(false);
   const [currentTip, setCurrentTip] = useState<Tip | null>(null);
+
+  const { form, setFormId } = usePetForm();
 
   const [seen, setSeen] = useState<string[]>(readSeen);
 
@@ -783,6 +789,10 @@ export default function PixelPet() {
   } | null>(null);
   const [petHungry, setPetHungry] = useState(false);
 
+  /* Event-driven reactions (search zap, upload eat, delete burn…). */
+  const [petAnim, setPetAnim] = useState<SlimeAnimationMode | null>(null);
+  const petAnimTimerRef = useRef<number | null>(null);
+
   const destructionTimerRef = useRef<number | null>(null);
 
   const speechLines = getPetLines(count, total, complete);
@@ -790,12 +800,15 @@ export default function PixelPet() {
 
   /* The bubble speaks the hungry line while a paper hovers over
      the pet, the destruction line while one is being disposed
-     of, and the cycling line otherwise. */
+     of or the pet reacts to an action, and the cycling line
+     otherwise. */
   const activeSpeech = petHungry
-    ? HUNGRY_LINE
+    ? getHungryLine()
     : dropFx
       ? getDestructionLine(dropFx.mode)
-      : speechLine;
+      : petAnim
+        ? getDestructionLine(petAnim)
+        : speechLine;
 
   useEffect(() => {
     if (open || charging || dropFx) return;
@@ -861,6 +874,41 @@ export default function PixelPet() {
       }
     };
   }, []);
+
+  /* --------------------------------------------------------
+     Event-driven reactions: any action (search, upload, delete,
+     battle) can dispatch SLIME_ANIMATION_EVENT and the pet plays
+     the mode on itself with its speech line.
+     -------------------------------------------------------- */
+
+  useEffect(() => {
+    function handleSlimeAnimation(event: Event) {
+      const mode = (event as CustomEvent).detail?.mode as
+        | SlimeAnimationMode
+        | undefined;
+
+      if (!mode) return;
+
+      if (petAnimTimerRef.current !== null) {
+        window.clearTimeout(petAnimTimerRef.current);
+      }
+
+      setPetAnim(mode);
+      celebrate();
+
+      petAnimTimerRef.current = window.setTimeout(() => {
+        setPetAnim(null);
+      }, 1_000);
+    }
+
+    window.addEventListener(SLIME_ANIMATION_EVENT, handleSlimeAnimation);
+    return () => {
+      window.removeEventListener(SLIME_ANIMATION_EVENT, handleSlimeAnimation);
+      if (petAnimTimerRef.current !== null) {
+        window.clearTimeout(petAnimTimerRef.current);
+      }
+    };
+  }, [celebrate]);
 
   /* --------------------------------------------------------
      Tooltip flips to stay on screen next to a dragged pet:
@@ -1019,7 +1067,7 @@ export default function PixelPet() {
 
       {!open && !charging && (
           <div
-            key={dropFx ? dropFx.mode : speechIndex}
+            key={dropFx ? dropFx.mode : petAnim ?? speechIndex}
             className={`animate-pop-in absolute z-20 max-w-[min(220px,calc(100vw-40px))] rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-xs leading-4 text-ink ${
               speechFlipY ? "top-full mt-2" : "bottom-full mb-2"
             } ${speechFlipX ? "left-0" : "right-0"}`}
@@ -1127,11 +1175,12 @@ export default function PixelPet() {
             className="pet-shadow absolute bottom-1 h-3 w-10 rounded-full bg-gray-900/25"
           />
 
-          {/* body — hungry (paper dragged over) opens wide */}
+          {/* body — hungry (paper dragged over) opens wide; event
+              animations (zap/eat/crumple/burn) play on the body */}
           <div className={`pet-bob relative z-10 ${hop ? "pet-hop" : ""}`}>
-            <div className="pet-bounce">
+            <div className={petAnim ? `pet-anim-${petAnim}` : "pet-bounce"}>
               <div
-                className={`flex h-12 w-12 items-center justify-center rounded-[50%_50%_45%_45%/60%_60%_40%_40%] border-[3px] border-gray-900 bg-accent transition-transform duration-100 pixel-ease ${
+                className={`flex h-12 w-12 items-center justify-center transition-transform duration-100 pixel-ease ${
                   petHungry
                     ? "scale-110 ring-2 ring-gray-900"
                     : dragging
@@ -1139,18 +1188,12 @@ export default function PixelPet() {
                       : "group-hover:scale-110 group-focus-visible:scale-110"
                 }`}
               >
-                <div className="pet-eyes flex items-center justify-center gap-1.5">
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full border-2 border-gray-900 bg-white transition-transform duration-100 pixel-ease ${
-                      petHungry ? "scale-y-75" : ""
-                    }`}
-                  />
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full border-2 border-gray-900 bg-white transition-transform duration-100 pixel-ease ${
-                      petHungry ? "scale-y-75" : ""
-                    }`}
-                  />
-                </div>
+                <PetBlob
+                  variant={form.variant}
+                  size={48}
+                  hungry={petHungry}
+                  className="drop-shadow-[1px_2px_0_rgba(0,0,0,0.15)]"
+                />
               </div>
             </div>
           </div>
@@ -1240,6 +1283,32 @@ export default function PixelPet() {
                   className="rounded border-2 border-gray-900 bg-surface px-1 py-1 text-center font-mono text-xs font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
                 >
                   {corner.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
+            <p className="mb-1 flex items-center justify-between font-bold tracking-[0.15em] text-muted">
+              <span>FORM</span>
+              <span className="text-accent">{form.name}</span>
+            </p>
+            <div className="grid grid-cols-5 gap-1">
+              {PET_FORMS.map((candidate) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  role="menuitem"
+                  title={candidate.blurb}
+                  aria-pressed={form.id === candidate.id}
+                  onClick={() => setFormId(candidate.id)}
+                  className={`flex h-10 items-center justify-center rounded border-2 border-gray-900 transition-colors pixel-ease ${
+                    form.id === candidate.id
+                      ? "bg-accentSoft"
+                      : "bg-surface hover:bg-accentSoft"
+                  }`}
+                >
+                  <PetBlob variant={candidate.variant} size={26} />
                 </button>
               ))}
             </div>

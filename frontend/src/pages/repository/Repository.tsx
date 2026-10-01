@@ -19,6 +19,8 @@ import {
 import PaperViewerModal from "../../components/PaperViewerModal";
 import FindPdfPanel from "../../components/FindPdfPanel";
 import MathText from "../../components/MathText";
+import PetFigure from "../../components/PetFigure";
+import LayoutOptions from "../../components/LayoutOptions";
 import StaggerIn from "../../components/retro/StaggerIn";
 import Pagination from "../../components/retro/Pagination";
 import WeightBar from "../../components/WeightBar";
@@ -37,6 +39,8 @@ import {
   DOCUMENT_TYPE_FILTERS,
 } from "../../data/catalog";
 import { useCatalog } from "../../hooks/useCatalog";
+import { useLayoutPrefs } from "../../state/layoutPrefs";
+import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 
 function categoryOf(paper: Paper) {
   const parts = paper.subject_category?.split(":", 2).map((p) => p.trim());
@@ -54,6 +58,7 @@ function webKey(result: WebSearchResult): string {
 
 export default function Repository() {
   const catalog = useCatalog();
+  const { prefs } = useLayoutPrefs();
 
   // Backend-owned taxonomy: seed filters until the catalog loads,
   // then the live values (including any subjects/categories added
@@ -412,6 +417,7 @@ export default function Repository() {
         // call (same as the validation module's contract).
         document_type: result.document_type ?? "Journal Article",
         citation_count: result.citations,
+        pdf_url: result.pdf_url ?? undefined,
         source_filename: `web:${result.source}`,
       });
 
@@ -537,6 +543,8 @@ export default function Repository() {
     try {
       setError(null);
       await deletePaper(paperId);
+      // The pet burns the paper it just erased.
+      triggerSlimeAnimation("burn");
       setPapers((prev) => prev.filter((paper) => paper.id !== paperId));
       if (selectedPaper?.id === paperId) setSelectedPaper(null);
     } catch (e) {
@@ -605,9 +613,12 @@ export default function Repository() {
               : `${papers.length} papers · three-pane layout: filter on the left, list in the middle, details on the right.`
         }
         action={
-          <Button type="button" onClick={() => navigate("/upload")}>
-            Upload paper
-          </Button>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <LayoutOptions />
+            <Button type="button" onClick={() => navigate("/upload")}>
+              Upload paper
+            </Button>
+          </div>
         }
       />
 
@@ -625,6 +636,7 @@ export default function Repository() {
             LEFT PANE — filters
             ==================================================== */}
 
+        {prefs.sidebar && (
         <aside
           className="shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white p-4 lg:w-64"
           data-tips="repo-filters"
@@ -710,7 +722,8 @@ export default function Repository() {
                       Peer-reviewed only
                       <span className="block text-xs leading-4 text-muted">
                         Journals, conferences, book chapters, no
-                        preprints, datasets, or retracted work.
+                        preprints, datasets, or retracted work. Selecting arXiv as a source
+                        includes preprints by design.
                       </span>
                     </span>
                   </label>
@@ -741,11 +754,21 @@ export default function Repository() {
                       onChange={(e) => setWebSources(e.target.value)}
                       className="min-h-10 w-full rounded border-[3px] border-gray-900 bg-field px-3 py-2 text-sm font-medium text-ink"
                     >
+                      <option value="openalex,crossref,arxiv">
+                        All (OpenAlex + Crossref + arXiv)
+                      </option>
                       <option value="openalex,crossref">
                         OpenAlex + Crossref
                       </option>
+                      <option value="openalex,arxiv">
+                        OpenAlex + arXiv
+                      </option>
+                      <option value="crossref,arxiv">
+                        Crossref + arXiv
+                      </option>
                       <option value="openalex">OpenAlex only</option>
                       <option value="crossref">Crossref only</option>
+                      <option value="arxiv">arXiv only</option>
                     </select>
                   </div>
 
@@ -922,6 +945,7 @@ export default function Repository() {
               : "Filters apply as you change them."}
           </p>
         </aside>
+        )}
 
         {/* ====================================================
             MIDDLE PANE — paper list
@@ -1103,7 +1127,7 @@ export default function Repository() {
               </div>
             ) : rankedPapers.length === 0 ? (
               <div className="p-6">
-                <EmptyState title="No papers match these filters." description="Try broadening the search, switching the library view, or changing one of the filters." />
+                <EmptyState title="No papers match these filters." description="Try broadening the search, switching the library view, or changing one of the filters." figure={<PetFigure size={80} />} />
               </div>
             ) : (
               /* ------------------------------------------------
@@ -1308,6 +1332,7 @@ export default function Repository() {
             RIGHT PANE — paper details
             ==================================================== */}
 
+        {prefs.details && (
         <aside className="w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-96">
           {searchMode === "web" ? (
             /* ------------------------------------------------
@@ -1678,6 +1703,7 @@ export default function Repository() {
             </div>
           )}
         </aside>
+        )}
       </div>
 
       <PaperViewerModal

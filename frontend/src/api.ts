@@ -264,6 +264,8 @@ export interface WebSearchResult {
   is_oa: boolean | null;
   landing_url: string | null;
   document_type: string | null;
+  /** Direct full-text link (arXiv results carry one). */
+  pdf_url?: string | null;
 }
 
 export interface WebSearchParams {

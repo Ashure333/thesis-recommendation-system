@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { CloseX } from "../../components/retro/PixelIcons";
 import {
   Chip,
   WikiFooter,
@@ -106,6 +108,7 @@ const TOC = [
   ["pet", "The pixel pet & scavenger hunt"],
   ["engine", "The recommendation engine"],
   ["api", "Data & API reference"],
+  ["screenshots", "Screenshots"],
   ["trivia", "Tips & trivia"],
 ] as const;
 
@@ -119,7 +122,66 @@ const OTHER_PAGES = [
   ["/faq", "FAQ"],
 ] as const;
 
+const FORMS = [
+  ["rimuru", "Rimuru", "The slime himself", "#38bdf8 slime blue"],
+  ["veldora", "Veldora", "Storm dragon, sealed inside", "#14b8a6 storm teal"],
+  ["benimaru", "Benimaru", "Kijin with twin flames", "#ef4444 crimson"],
+  ["shion", "Shion", "The demon secretary", "#a855f7 violet"],
+  ["ranga", "Ranga", "Tempest wolf, loyal to a fault", "#f3f4f6 wolf white"],
+  ["shuna", "Shuna", "The gentle priestess", "#ec4899 pink"],
+  ["gobta", "Gobta", "Goblin with big ears", "#4ade80 goblin green"],
+  ["ciel", "Ciel", "The personified Great Sage", "#cbd5e1 silver"],
+  ["diablo", "Diablo", "Primordial demon butler", "#334155 demon black"],
+  ["milim", "Milim", "Destroyer, in a good mood", "#f9a8d4 destroyer pink"],
+] as const;
+
+const GALLERY = [
+  ["01-login.png", "Login", "Single-user local sign-in; any email and password works."],
+  ["02-recommendations.png", "Search", "Query bar, mode tabs, ranked results, and the similar-papers graph."],
+  ["03-repository.png", "Repository", "Browse with sidebar filters, sorting, and per-row actions."],
+  ["04-upload.png", "Upload", "Add by identifier with an arXiv record resolved into the review form."],
+  ["05-library.png", "My Library", "Saved papers, Find Similar, and drag-to-pet disposal."],
+  ["06-arena.png", "Arena", "A battle run: winner banner, consensus ranking, and pairwise agreement."],
+  ["07-pet.png", "The pixel pet", "The resident companion, mid-speech above the Arena."],
+  ["08-pet-forms.png", "Pet forms", "The ten Tempest forms the slime shifts into, each in the character's own palette."],
+  ["09-pet-speech.png", "Pet speech", "The second voice: Japanese lines always carry their translation."],
+] as const;
+
 export default function Walkthrough() {
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+  function openPreview(index: number) {
+    setPreviewIndex(index);
+  }
+
+  function closePreview() {
+    setPreviewIndex(null);
+  }
+
+  function stepPreview(delta: number) {
+    setPreviewIndex((current) => {
+      if (current === null) return current;
+      return (current + delta + GALLERY.length) % GALLERY.length;
+    });
+  }
+
+  useEffect(() => {
+    if (previewIndex === null) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closePreview();
+      } else if (event.key === "ArrowRight") {
+        stepPreview(1);
+      } else if (event.key === "ArrowLeft") {
+        stepPreview(-1);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewIndex]);
+
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:px-6">
       <WikiHeader
@@ -389,6 +451,32 @@ export default function Walkthrough() {
               becomes a help library. It lives in the bottom-right corner,
               is draggable, and its position persists.
             </p>
+            <p className="text-sm leading-6 text-ink">
+              The pet is a self-aware slime in the spirit of Rimuru Tempest:
+              playful and gluttonous, it "predates" on library papers
+              dragged onto it, leans on its inner Great Sage to analyze
+              recommendations, and names everything it likes. It speaks a
+              second voice — Japanese lines always shown with their
+              translation — and shifts into any of ten Tempest forms, each
+              in the character's own palette.
+            </p>
+
+            <WikiSub id="forms" title="The ten forms">
+              <WikiTable
+                headers={["Form", "Character", "Palette"]}
+                rows={FORMS.map(([id, name, character, palette]) => [
+                  <Chip key={id}>{name}</Chip>,
+                  character,
+                  palette,
+                ])}
+              />
+            </WikiSub>
+            <p className="text-sm leading-6 text-ink">
+              Forms are pure CSS, so every shape follows the theme and
+              animates with the same bob, bounce, and reaction keyframes.
+              The chosen form is remembered per browser; old selections
+              fall back to Rimuru.
+            </p>
             <WikiTable
               headers={["Interaction", "What happens"]}
               rows={[
@@ -490,6 +578,45 @@ export default function Walkthrough() {
             </WikiSub>
           </WikiSection>
 
+          <WikiSection id="screenshots" title="Screenshots">
+            <p className="text-sm leading-6 text-ink">
+              The system in pictures, one shot per page. Captures taken
+              from the running development build at 1440 × 900.
+            </p>
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              {GALLERY.map(([src, title, caption], index) => (
+                <figure
+                  key={src}
+                  className="group overflow-hidden rounded border-[3px] border-gray-900 bg-white"
+                >
+                  <button
+                    type="button"
+                    onClick={() => openPreview(index)}
+                    aria-label={`Preview ${title}`}
+                    title="Click to preview"
+                    className="block w-full cursor-zoom-in border-b-[3px] border-gray-900 transition-colors pixel-ease focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-gray-900 group-hover:bg-accentSoft"
+                  >
+                    <img
+                      src={`/walkthrough/${src}`}
+                      alt={title}
+                      loading="lazy"
+                      className="block w-full"
+                    />
+                  </button>
+                  <figcaption className="p-3">
+                    <p className="font-pixelify text-sm font-bold text-ink">
+                      {title}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted">
+                      {caption}
+                    </p>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </WikiSection>
+
           <WikiSection id="trivia" title="Tips & trivia">
             <ul className="list-inside list-disc space-y-1.5 text-sm leading-6 text-ink">
               <li>
@@ -521,6 +648,12 @@ export default function Walkthrough() {
                 The Chrome extension in the repo sends Google Scholar
                 BibTeX citations straight into the Upload page.
               </li>
+              <li>
+                The pet is a Rimuru-inspired slime: it "predates" on
+                library papers (eat mode is Predator, zap mode is Black
+                Flame), and its Great Sage persona, Ciel, is one of the ten
+                forms it can shift into.
+              </li>
             </ul>
           </WikiSection>
 
@@ -528,6 +661,89 @@ export default function Walkthrough() {
           <WikiFooter ctaTo="/recommendations" ctaLabel="START SEARCHING" />
         </div>
       </div>
+
+      {/* ------------------------------------------------ LIGHTBOX */}
+      {previewIndex !== null && (() => {
+        const [src, title, caption] = GALLERY[previewIndex];
+
+        return (
+          <div
+            className="fixed inset-0 z-[9990] flex items-center justify-center bg-canvas p-6"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                closePreview();
+              }
+            }}
+          >
+            <div className="relative flex h-[92vh] w-[95vw] max-w-[1600px] flex-col">
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 translate-x-2 translate-y-2 rounded bg-gray-900"
+              />
+
+              <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white">
+                <div className="flex shrink-0 items-center justify-between gap-4 border-b-[3px] border-gray-900 bg-canvas px-5 py-3">
+                  <div className="min-w-0">
+                    <h2 className="font-pixelify truncate text-xl font-bold leading-snug text-ink">
+                      {title}
+                    </h2>
+                    <p className="text-sm text-muted">
+                      Screenshot {previewIndex + 1} of {GALLERY.length}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => stepPreview(-1)}
+                      aria-label="Previous screenshot"
+                      className="rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 font-mono text-sm font-semibold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+                    >
+                      ← Prev
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => stepPreview(1)}
+                      aria-label="Next screenshot"
+                      className="rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 font-mono text-sm font-semibold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+                    >
+                      Next →
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closePreview}
+                      aria-label="Close preview"
+                      className="rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 font-mono text-sm font-semibold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+                    >
+                      <CloseX className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex min-h-0 flex-1 items-center justify-center bg-canvas p-4">
+                  <img
+                    src={`/walkthrough/${src}`}
+                    alt={title}
+                    className="max-h-full max-w-full rounded border-[3px] border-gray-900"
+                  />
+                </div>
+
+                <div className="shrink-0 border-t-[3px] border-gray-900 bg-canvas px-5 py-3">
+                  <p className="font-pixelify text-sm font-bold text-ink">
+                    {title}
+                  </p>
+                  <p className="mt-0.5 text-sm leading-5 text-muted">
+                    {caption}
+                  </p>
+                  <p className="mt-1 font-mono text-[11px] tracking-[0.15em] text-muted">
+                    CLICK OUTSIDE OR PRESS ESC TO CLOSE · ← → TO NAVIGATE
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

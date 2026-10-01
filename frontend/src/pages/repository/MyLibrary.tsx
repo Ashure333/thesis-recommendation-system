@@ -9,12 +9,99 @@ import {
 } from "../../api";
 import PaperViewerModal from "../../components/PaperViewerModal";
 import MathText from "../../components/MathText";
+import PetFigure from "../../components/PetFigure";
 import { Button, EmptyState, PageHeader, PageShell } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
 import { HUNT_ITEMS } from "../../data/hunt";
+import { usePetForm } from "../../state/petForm";
+import { triggerSlimeAnimation } from "../../utils/slimeEvents";
+
+/* ============================================================
+   PET DRAG IMAGE — the drag ghost for a library row.
+   Renders the currently selected pet form (accent blob with
+   ink outline and eyes) as the thing that follows the cursor,
+   instead of the default browser row snapshot.
+   ============================================================ */
+
+/* Corner radii (0..1 of the half size) per form variant. */
+const DRAG_RADII: Record<string, [number, number, number, number]> = {
+  original: [0.72, 0.72, 0.5, 0.5],
+  tall: [0.85, 0.85, 0.55, 0.55],
+  wide: [0.62, 0.62, 0.5, 0.5],
+  teardrop: [0.9, 0.9, 0.5, 0.5],
+  squash: [0.58, 0.58, 0.5, 0.5],
+  chunky: [0.5, 0.5, 0.5, 0.5],
+  sleepy: [0.72, 0.72, 0.5, 0.5],
+  happy: [0.72, 0.72, 0.5, 0.5],
+  grump: [0.72, 0.72, 0.5, 0.5],
+  spike: [0.9, 0.9, 0.5, 0.5],
+};
+
+function petDragImage(variant: string): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = 96;
+  canvas.height = 96;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+
+  const accent =
+    getComputedStyle(document.documentElement)
+      .getPropertyValue("--accent")
+      .trim() || "243 156 18";
+  const ink = "#2c3e50";
+
+  const size = 84;
+  const x = (96 - size) / 2;
+  const y = (96 - size) / 2 + 4;
+
+  // Ground shadow.
+  ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(48, 84, 34, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Blob body, silhouette from the variant.
+  const [tl, tr, br, bl] = DRAG_RADII[variant] ?? DRAG_RADII.original;
+  const half = size / 2;
+  ctx.beginPath();
+  ctx.roundRect(
+    x,
+    y,
+    size,
+    size,
+    [tl * half, tr * half, br * half, bl * half],
+  );
+  ctx.fillStyle = `rgb(${accent})`;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = ink;
+  ctx.stroke();
+
+  // Eyes.
+  const eyeY = y + size * 0.42;
+  const eyeR = 8;
+  for (const ex of [36, 60]) {
+    ctx.beginPath();
+    ctx.arc(ex, eyeY, eyeR, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = ink;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(ex + 1.5, eyeY - 1, 3, 0, Math.PI * 2);
+    ctx.fillStyle = ink;
+    ctx.fill();
+  }
+
+  return canvas;
+}
 
 export default function MyLibrary() {
   const navigate = useNavigate();
+  const { form } = usePetForm();
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +173,8 @@ export default function MyLibrary() {
   async function handleRemove(paperId: number) {
     try {
       await removeFromLibrary(paperId);
+      // The pet disposes of the paper it just removed.
+      triggerSlimeAnimation("burn");
       if (selectedPaper?.id === paperId) {
         handleClosePaper();
       }
@@ -143,6 +232,7 @@ export default function MyLibrary() {
         <EmptyState
           title="Your library is empty."
           description="Save papers from the repository or recommendation results to keep them here."
+          figure={<PetFigure />}
           action={
             <Link to="/repository" className="text-sm font-bold text-ink underline hover:decoration-2">
               Browse repository
@@ -177,6 +267,12 @@ export default function MyLibrary() {
                     JSON.stringify({ id: paper.id, title: paper.title }),
                   );
                   event.dataTransfer.effectAllowed = "move";
+                  // The drag ghost is the pet's current form.
+                  event.dataTransfer.setDragImage(
+                    petDragImage(form.variant),
+                    48,
+                    48,
+                  );
                 }}
                 title="Drag me onto the pet to dispose of this paper"
                 className="paper-row border-b border-gray-200 p-4 last:border-b-0"

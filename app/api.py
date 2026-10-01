@@ -1377,7 +1377,7 @@ def search_web_endpoint(
     requested_sources = tuple(
         source.strip()
         for source in sources.split(",")
-        if source.strip() in ("openalex", "crossref")
+        if source.strip() in ("openalex", "crossref", "arxiv")
     )
 
     try:

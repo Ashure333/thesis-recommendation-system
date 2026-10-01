@@ -19,8 +19,13 @@ import WeightBar from "../../components/WeightBar";
 import StaggerIn from "../../components/retro/StaggerIn";
 import Pagination from "../../components/retro/Pagination";
 import MathText from "../../components/MathText";
+import PetFigure from "../../components/PetFigure";
+import LayoutOptions from "../../components/LayoutOptions";
+import PixelProgress from "../../components/retro/PixelProgress";
 import { ArrowRight, Dot } from "../../components/retro/PixelIcons";
 import { usePipelineMode } from "../../state/pipelineMode";
+import { useLayoutPrefs } from "../../state/layoutPrefs";
+import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 import PipelineMath from "../../components/PipelineMath";
 import ConnectedPapersGraph from "../../components/ConnectedPapersGraph";
 
@@ -140,6 +145,7 @@ interface NavState {
 
 export default function Recommendations() {
   const location = useLocation();
+  const { prefs } = useLayoutPrefs();
 
   const navState =
     (location.state as NavState | null) ?? {};
@@ -308,6 +314,13 @@ export default function Recommendations() {
     setLoading(true);
     setError(null);
 
+    // The pet zaps when the search fires.
+    triggerSlimeAnimation("zap");
+
+    // The local backend answers in milliseconds; hold the loading
+    // state open long enough for the scanner to actually be seen.
+    const startedAt = Date.now();
+
     try {
       const data = await getRecommendations({
         pipeline,
@@ -324,6 +337,13 @@ export default function Recommendations() {
           ? { weights: customWeights }
           : {}),
       });
+
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < MIN_LOAD_MS) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, MIN_LOAD_MS - elapsed),
+        );
+      }
 
       setResults(data);
     } catch (err) {
@@ -427,6 +447,9 @@ export default function Recommendations() {
   // ==========================================================
 
   const RESULTS_PAGE_SIZE = 5;
+
+/* Minimum loading-state duration so the scanner animation reads. */
+const MIN_LOAD_MS = 900;
   const pageCount = Math.max(
     1,
     Math.ceil(results.length / RESULTS_PAGE_SIZE),
@@ -444,6 +467,7 @@ export default function Recommendations() {
         eyebrow="Search"
         title="Search the repository"
         description="Query modes, six pipelines, live results, and a similar-papers graph: three panes, reference-manager style."
+        action={<LayoutOptions />}
       />
 
       <div
@@ -459,6 +483,7 @@ export default function Recommendations() {
             LEFT PANE — query controls
             ==================================================== */}
 
+        {prefs.sidebar && (
         <aside
           className="w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white p-4 lg:w-[var(--pane-left)]"
           data-tips="search-modes"
@@ -669,11 +694,14 @@ export default function Recommendations() {
             )}
           </div>
         </aside>
+        )}
 
+        {prefs.sidebar && (
         <PaneHandle
           label="Resize query panel"
           onResize={resizeLeft}
         />
+        )}
 
         {/* ====================================================
             MIDDLE PANE — results
@@ -697,14 +725,16 @@ export default function Recommendations() {
             {error && <div className="status-error">{error}</div>}
 
             {loading ? (
-              <div className="flex items-center justify-center p-10">
-                <p className="animate-blink flex items-center justify-center gap-1.5 text-sm font-bold text-muted">
-                  <ArrowRight className="h-3 w-3" />
-                  Searching with {activeConfig.codename}…
+              <div className="flex flex-col items-center justify-center gap-4 p-10">
+                <p className="flex items-center justify-center gap-1.5 text-sm font-bold text-ink">
+                  <ArrowRight className="h-3 w-3 text-accent" />
+                  Searching with {activeConfig.codename}
                 </p>
+                <PixelProgress value={null} stage="SCANNING CORPUS" className="max-w-xs" />
               </div>
             ) : results.length === 0 ? (
               <EmptyState
+                figure={<PetFigure size={80} />}
                 title={
                   mode === "seed"
                     ? "No recommendations found."
@@ -837,15 +867,18 @@ export default function Recommendations() {
           />
         </section>
 
+        {prefs.details && (
         <PaneHandle
           label="Resize similar-papers panel"
           onResize={resizeRight}
         />
+        )}
 
         {/* ====================================================
             RIGHT PANE — similar papers graph
             ==================================================== */}
 
+        {prefs.details && (
         <aside className="w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
           <div className="flex shrink-0 items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5">
             <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink">
@@ -902,6 +935,7 @@ export default function Recommendations() {
             </div>
           )}
         </aside>
+        )}
       </div>
 
       {/* Pipeline math — full width below the panes */}

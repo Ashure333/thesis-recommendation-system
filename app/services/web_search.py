@@ -40,6 +40,7 @@ import logging
 import re
 import threading
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, asdict
 
 from app.services.pdf_finder import (
@@ -65,7 +66,7 @@ PEER_REVIEWED_TYPES = {"journal-article", "proceedings-article", "book-chapter"}
 # peer-reviewed filter.
 NON_PEER_TYPES = {"posted-content", "report", "book", "monograph"}
 
-SOURCES = ("openalex", "crossref")
+SOURCES = ("openalex", "crossref", "arxiv")
 
 OPENALEX_TYPE_FILTER = "type:article|book-chapter"
 
@@ -97,6 +98,7 @@ class WebSearchResult:
     is_oa: bool | None = None  # None = unknown (Crossref can't tell)
     landing_url: str | None = None
     document_type: str | None = None
+    pdf_url: str | None = None  # direct full-text link (arXiv)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -389,6 +391,120 @@ def _search_crossref(
 
 
 # ---------------------------------------------------------------------
+# arXiv
+# ---------------------------------------------------------------------
+
+_ARXIV_API = "https://export.arxiv.org/api/query"
+_ARXIV_NS = {"a": "http://www.w3.org/2005/Atom"}
+
+
+def _search_arxiv(
+    query: str,
+    *,
+    year_min: int | None,
+    year_max: int | None,
+    sort: str,
+    limit: int,
+) -> list[WebSearchResult] | None:
+    """Query the arXiv Atom API (official, keyless).
+
+    arXiv is a preprint server: its records are open access with a
+    direct PDF link. Results are marked "Preprint" so the UI can
+    say so, and the peer-reviewed default does not apply to this
+    source; selecting arXiv is an explicit opt-in to preprints.
+    """
+
+    params: dict = {
+        # Unquoted: arXiv ANDs the terms (quoted phrases require
+        # exact adjacency and return nothing for long queries).
+        "search_query": f"all:{query}",
+        "start": 0,
+        "max_results": min(max(limit * 2, limit), 40),
+        "sortBy": "submittedDate" if sort == "year" else "relevance",
+        "sortOrder": "descending",
+    }
+
+    response = _get_with_retry(
+        _ARXIV_API,
+        params=params,
+        source="arxiv-search",
+    )
+
+    if response is None or not response.ok:
+        logger.debug(
+            "[web_search] arXiv unavailable (status=%s)",
+            getattr(response, "status_code", None),
+        )
+        return None
+
+    try:
+        root = ET.fromstring(response.content)
+    except ET.ParseError:
+        return None
+
+    results: list[WebSearchResult] = []
+
+    for entry in root.findall("a:entry", _ARXIV_NS):
+        title = " ".join(
+            (entry.findtext("a:title", "", _ARXIV_NS) or "").split()
+        )
+
+        if not title or title.lower() == "error":
+            continue
+
+        authors = "; ".join(
+            " ".join((name.text or "").split())
+            for name in entry.findall("a:author/a:name", _ARXIV_NS)
+            if (name.text or "").strip()
+        ) or None
+
+        summary = " ".join(
+            (entry.findtext("a:summary", "", _ARXIV_NS) or "").split()
+        ) or None
+        if summary and len(summary) > _ABSTRACT_MAX_CHARS:
+            summary = summary[:_ABSTRACT_MAX_CHARS]
+
+        published = entry.findtext("a:published", "", _ARXIV_NS) or ""
+        year = (
+            int(published[:4])
+            if len(published) >= 4 and published[:4].isdigit()
+            else None
+        )
+
+        if year_min is not None and year is not None and year < year_min:
+            continue
+        if year_max is not None and year is not None and year > year_max:
+            continue
+
+        abs_url = (entry.findtext("a:id", "", _ARXIV_NS) or "").strip() or None
+
+        pdf_url = None
+        if abs_url:
+            arxiv_id = re.search(r"abs/(.+)$", abs_url)
+            if arxiv_id:
+                pdf_url = f"https://arxiv.org/pdf/{arxiv_id.group(1)}.pdf"
+
+        results.append(
+            WebSearchResult(
+                title=title,
+                author=authors,
+                abstract=summary,
+                publication_year=year,
+                doi=None,
+                venue="arXiv",
+                source="arxiv",
+                citations=None,
+                is_oa=True,
+                landing_url=abs_url,
+                document_type="Preprint",
+                pdf_url=pdf_url,
+            )
+        )
+
+    return results
+
+
+# ---------------------------------------------------------------------
 # Merge + cache
 # ---------------------------------------------------------------------
 
@@ -408,7 +524,7 @@ def _title_key(title: str, year: int | None) -> tuple:
 
 
 def _interleave(*lists: list[WebSearchResult]) -> list[WebSearchResult]:
-    """Round-robin so a relevance search blends both sources fairly."""
+    """Round-robin so a relevance search blends all sources fairly."""
     merged: list[WebSearchResult] = []
     longest = max((len(items) for items in lists), default=0)
 
@@ -423,24 +539,33 @@ def _interleave(*lists: list[WebSearchResult]) -> list[WebSearchResult]:
 def _merge(
     openalex_results: list[WebSearchResult],
     crossref_results: list[WebSearchResult],
+    arxiv_results: list[WebSearchResult],
     sort: str,
     limit: int,
 ) -> list[WebSearchResult]:
     if sort == "citations":
-        candidates = openalex_results + crossref_results
+        candidates = (
+            openalex_results + crossref_results + arxiv_results
+        )
         candidates.sort(
             key=lambda result: result.citations or 0,
             reverse=True,
         )
     elif sort == "year":
-        candidates = openalex_results + crossref_results
+        candidates = (
+            openalex_results + crossref_results + arxiv_results
+        )
         candidates.sort(
             key=lambda result: result.publication_year or 0,
             reverse=True,
         )
     else:
-        # Relevance: interleave the two ranked lists.
-        candidates = _interleave(openalex_results, crossref_results)
+        # Relevance: interleave the ranked lists.
+        candidates = _interleave(
+            openalex_results,
+            crossref_results,
+            arxiv_results,
+        )
 
     # Deduplicate: DOI first (OpenAlex entries win -- they carry
     # abstracts and OA status), then normalized title + year.
@@ -495,6 +620,7 @@ def search_web(
 
     # Open-access-only relies on OpenAlex's OA flag; Crossref cannot
     # answer that question, so it is dropped rather than guessed.
+    # arXiv is open access by nature and stays.
     if open_access_only and "crossref" in requested:
         requested = tuple(s for s in requested if s != "crossref")
 
@@ -525,6 +651,7 @@ def search_web(
 
     openalex_results: list[WebSearchResult] | None = None
     crossref_results: list[WebSearchResult] | None = None
+    arxiv_results: list[WebSearchResult] | None = None
 
     if "openalex" in requested:
         openalex_results = _search_openalex(
@@ -547,12 +674,29 @@ def search_web(
             limit=limit,
         )
 
-    if openalex_results is None and crossref_results is None:
+    # arXiv is an explicit opt-in source: it runs even under the
+    # peer-reviewed default because choosing it is the user's signal
+    # that preprints are welcome.
+    if "arxiv" in requested:
+        arxiv_results = _search_arxiv(
+            query,
+            year_min=year_min,
+            year_max=year_max,
+            sort=sort,
+            limit=limit,
+        )
+
+    if (
+        openalex_results is None
+        and crossref_results is None
+        and arxiv_results is None
+    ):
         raise WebSearchError("Every web search source failed.")
 
     merged = _merge(
         openalex_results or [],
         crossref_results or [],
+        arxiv_results or [],
         sort,
         limit,
     )
