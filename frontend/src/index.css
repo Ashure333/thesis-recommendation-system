@@ -3,69 +3,510 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+
+  /* ----------------------------------------------------
+     GITINGEST DESIGN LANGUAGE
+     Canvas #FFFDF8 · ink gray-900 · muted gray-600
+     3px outlines on every interactive surface · 4px radius
+     Accent (primary + active fill) is theme-selectable.
+     Field blue = main input fill.
+     Depth = sibling slab (bg-ink, translate 4px/4px), never a blur.
+     Hairline only for incidental row separators.
+     No pills, no tracked all-caps labels, no state colours.
+
+     The full palette is theme-selectable: canvas, ink,
+     hairline, field and the neutral ramp all shift per
+     theme (see src/theme.tsx). These :root values are the
+     amber defaults.
+     ---------------------------------------------------- */
+  --canvas: 255 250 240;
+  --surface: 254 247 236;   /* amber theme's accent-tinted card; applied themes override */
+  --surface-alt: 254 242 222;
+  --hairline: 242 239 230;
+  --ink: 44 62 80;
+  --muted: 99 112 126;
+  --field: 254 242 220;
+  --accent: 243 156 18;
+  --accent-soft: 253 236 207;
+
+  /* Pipeline signal colors (amber defaults — tonal shades of the
+     accent, see src/theme.tsx). */
+  --signal-tfidf: 243 156 18;
+  --signal-sbert: 165 184 9;
+  --signal-meta: 243 38 12;
+
+  /* Subject tag colors (amber defaults — accent ±150°). */
+  --tag-cs: 12 217 243;
+  --tag-math: 38 12 243;
+
+  /* Auto-legibility: text on accent / ink fills (computed per
+     theme at runtime — see src/theme.tsx). */
+  --on-accent: 44 62 80;
+  --on-ink: 255 255 255;
+
+  /* Neutral ramp (amber defaults) — theme-swappable. */
+  --gray-50: 249 244 235;
+  --gray-100: 244 241 232;
+  --gray-200: 242 239 230;
+  --gray-300: 221 220 214;
+  --gray-400: 172 179 185;
+  --gray-500: 140 148 155;
+  --gray-600: 99 112 126;
+  --gray-700: 82 98 115;
+  --gray-800: 56 74 92;
+  --gray-900: 44 62 80;
+  --gray-950: 26 35 44;
+
   font-family: "Inter", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
-html { background: #0B0E1A; }
+html { background: rgb(var(--canvas)); }
+
+/* Dark mode: the runtime applies the derived dark palette to the
+   CSS variables (see src/theme.tsx) and flips color-scheme here so
+   native form controls / scrollbars follow the mode too. */
+:root[data-mode="dark"] { color-scheme: dark; }
+
 body {
   margin: 0;
   min-width: 320px;
-  background: #0B0E1A;
-  color: #E8E6E0;
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
 }
 
 button, input, select, textarea { font: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: 2px solid #D9A94F;
+  outline: 2px solid rgb(var(--ink));
   outline-offset: 2px;
 }
 
-h1, h2, h3 { font-family: "Source Serif 4", Georgia, serif; }
+/* Headings are tight, bold sans — no serif, no all-caps display type. */
+h1, h2, h3 {
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
 
 @layer components {
-  .page-shell { @apply mx-auto max-w-[1280px]; }
-  .page-header { @apply mb-8 flex items-start justify-between gap-6 border-b border-line pb-5; }
-  .page-eyebrow { @apply mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-muted; }
-  .page-title { @apply text-2xl font-normal leading-tight text-ink; }
-  .page-description { @apply mt-2 max-w-2xl text-sm leading-6 text-muted; }
-  .page-header-action { @apply shrink-0 pt-1; }
+  /* Retro display font for the header chrome and arcade labels. */
+  .font-pixelify {
+    font-family: "Pixelify Sans", "Inter", system-ui, sans-serif;
+    letter-spacing: 0.02em;
+  }
+
+  .page-shell { @apply mx-auto flex w-full max-w-6xl flex-col gap-10; }
+  .page-header { @apply flex flex-col gap-5 border-b-[3px] border-gray-900 pb-6 sm:flex-row sm:items-end sm:justify-between; }
+  .page-eyebrow { @apply mb-1 text-sm font-bold text-muted; }
+  .page-title { @apply min-w-0 text-3xl font-bold leading-none tracking-tight text-ink; }
+  .page-description { @apply mt-3 max-w-2xl text-base leading-relaxed text-muted; }
+  .page-header-action { @apply shrink-0; }
 
   .section-heading { @apply mb-4 flex items-end justify-between gap-4; }
-  .section-title { @apply text-base font-medium text-ink; }
+  .section-title { @apply text-xl font-bold leading-snug text-ink; }
   .section-description { @apply mt-1 text-sm text-muted; }
 
-  .ui-button { @apply inline-flex min-h-9 items-center justify-center rounded-md border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
-  .ui-button-primary { @apply border-gold bg-gold text-navy hover:bg-gold/90; }
-  .ui-button-secondary { @apply border-line bg-panel text-ink hover:border-gold/60 hover:bg-panelAlt; }
-  .ui-button-quiet { @apply border-transparent bg-transparent text-muted hover:bg-panelAlt hover:text-ink; }
-  .ui-button-danger { @apply border-sbert/50 bg-transparent text-sbert hover:bg-sbert/10; }
+  .ui-button { @apply relative z-10 inline-flex min-h-9 items-center justify-center gap-2 rounded border-[3px] border-gray-900 px-3 text-sm font-bold text-ink transition-[filter,background-color,color] disabled:cursor-not-allowed disabled:opacity-50; }
+  .ui-button-primary { @apply bg-accent text-onAccent hover:brightness-110 active:brightness-90; }
+  .ui-button-secondary { @apply bg-white text-ink hover:bg-accent hover:text-onAccent; }
+  .ui-button-quiet { @apply border-transparent bg-transparent text-ink hover:border-gray-900 hover:bg-white; }
+  .ui-button-danger { @apply bg-gray-900 text-onInk hover:brightness-125; }
 
-  .ui-input { @apply min-h-10 w-full rounded-md border border-line bg-navy px-3 text-sm text-ink placeholder:text-muted/60 transition-colors focus:border-gold focus:outline-none; }
+  .ui-input { @apply block w-full rounded border-[3px] border-gray-900 bg-field px-3 py-2 text-sm font-medium text-ink placeholder:text-muted focus:outline-none; }
   .field-label-row { @apply mb-1.5 flex items-center justify-between gap-3; }
-  .field-label { @apply text-sm text-ink; }
-  .required-mark { @apply ml-1 text-gold; }
-  .field-hint { @apply text-xs text-muted; }
 
-  .surface { @apply rounded-lg border border-line bg-panel; }
-  .surface-muted { @apply rounded-lg border border-line bg-navy; }
-  .empty-state { @apply rounded-lg border border-dashed border-line px-6 py-14 text-center; }
-  .empty-state-title { @apply text-sm text-ink; }
-  .empty-state-description { @apply mx-auto mt-1 max-w-md text-xs leading-5 text-muted; }
+  /* Form labels use the pixel display font; at Pixelify Sans' tighter
+     metrics the old Inter sizes (14px/12px) read too small, so field
+     labels run at 16px and compact filter labels at 14px. */
+  .field-label {
+    @apply block text-base font-bold text-ink;
+    font-family: "Pixelify Sans", "Inter", system-ui, sans-serif;
+    letter-spacing: 0.03em;
+  }
+  .required-mark { @apply ml-0.5 text-ink; }
+  .field-hint { @apply mt-1 block text-xs text-muted; }
 
-  .paper-row { @apply border-b border-line px-4 py-4 transition-colors last:border-b-0 hover:bg-panelAlt/40; }
-  .paper-title { @apply text-sm font-medium leading-5 text-ink hover:text-gold; }
+  .surface { @apply rounded border-[3px] border-gray-900 bg-surface; }
+  .surface-muted { @apply rounded border-[3px] border-gray-900 bg-canvas; }
+  .empty-state { @apply rounded border-[3px] border-gray-900 bg-surface px-6 py-14 text-center; }
+  .empty-state-title { @apply text-xl font-bold text-ink; }
+  .empty-state-description { @apply mx-auto mt-2 max-w-md text-sm leading-5 text-muted; }
+
+  .paper-row { @apply border-b border-gray-200 px-4 py-4 transition-colors last:border-b-0 hover:bg-canvas; }
+  .paper-title { @apply text-sm font-bold leading-5 text-ink hover:underline; }
   .paper-meta { @apply mt-1 text-xs leading-5 text-muted; }
   .paper-actions { @apply mt-3 flex flex-wrap items-center gap-2; }
 
-  .filter-label { @apply mb-2 block text-[11px] font-medium uppercase tracking-[0.1em] text-muted; }
-  .filter-option { @apply block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors; }
-  .filter-option-active { @apply bg-panelAlt text-ink; }
-  .filter-option-idle { @apply text-muted hover:bg-panelAlt/60 hover:text-ink; }
+  .filter-label {
+    @apply mb-1.5 block text-sm font-bold text-ink;
+    font-family: "Pixelify Sans", "Inter", system-ui, sans-serif;
+    letter-spacing: 0.03em;
+  }
+  .filter-option { @apply block w-full rounded border-[3px] px-2.5 py-1.5 text-left text-sm transition-colors; }
+  .filter-option-active { @apply border-gray-900 bg-accent text-onAccent; }
+  .filter-option-idle { @apply border-transparent text-ink hover:border-gray-900 hover:bg-accentSoft; }
 
-  .status-error { @apply rounded-md border border-sbert/40 bg-sbert/10 px-3 py-2 text-sm text-sbert; }
-  .status-success { @apply rounded-md border border-tfidf/40 bg-tfidf/10 px-3 py-2 text-sm text-tfidf; }
-  .status-warning { @apply rounded-md border border-gold/30 bg-gold/10 px-3 py-2 text-sm text-gold; }
+  /* No state colours: state is carried by wording and outline style
+     (solid = blocking error, dashed = advisory). */
+  .status-error { @apply rounded border-[3px] border-gray-900 bg-white px-3 py-2 text-sm font-medium text-ink; }
+  .status-success { @apply rounded border-[3px] border-gray-900 bg-accent px-3 py-2 text-sm font-medium text-onAccent; }
+  .status-warning { @apply rounded border-[3px] border-dashed border-gray-900 bg-canvas px-3 py-2 text-sm font-medium text-ink; }
+}
+
+/* ============================================================
+   RETRO GAME ANIMATION LAYER
+   Stepped (8-bit) easing · CRT scanlines · blinking cursors.
+   The Gitingest design language keeps its 3px outlines and
+   sibling slabs; motion is what turns it into an arcade.
+   Every animation is gated off under prefers-reduced-motion.
+   ============================================================ */
+
+/* --- pixel easing: snaps instead of gliding --- */
+.pixel-ease { transition-timing-function: steps(3, end) !important; }
+
+/* --- blinking block cursor / press-start indicator --- */
+.animate-blink { animation: retro-blink 1s steps(2, start) infinite; }
+@keyframes retro-blink { 50% { opacity: 0; } }
+
+/* --- blinking "recording" square --- */
+.animate-rec { animation: retro-rec 1.2s steps(2, start) infinite; }
+@keyframes retro-rec { 50% { opacity: 0.15; } }
+
+/* --- 8-bit jiggle on hover (logo marks) --- */
+.retro-wiggle:hover { animation: retro-wiggle 0.35s steps(4) infinite; }
+@keyframes retro-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-3deg) translateY(1px); }
+  75% { transform: rotate(3deg) translateY(-1px); }
+}
+
+/* --- glitchy boot title --- */
+.animate-glitch { animation: retro-glitch 0.9s steps(2) infinite; }
+@keyframes retro-glitch {
+  0%, 100% { transform: translate(0, 0); }
+  30% { transform: translate(-2px, 1px) skewX(-2deg); }
+  60% { transform: translate(2px, -1px) skewX(2deg); }
+}
+
+/* --- boot screen flicker --- */
+.animate-boot-flicker { animation: retro-boot-flicker 2.4s steps(2) infinite; }
+@keyframes retro-boot-flicker {
+  0%, 100% { opacity: 1; }
+  3% { opacity: 0.55; }
+  6% { opacity: 1; }
+  54% { opacity: 1; }
+  56% { opacity: 0.7; }
+  58% { opacity: 1; }
+}
+
+/* --- page / route entrance: stepped rise --- */
+.animate-route-in { animation: retro-route-in 0.3s steps(4, end) both; }
+@keyframes retro-route-in {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* --- staggered list entrance (rows drop in one pixel-step at a time) --- */
+.animate-step-in { animation: retro-step-in 0.28s steps(3, end) both; }
+@keyframes retro-step-in {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* --- marquee ticker strip --- */
+.animate-marquee { animation: retro-marquee 26s linear infinite; }
+@keyframes retro-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* --- CRT scanline overlay (fixed, above everything, never blocks input) --- */
+.crt-overlay {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgb(var(--ink) / 0.055) 0px,
+    rgb(var(--ink) / 0.055) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  animation: retro-crt-flicker 5s steps(60) infinite;
+}
+.crt-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 52%, rgb(var(--ink) / 0.16) 100%);
+}
+@keyframes retro-crt-flicker {
+  0%, 89%, 94%, 100% { opacity: 1; }
+  90% { opacity: 0.72; }
+  92% { opacity: 1; }
+  96% { opacity: 0.86; }
+}
+
+/* --- drifting CRT refresh bar --- */
+.crt-scan-bar {
+  pointer-events: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 140px;
+  z-index: 9991;
+  background: linear-gradient(to bottom, transparent, rgb(var(--ink) / 0.05), transparent);
+  animation: retro-scan-drift 8s linear infinite;
+}
+@keyframes retro-scan-drift {
+  0% { top: -30%; }
+  100% { top: 130%; }
+}
+
+/* --- quick hit shake (errors, jumps) --- */
+.animate-shake { animation: retro-shake 0.3s steps(3) both; }
+@keyframes retro-shake {
+  0%, 100% { transform: translateX(0); }
+  33% { transform: translateX(-3px); }
+  66% { transform: translateX(3px); }
+}
+
+/* ============================================================
+   PIXEL PET — the resident arcade companion
+   ============================================================ */
+
+.pet-bob { animation: pet-bob 1.1s steps(4, end) infinite alternate; }
+@keyframes pet-bob {
+  from { transform: translateY(2px); }
+  to { transform: translateY(-3px); }
+}
+
+/* Squash-and-stretch bounce layered over the idle bob (nested wrapper). */
+.pet-bounce { animation: pet-bounce 1.8s steps(6, end) infinite; }
+@keyframes pet-bounce {
+  0%, 100% { transform: scaleY(1); }
+  12% { transform: scaleY(0.86); }
+  30% { transform: translateY(-9px) scaleY(1.08); }
+  52% { transform: translateY(0) scaleY(0.84); }
+  68% { transform: scaleY(1.06); }
+  84% { transform: scaleY(1); }
+}
+
+/* Bouncy pop-in for floating UI (scroll-follow popup). */
+.animate-pop-in { animation: retro-pop-in 0.4s steps(6, end) both; }
+@keyframes retro-pop-in {
+  0% { opacity: 0; transform: translateY(14px) scale(0.9); }
+  60% { opacity: 1; transform: translateY(-2px) scale(1.04); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.pet-hop { animation: pet-hop 0.45s steps(5, end); }
+@keyframes pet-hop {
+  0% { transform: translateY(0) scaleY(1); }
+  30% { transform: translateY(-16px) scaleY(0.9); }
+  60% { transform: translateY(-16px) scaleY(0.9); }
+  100% { transform: translateY(0) scaleY(1); }
+}
+
+.pet-eyes { animation: pet-blink 3.4s steps(1, end) infinite; }
+@keyframes pet-blink {
+  0%, 94%, 100% { transform: scaleY(1); }
+  95%, 99% { transform: scaleY(0.08); }
+}
+
+.pet-shadow {
+  animation: pet-shadow 1.1s steps(4, end) infinite alternate;
+}
+@keyframes pet-shadow {
+  from { transform: scaleX(1); opacity: 0.9; }
+  to { transform: scaleX(0.75); opacity: 0.55; }
+}
+
+/* --- "+1" coin pop when the pet is petted --- */
+.animate-coin-pop { animation: coin-pop 0.9s steps(8) forwards; }
+@keyframes coin-pop {
+  0% { opacity: 0; transform: translateY(6px); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-30px); }
+}
+
+/* ============================================================
+   PAPER DESTRUCTION FX — drag a library paper onto the pet and
+   it zaps / eats / crumples / burns the paper chip (random).
+   ============================================================ */
+
+.drop-fx-chip {
+  animation-duration: 1.2s;
+  animation-timing-function: steps(8, end);
+  animation-fill-mode: forwards;
+}
+
+.drop-fx-zap { animation-name: drop-zap; }
+@keyframes drop-zap {
+  0% { opacity: 0; transform: scale(0.8); filter: brightness(3) contrast(2); }
+  20% { opacity: 1; transform: scale(1.05) skewX(-8deg); }
+  45% { opacity: 1; transform: scale(0.95) skewX(6deg); filter: brightness(1.6); }
+  70% { opacity: 1; transform: scale(0.7) skewX(-4deg); }
+  100% { opacity: 0; transform: scale(0.1) rotate(180deg); filter: brightness(3); }
+}
+
+.drop-fx-eat { animation-name: drop-eat; }
+@keyframes drop-eat {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  35% { transform: translateY(-8px) scale(1.15); }
+  55% { transform: translateY(2px) scale(0.9); }
+  100% { opacity: 0; transform: translateY(46px) scale(0.2); }
+}
+
+.drop-fx-crumple { animation-name: drop-crumple; }
+@keyframes drop-crumple {
+  0% { opacity: 1; transform: scale(1) rotate(0deg); }
+  30% { transform: scale(0.75, 0.55) rotate(6deg); }
+  55% { transform: scale(0.5, 0.8) rotate(-8deg); }
+  80% { transform: scale(0.35, 0.45) rotate(12deg); }
+  100% { opacity: 0; transform: scale(0.05) rotate(24deg); }
+}
+
+.drop-fx-burn { animation-name: drop-burn; }
+@keyframes drop-burn {
+  0% { opacity: 1; transform: scale(1); filter: none; }
+  30% { opacity: 1; transform: scale(1.05); filter: sepia(1) saturate(3) brightness(1.4); }
+  55% { opacity: 0.9; transform: scale(0.9); filter: sepia(1) saturate(4) brightness(0.9) hue-rotate(-20deg); }
+  75% { opacity: 0.6; transform: scale(0.7) rotate(4deg); filter: grayscale(1) brightness(0.4); }
+  100% { opacity: 0; transform: scale(0.4) rotate(8deg); filter: grayscale(1) brightness(0); }
+}
+
+/* --- periodic shine sweep (logo tile) --- */
+.animate-shine { position: relative; overflow: hidden; }
+.animate-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    rgb(255 255 255 / 0.5) 50%,
+    transparent 65%
+  );
+  transform: translateX(-130%);
+  animation: shine-sweep 3.5s steps(12) infinite;
+}
+@keyframes shine-sweep {
+  0%, 55% { transform: translateX(-130%); }
+  70%, 100% { transform: translateX(130%); }
+}
+
+/* --- hover scan sweep across surfaces (arcade radar) --- */
+.scan-sweep { position: relative; overflow: hidden; }
+.scan-sweep::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 40%,
+    rgb(var(--accent) / 0.16) 50%,
+    transparent 60%
+  );
+  transform: translateX(-130%);
+}
+.scan-sweep:hover::before { animation: scan-sweep-on 0.5s steps(10) forwards; }
+@keyframes scan-sweep-on { to { transform: translateX(130%); } }
+
+/* --- pixel explosion (marquee self-destruct) --- */
+.pixel-explode {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: rgb(var(--ink) / 1);
+  animation: retro-pixel-explode 0.85s steps(10) forwards;
+}
+@keyframes retro-pixel-explode {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx, 0), var(--dy, 0)) rotate(160deg);
+    opacity: 0;
+  }
+}
+
+/* ============================================================
+   CONNECTED PAPERS GRAPH ANIMATIONS
+   Nodes pop in one by one (rank-staggered), edges fade in,
+   the center node pulses. transform-box keeps SVG scales
+   centered on each shape.
+   ============================================================ */
+
+.graph-ring-in,
+.graph-edge-in {
+  animation: graph-fade-in 0.5s steps(5) backwards;
+}
+@keyframes graph-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.graph-node-in,
+.graph-dot-in {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: graph-node-in 0.4s steps(5) backwards;
+}
+.graph-dot-in { animation-duration: 0.32s; }
+@keyframes graph-node-in {
+  from { transform: scale(0.2); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.graph-node-in:hover {
+  transform: scale(1.18);
+}
+
+.graph-current-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: graph-pulse 2.4s steps(6) infinite;
+}
+@keyframes graph-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel-ease { transition: none !important; }
+  .animate-blink,
+  .animate-rec,
+  .retro-wiggle:hover,
+  .animate-glitch,
+  .animate-boot-flicker,
+  .animate-route-in,
+  .animate-step-in,
+  .animate-marquee,
+  .animate-shake,
+  .pet-bob,
+  .pet-hop,
+  .pet-eyes,
+  .pet-shadow,
+  .pet-bounce,
+  .animate-pop-in,
+  .animate-coin-pop,
+  .pixel-explode,
+  .graph-ring-in,
+  .graph-edge-in,
+  .graph-node-in,
+  .graph-dot-in,
+  .graph-current-pulse,
+  .animate-shine::after,
+  .scan-sweep::before,
+  .crt-overlay,
+  .crt-scan-bar {
+    animation: none !important;
+  }
 }

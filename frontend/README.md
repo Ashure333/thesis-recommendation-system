@@ -1,4 +1,4 @@
-# PaperRec — Frontend
+# Re:Search — Frontend
 
 React + TypeScript + Tailwind CSS UI for the academic paper repository
 and recommendation system (BulSU BSMCS), built with Vite. These are
@@ -34,7 +34,7 @@ the Login page; sign-in isn't wired up yet, so navigate directly to
 | `/recommendations` | `pages/Recommendations.tsx` | Results for a submitted query: pipeline selector + ranked table |
 | `/upload` | `pages/Upload.tsx` | Full-page upload form + Recommendation Signal Validation checklist |
 | `/library` | `pages/MyLibrary.tsx` | Saved papers, Find Similar / Remove |
-| `/evaluation` | `pages/Evaluation.tsx` | **Placeholder only** — design not finalized yet |
+| `/evaluation` | `pages/Evaluation.tsx` | **Arena** — runs all six pipelines on one query/seed paper: consensus ranking, pairwise agreement, independence-weighted winner, battle history |
 
 `layouts/AuthLayout.tsx` wraps Login/Register (centered, no nav).
 `layouts/AppLayout.tsx` wraps everything else (top nav bar with the
@@ -46,9 +46,10 @@ active pipeline badge). Unknown routes redirect to Login.
   page hasn't been decided yet. Repository, Recommendations, and My
   Library currently show plain text titles (not links) rather than
   guessing at this.
-- **Evaluation page** — no design provided yet, so it's a bare
-  placeholder that keeps the nav link from being dead. Replace
-  `pages/Evaluation.tsx` once that's ready.
+- **Evaluation page** — the Arena (pipeline battle) is implemented:
+  query bar, score distribution by rank, consensus podium, pairwise
+  agreement, battle grid, score bars, and win-tally / history tabs
+  backed by `GET /api/evaluation/battles`.
 - **Auth wiring** — Login/Register submit nothing yet; there's no
   redirect-if-signed-out logic on the app pages.
 

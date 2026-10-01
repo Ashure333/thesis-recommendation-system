@@ -1,5 +1,6 @@
 """
-File storage for uploaded academic paper source files (PDF or BibTeX).
+File storage for uploaded academic paper source files
+(PDF, BibTeX, or LaTeX).
 
 Physical files are stored in:
 
@@ -10,6 +11,7 @@ extension:
 
     storage/papers/3.pdf
     storage/papers/4.bib
+    storage/papers/5.tex
 
 The database stores only the relative path:
 
@@ -34,7 +36,7 @@ STORAGE_ROOT = BASE_DIR / "storage"
 # Correct papers directory
 PAPERS_DIR = STORAGE_ROOT / "papers"
 
-ALLOWED_EXTENSIONS = {".pdf", ".bib"}
+ALLOWED_EXTENSIONS = {".pdf", ".bib", ".tex"}
 
 
 def ensure_storage_ready() -> None:
@@ -46,7 +48,7 @@ def ensure_storage_ready() -> None:
 
 def save_paper_file(paper_id: int, source_path: str) -> str:
     """
-    Copy an uploaded PDF or BibTeX file into:
+    Copy an uploaded PDF, BibTeX, or LaTeX file into:
 
         project_root/storage/papers/{paper_id}{original extension}
 
@@ -71,7 +73,7 @@ def save_paper_file(paper_id: int, source_path: str) -> str:
 
     extension = source.suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
-        raise ValueError("Only PDF and BibTeX (.bib) files are allowed.")
+        raise ValueError("Only PDF, BibTeX (.bib), and LaTeX (.tex) files are allowed.")
 
     destination = PAPERS_DIR / f"{paper_id}{extension}"
 

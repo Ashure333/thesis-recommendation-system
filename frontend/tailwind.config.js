@@ -4,23 +4,77 @@ export default {
   theme: {
     extend: {
       colors: {
-        navy: "#0B0E1A",        // page background
-        panel: "#131829",       // cards / sidebar / nav
-        panelAlt: "#1A2036",    // slightly raised panel (active states)
-        line: "#242B45",        // borders
-        ink: "#E8E6E0",         // primary text (light on dark)
-        muted: "#8B93AC",       // secondary text
-        gold: "#D9A94F",        // brand accent, active states, headings
-        tfidf: "#3FA796",       // teal
-        sbert: "#D97748",       // amber/orange
-        meta: "#8B7FD1",        // purple
-        cs: "#5B8DEF",          // Computer Science tag
-        math: "#4FAF6D",        // Mathematics tag
+        // ----------------------------------------------------
+        // GITINGEST DESIGN LANGUAGE (theme-aware tokens)
+        // The FULL palette is theme-selectable — canvas, ink,
+        // hairline, field and the neutral ramp all shift per
+        // theme (see src/theme.tsx). gray-* maps to the same
+        // vars so every outline/muted/hairline usage follows
+        // the active theme automatically.
+        // ----------------------------------------------------
+        canvas: "rgb(var(--canvas) / <alpha-value>)",
+        surface: "rgb(var(--surface) / <alpha-value>)",
+        // Every literal `bg-white` / `text-white` rectangle follows
+        // the ACTIVE theme's surface tint (each theme owns a
+        // distinct near-white: ivory, apricot, ice, peach, ...).
+        white: "rgb(var(--surface) / <alpha-value>)",
+        surfaceAlt: "rgb(var(--surface-alt) / <alpha-value>)",
+        hairline: "rgb(var(--hairline) / <alpha-value>)",
+        ink: "rgb(var(--ink) / <alpha-value>)",
+        muted: "rgb(var(--muted) / <alpha-value>)",
+        field: "rgb(var(--field) / <alpha-value>)",
+        accent: "rgb(var(--accent) / <alpha-value>)",
+        accentSoft: "rgb(var(--accent-soft) / <alpha-value>)",
+        onAccent: "rgb(var(--on-accent))",
+        onInk: "rgb(var(--on-ink))",
+
+        // Auto-legibility text colors (picked per theme at runtime).
+        onAccent: "rgb(var(--on-accent) / <alpha-value>)",
+        onInk: "rgb(var(--on-ink) / <alpha-value>)",
+
+        // Theme-driven neutral ramp (defaults to the amber ramp).
+        gray: {
+          50: "rgb(var(--gray-50) / <alpha-value>)",
+          100: "rgb(var(--gray-100) / <alpha-value>)",
+          200: "rgb(var(--gray-200) / <alpha-value>)",
+          300: "rgb(var(--gray-300) / <alpha-value>)",
+          400: "rgb(var(--gray-400) / <alpha-value>)",
+          500: "rgb(var(--gray-500) / <alpha-value>)",
+          600: "rgb(var(--gray-600) / <alpha-value>)",
+          700: "rgb(var(--gray-700) / <alpha-value>)",
+          800: "rgb(var(--gray-800) / <alpha-value>)",
+          900: "rgb(var(--gray-900) / <alpha-value>)",
+          950: "rgb(var(--gray-950) / <alpha-value>)",
+        },
+
+        // ----------------------------------------------------
+        // Legacy aliases — kept so older class names still
+        // resolve to the light design instead of breaking.
+        // ----------------------------------------------------
+        navy: "rgb(var(--canvas) / <alpha-value>)",
+        panel: "rgb(var(--surface) / <alpha-value>)",
+        panelAlt: "rgb(var(--surface-alt) / <alpha-value>)",
+        line: "rgb(var(--hairline) / <alpha-value>)",
+        gold: "rgb(var(--accent) / <alpha-value>)",
+
+        // ----------------------------------------------------
+        // Data-viz / taxonomy colors. The pipeline signal colors
+        // (tfidf / sbert / meta) and the subject tag colors
+        // (cs / math) all derive from the theme accent at
+        // runtime — these tokens map to CSS variables.
+        // ----------------------------------------------------
+        tfidf: "rgb(var(--signal-tfidf) / <alpha-value>)",
+        sbert: "rgb(var(--signal-sbert) / <alpha-value>)",
+        meta: "rgb(var(--signal-meta) / <alpha-value>)",
+        cs: "rgb(var(--tag-cs) / <alpha-value>)",
+        math: "rgb(var(--tag-math) / <alpha-value>)",
       },
       fontFamily: {
         serif: ["Source Serif 4", "Georgia", "serif"],
         sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+        // Pixel/Inter combination: the retro (mono) layer renders
+        // in Pixelify Sans; Inter handles the body/UI text.
+        mono: ["Pixelify Sans", "JetBrains Mono", "ui-monospace", "monospace"],
       },
     },
   },

@@ -130,3 +130,33 @@ def score_candidates(query_vector: list[float], candidates: list[Paper]) -> dict
         candidate_vector = json.loads(paper.tfidf_vector)
         scores[paper.id] = cosine_similarity(query_vector, candidate_vector)
     return scores
+
+
+def top_query_terms(prepared_text: str, k: int = 5) -> list[list]:
+    """
+    Returns the k highest-weighted (term, weight) pairs of the query's
+    TF-IDF vector, for display in the execution trace.
+
+    Uses the same already-fitted vectorizer as vectorize_query_or_seed(),
+    so the terms shown are the ones that actually drove the cosine
+    similarity computation.
+    """
+    import numpy as np
+
+    vectorizer = _load_vectorizer()
+    vector = vectorizer.transform([prepared_text]).toarray()[0]
+
+    names = vectorizer.get_feature_names_out()
+
+    order = np.argsort(vector)[::-1]
+
+    terms = []
+    for index in order:
+        weight = float(vector[index])
+        if weight <= 0.0:
+            break
+        terms.append([str(names[index]), round(weight, 6)])
+        if len(terms) >= k:
+            break
+
+    return terms

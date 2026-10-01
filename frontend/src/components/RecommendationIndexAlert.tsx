@@ -16,7 +16,7 @@ export default function RecommendationIndexAlert({
   return (
     // Sits on the cream canvas. Whitespace separates it from the page,
     // so there is no divider rule and no tinted fill.
-    <div className="bg-[#FFFDF8] px-4 py-4 sm:px-6">
+    <div className="bg-canvas px-4 py-4 sm:px-6">
       {/* result-panel: white fill, 3px outline, 4px radius, md padding.
           No gold/red: accents are never used for state, so the alert is
           identified by role="alert" and its copy, not by colour. */}

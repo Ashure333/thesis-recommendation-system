@@ -10,3 +10,6 @@ __pycache__/
 *.bib
 *.db
 *.joblib
+
+.DS_Store
+~$*

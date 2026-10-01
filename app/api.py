@@ -11,10 +11,17 @@ import requests
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import init_db, get_session
-from app.models.models import Paper, PersonalLibrary
+from app.models.models import Paper, PersonalLibrary, BattleRun
+from app.services.catalog import (
+    DEFAULT_CATEGORIES,
+    DEFAULT_DOCUMENT_TYPES,
+    DEFAULT_SUBJECTS,
+    merge_defaults,
+)
 from app.repositories.queries import filter_papers
 
 from app.services.upload_paper import (
@@ -23,9 +30,29 @@ from app.services.upload_paper import (
 )
 from app.services.bib_extraction import extract_metadata_from_bib
 from app.services.extraction import extract_metadata_from_pdf
+from app.services.latex_extraction import extract_metadata_from_tex
 from app.services.classification import classify_paper
 from app.services.validation import validate_paper
-from app.services.duplicate_detection import DuplicatePaperError
+from app.services.duplicate_detection import (
+    DuplicatePaperError,
+    find_duplicate_paper,
+)
+from app.services.attachment_lock import attachment_lock
+from app.services.enrichment_queue import (
+    get_enrichment_status,
+    enqueue_paper_enrichment,
+)
+from app.services.identifier_resolver import (
+    resolve_identifier,
+    IdentifierLookupError,
+)
+from app.services.metadata_enrichment import generate_keywords_if_missing
+from app.services.web_search import (
+    search_web,
+    VALID_SORTS as WEB_SEARCH_SORTS,
+    WebSearchError,
+)
+from app.services.connected_graph import build_connected_graph
 from app.services.text_preparation import refresh_prepared_text
 
 from app.services.storage import (
@@ -40,6 +67,19 @@ from app.services.recommendation.search_service import (
 )
 from app.services.recommendation.pipeline_config import (
     PIPELINE_CONFIGS,
+    build_custom_weights,
+)
+
+from app.services.recommendation.trace_service import (
+    RecommendationTraceRequest,
+    RecommendationTraceResponse,
+    run_traced_search,
+)
+
+from app.services.recommendation.compare_service import (
+    CompareRequest,
+    CompareResponse,
+    compare_pipelines,
 )
 
 from app.services.pdf_finder import (
@@ -55,6 +95,8 @@ from app.schemas import (
     SearchResultOut,
     PdfCandidateOut,
     AttachPdfRequest,
+    IdentifierLookupRequest,
+    MetadataImportRequest,
 )
 
 from app.services.research_chat import (
@@ -63,7 +105,7 @@ from app.services.research_chat import (
     answer_research_question,
 )
 
-app = FastAPI(title="PaperRec API")
+app = FastAPI(title="Re:Search API")
 
 
 # ============================================================
@@ -352,7 +394,7 @@ def preview_pdf(url: str):
         response = requests.get(
             url,
             headers={
-                "User-Agent": "PaperRec/1.0 PDF Preview",
+                "User-Agent": "Re:Search/1.0 PDF Preview",
                 "Accept": "application/pdf,*/*;q=0.8",
             },
             timeout=30,
@@ -511,30 +553,50 @@ def attach_pdf(
             detail="Paper not found.",
         )
 
-    try:
-        stored_path = download_and_attach_pdf(
-            paper_id,
-            payload.url,
-            paper.title,
-            paper.doi,
-        )
+    # --------------------------------------------------------
+    # Attachment race guard
+    #
+    # The background enrichment queue may auto-attach a PDF for this
+    # paper concurrently with this request (both start right after
+    # upload). The per-paper lock serializes check + download so the
+    # two can never write {paper_id}.pdf at the same time; whoever
+    # gets there second re-reads stored_path and no-ops instead of
+    # downloading again.
+    # --------------------------------------------------------
 
-    except ValueError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=str(error),
-        )
+    with attachment_lock(paper_id):
+        db.refresh(paper)
 
-    except Exception as error:
+        if (
+            paper.stored_path
+            and paper.stored_path.lower().endswith(".pdf")
+        ):
+            return paper
 
-        print()
-        print("ATTACH PDF FAILED")
-        print(error)
+        try:
+            stored_path = download_and_attach_pdf(
+                paper_id,
+                payload.url,
+                paper.title,
+                paper.doi,
+            )
 
-        raise HTTPException(
-            status_code=502,
-            detail="Could not download the PDF from that link.",
-        )
+        except ValueError as error:
+            raise HTTPException(
+                status_code=400,
+                detail=str(error),
+            )
+
+        except Exception as error:
+
+            print()
+            print("ATTACH PDF FAILED")
+            print(error)
+
+            raise HTTPException(
+                status_code=502,
+                detail="Could not download the PDF from that link.",
+            )
 
     paper.stored_path = stored_path
 
@@ -618,6 +680,39 @@ def attach_pdf(
         )
 
     return paper
+
+
+# ============================================================
+# BACKGROUND ENRICHMENT STATUS
+# ============================================================
+
+@app.get("/api/papers/{paper_id}/enrichment-status")
+def enrichment_status(
+    paper_id: int,
+    db: Session = Depends(get_session),
+):
+    """
+    Status of the background enrichment job enqueued when this paper
+    was imported ("queued" | "running" | "done" | "failed", or "idle"
+    if nothing was ever enqueued for it). Lets the frontend refresh
+    the paper once enrichment has filled in its missing fields.
+    """
+    paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .first()
+    )
+
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        )
+
+    return {
+        "paper_id": paper_id,
+        "status": get_enrichment_status(paper_id) or "idle",
+    }
 
 
 # ============================================================
@@ -739,8 +834,92 @@ def delete_paper(
 
 
 # ============================================================
+# DELETE PDF (keep the bibliographic record)
+# ============================================================
+
+@app.delete(
+    "/api/papers/{paper_id}/pdf",
+    response_model=PaperOut,
+)
+def delete_paper_pdf(
+    paper_id: int,
+    db: Session = Depends(get_session),
+):
+    """
+    Remove only the stored PDF file (and stored_path), keeping the
+    paper's metadata intact so the record can be re-attached to a
+    different open-access copy later.
+    """
+
+    paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .first()
+    )
+
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        )
+
+    if not paper.stored_path:
+        raise HTTPException(
+            status_code=400,
+            detail="This paper has no stored file.",
+        )
+
+    try:
+        delete_paper_file(paper.stored_path)
+    except Exception as error:
+        print("Could not delete stored PDF file:")
+        print(error)
+
+    paper.stored_path = None
+    db.commit()
+    db.refresh(paper)
+
+    set_recommendation_index_stale(True)
+
+    return paper
+
+
+# ============================================================
 # PREVIEW PAPER
 # ============================================================
+
+def _paper_preview_payload(
+    paper: Paper,
+    pdf_candidates: list,
+) -> dict:
+    """
+    The shared preview response shape: what saving this paper would
+    persist, plus any discovered PDF candidates. Used by both the
+    file preview and the identifier (DOI/arXiv) preview so the two
+    flows can never drift apart.
+    """
+    return {
+        "title": paper.title,
+        "author": paper.author,
+        "abstract": paper.abstract,
+        "keywords": paper.keywords,
+        "publication_year": paper.publication_year,
+        "doi": paper.doi,
+        "subject_category": paper.subject_category,
+        "document_type": paper.document_type,
+        "citation_count": paper.citation_count,
+        "is_valid_for_recommendation": (
+            paper.is_valid_for_recommendation
+        ),
+        "missing_fields": paper.missing_fields,
+        "source_filename": paper.source_filename,
+        "extraction_method": paper.extraction_method,
+        "pdf_candidates": [
+            candidate.to_dict()
+            for candidate in pdf_candidates
+        ],
+    }
+
 
 @app.post("/api/papers/preview")
 def preview_paper(
@@ -763,10 +942,13 @@ def preview_paper(
 
     suffix = os.path.splitext(file.filename)[1].lower()
 
-    if suffix not in (".pdf", ".bib"):
+    if suffix not in (".pdf", ".bib", ".tex"):
         raise HTTPException(
             status_code=400,
-            detail="Only PDF and BibTeX (.bib) files are accepted.",
+            detail=(
+                "Only PDF, BibTeX (.bib), and "
+                "LaTeX (.tex) files are accepted."
+            ),
         )
 
     with tempfile.NamedTemporaryFile(
@@ -779,6 +961,8 @@ def preview_paper(
     try:
         if suffix == ".pdf":
             metadata = extract_metadata_from_pdf(tmp_path)
+        elif suffix == ".tex":
+            metadata = extract_metadata_from_tex(tmp_path)
         else:
             metadata = extract_metadata_from_bib(tmp_path)
 
@@ -799,9 +983,13 @@ def preview_paper(
             citation_count=metadata.get("citation_count"),
             source_filename=file.filename,
             extraction_method=(
-                "bibtex"
-                if suffix == ".bib"
-                else "pdf"
+                "latex"
+                if suffix == ".tex"
+                else (
+                    "bibtex"
+                    if suffix == ".bib"
+                    else "pdf"
+                )
             ),
         )
 
@@ -823,39 +1011,20 @@ def preview_paper(
             print("WARNING: Paper preview text preparation failed")
             print(error)
 
-        # BibTeX/BibLaTeX is citation metadata, so it has no PDF file of
-        # its own. Run the existing PDF finder immediately against this
-        # temporary Paper object. Nothing is persisted or downloaded here.
+        # BibTeX/BibLaTeX and LaTeX source are citation/source metadata,
+        # so they have no PDF file of their own. Run the existing PDF
+        # finder immediately against this temporary Paper object. Nothing
+        # is persisted or downloaded here.
         pdf_candidates = []
 
-        if suffix == ".bib" and paper.title:
+        if suffix in (".bib", ".tex") and paper.title:
             try:
                 pdf_candidates = find_pdf_candidates(paper)
             except Exception as error:
                 print("WARNING: Paper preview PDF discovery failed")
                 print(error)
 
-        return {
-            "title": paper.title,
-            "author": paper.author,
-            "abstract": paper.abstract,
-            "keywords": paper.keywords,
-            "publication_year": paper.publication_year,
-            "doi": paper.doi,
-            "subject_category": paper.subject_category,
-            "document_type": paper.document_type,
-            "citation_count": paper.citation_count,
-            "is_valid_for_recommendation": (
-                paper.is_valid_for_recommendation
-            ),
-            "missing_fields": paper.missing_fields,
-            "source_filename": paper.source_filename,
-            "extraction_method": paper.extraction_method,
-            "pdf_candidates": [
-                candidate.to_dict()
-                for candidate in pdf_candidates
-            ],
-        }
+        return _paper_preview_payload(paper, pdf_candidates)
 
     except HTTPException:
         raise
@@ -873,6 +1042,86 @@ def preview_paper(
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+# ============================================================
+# PREVIEW BY IDENTIFIER (DOI / arXiv / link)
+# ============================================================
+
+@app.post("/api/papers/preview-identifier")
+def preview_identifier(payload: IdentifierLookupRequest):
+    """
+    Resolve a pasted DOI, arXiv id, or link to either into the same
+    preview payload POST /api/papers/preview returns for an uploaded
+    file.
+
+    Nothing is persisted and no file exists yet -- the frontend shows
+    the metadata for review and only then calls POST
+    /api/papers/import-metadata. Keywords are generated locally (YAKE
+    on title+abstract) because identifier imports have no extraction
+    step and keywords are required for recommendation validity.
+    """
+    try:
+        resolved = resolve_identifier(payload.identifier)
+
+    except IdentifierLookupError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail,
+        )
+
+    if resolved is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not read that identifier. Paste a DOI "
+                "(10.xxxx/...), an arXiv id (2106.03762), or a link "
+                "to either."
+            ),
+        )
+
+    paper = Paper(
+        title=resolved.get("title"),
+        author=resolved.get("author"),
+        abstract=resolved.get("abstract"),
+        keywords=resolved.get("keywords"),
+        publication_year=resolved.get("publication_year"),
+        doi=resolved.get("doi"),
+        subject_category=resolved.get("subject_category"),
+        document_type=resolved.get("document_type"),
+        citation_count=resolved.get("citation_count"),
+        source_filename=resolved.get("source_filename"),
+        extraction_method="identifier",
+    )
+
+    try:
+        generate_keywords_if_missing(paper)
+    except Exception as error:
+        print("WARNING: Identifier preview keyword generation failed")
+        print(error)
+
+    # Classify after keyword generation (the rules read keywords) so
+    # the preview shows the subject/category the paper will be filed
+    # under, and the Upload form can reflect it in its dropdowns.
+    try:
+        classify_paper(paper)
+    except Exception as error:
+        print("WARNING: Identifier preview classification failed")
+        print(error)
+
+    try:
+        validate_paper(paper)
+    except Exception as error:
+        print("WARNING: Identifier preview validation failed")
+        print(error)
+
+    try:
+        refresh_prepared_text(paper)
+    except Exception as error:
+        print("WARNING: Identifier preview text preparation failed")
+        print(error)
+
+    return _paper_preview_payload(paper, [])
 
 
 # ============================================================
@@ -900,10 +1149,14 @@ def upload_paper(
     if suffix not in (
         ".pdf",
         ".bib",
+        ".tex",
     ):
         raise HTTPException(
             status_code=400,
-            detail="Only PDF and BibTeX (.bib) files are accepted.",
+            detail=(
+                "Only PDF, BibTeX (.bib), and "
+                "LaTeX (.tex) files are accepted."
+            ),
         )
 
     with tempfile.NamedTemporaryFile(
@@ -949,6 +1202,213 @@ def upload_paper(
     set_recommendation_index_stale(True)
 
     return paper
+
+
+# ============================================================
+# IMPORT FROM METADATA (no source file)
+# ============================================================
+
+@app.post(
+    "/api/papers/import-metadata",
+    response_model=PaperOut,
+)
+def import_from_metadata(
+    payload: MetadataImportRequest,
+    db: Session = Depends(get_session),
+):
+    """
+    Create a paper directly from reviewed metadata -- the save step
+    of the "Add by identifier" flow (DOI / arXiv / link), where there
+    is no source file to upload.
+
+    Duplicate detection runs first (the same DOI/title guard the
+    other import paths were always meant to have). A PDF, if wanted,
+    comes from pdf_url here or from the background enrichment queue
+    afterwards -- the record itself is committed either way.
+    """
+    title = (payload.title or "").strip()
+
+    if not title:
+        raise HTTPException(
+            status_code=400,
+            detail="Title is required before saving.",
+        )
+
+    duplicate = find_duplicate_paper(
+        db,
+        title=title,
+        doi=payload.doi,
+    )
+
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Looks like a duplicate of paper #{duplicate.id}: "
+                f"{duplicate.title}"
+            ),
+        )
+
+    paper = Paper(
+        title=title,
+        author=(payload.author or "").strip() or None,
+        abstract=(payload.abstract or "").strip() or None,
+        keywords=(payload.keywords or "").strip() or None,
+        publication_year=payload.publication_year,
+        doi=payload.doi,
+        subject_category=payload.subject_category,
+        document_type=payload.document_type,
+        citation_count=payload.citation_count,
+        source_filename=payload.source_filename,
+        extraction_method="metadata",
+    )
+
+    try:
+        generate_keywords_if_missing(paper)
+    except Exception as error:
+        print("WARNING: Identifier import keyword generation failed")
+        print(error)
+
+    # Fill-only: assigns only when the caller didn't supply a subject
+    # (web imports never do; the Upload form's dropdowns win when the
+    # user picked something).
+    try:
+        classify_paper(paper)
+    except Exception as error:
+        print("WARNING: Identifier import classification failed")
+        print(error)
+
+    try:
+        validate_paper(paper)
+    except Exception as error:
+        print("WARNING: Identifier import validation failed")
+        print(error)
+
+    try:
+        refresh_prepared_text(paper)
+    except Exception as error:
+        print("WARNING: Identifier import text preparation failed")
+        print(error)
+
+    try:
+        db.add(paper)
+        db.commit()
+        db.refresh(paper)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save the paper.",
+        )
+
+    # Optional explicit PDF (the user picked a candidate). Best-effort:
+    # the paper is already saved, and if this fails the background
+    # queue will still search for one.
+    if payload.pdf_url:
+        try:
+            with attachment_lock(paper.id):
+                db.refresh(paper)
+
+                if not (paper.stored_path or "").lower().endswith(".pdf"):
+                    paper.stored_path = download_and_attach_pdf(
+                        paper.id,
+                        payload.pdf_url,
+                        paper.title,
+                        paper.doi,
+                    )
+                    db.commit()
+                    db.refresh(paper)
+
+        except Exception as error:
+            db.rollback()
+            print("WARNING: Could not attach the provided PDF:")
+            print(error)
+
+    enqueue_paper_enrichment(paper.id)
+    set_recommendation_index_stale(True)
+
+    return paper
+
+
+# ============================================================
+# WEB SEARCH (OpenAlex + Crossref)
+# ============================================================
+
+@app.get("/api/search-web")
+def search_web_endpoint(
+    q: str,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    peer_reviewed: bool = True,
+    open_access: bool = False,
+    sources: str = "openalex,crossref",
+    sort: str = "relevance",
+    limit: int = 15,
+):
+    """
+    Search the open scholarly web through legitimate APIs (OpenAlex
+    and Crossref -- no Google Scholar scraping). Peer-reviewed
+    publication types only by default; retracted works and datasets/
+    patents are excluded. Results are normalized, deduplicated across
+    sources, and returned with provenance so the UI can show which
+    API answered.
+
+    The frontend imports a chosen hit via POST /api/papers/
+    import-metadata, which also runs duplicate detection.
+    """
+    query = (q or "").strip()
+
+    if not query:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a search query.",
+        )
+
+    if sort not in WEB_SEARCH_SORTS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"sort must be one of: {', '.join(WEB_SEARCH_SORTS)}."
+            ),
+        )
+
+    requested_sources = tuple(
+        source.strip()
+        for source in sources.split(",")
+        if source.strip() in ("openalex", "crossref")
+    )
+
+    try:
+        results = search_web(
+            query,
+            year_min=year_min,
+            year_max=year_max,
+            peer_reviewed=peer_reviewed,
+            open_access_only=open_access,
+            sources=requested_sources,
+            sort=sort,
+            limit=max(1, min(limit, 25)),
+        )
+
+    except WebSearchError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="The web search services could not be reached.",
+        ) from error
+
+    except Exception as error:
+        print()
+        print("WEB SEARCH FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=502,
+            detail="The web search failed unexpectedly.",
+        )
+
+    return [result.to_dict() for result in results]
 
 
 # ============================================================
@@ -1223,6 +1683,80 @@ def get_library(
 
 
 # ============================================================
+# AUTO-ASSIGN KEYWORDS FOR LIBRARY PAPERS
+# ============================================================
+
+@app.post("/api/library/assign-keywords")
+def assign_library_keywords(
+    db: Session = Depends(get_session),
+):
+    """
+    Automatic keyword assigner: generates YAKE keywords for every
+    library paper that has none, then revalidates recommendation
+    status and the prepared recommendation text.
+
+    Runs entirely locally (no network) -- the My Library page calls
+    this on load so saved papers always show keywords without the
+    user doing anything. Must stay registered BEFORE
+    /api/library/{paper_id}, or "assign-keywords" would be parsed
+    as a paper id.
+    """
+    user = get_or_create_default_user(db)
+
+    entries = (
+        db.query(PersonalLibrary)
+        .filter(PersonalLibrary.user_id == user.id)
+        .all()
+    )
+
+    paper_ids = [entry.paper_id for entry in entries]
+
+    if not paper_ids:
+        return {
+            "checked": 0,
+            "updated": 0,
+            "paper_ids": [],
+        }
+
+    papers = (
+        db.query(Paper)
+        .filter(Paper.id.in_(paper_ids))
+        .all()
+    )
+
+    updated_ids: list[int] = []
+
+    for paper in papers:
+        if paper.keywords and paper.keywords.strip():
+            continue
+
+        try:
+            if not generate_keywords_if_missing(paper):
+                continue
+
+            validate_paper(paper)
+            refresh_prepared_text(paper)
+            updated_ids.append(paper.id)
+
+        except Exception as error:
+            print(
+                "WARNING: Keyword assignment failed for paper "
+                f"id={paper.id}: {error}"
+            )
+            db.rollback()
+
+    if updated_ids:
+        db.commit()
+        set_recommendation_index_stale(True)
+
+    return {
+        "checked": len(paper_ids),
+        "updated": len(updated_ids),
+        "paper_ids": updated_ids,
+    }
+
+
+# ============================================================
 # SAVE PAPER TO LIBRARY
 # ============================================================
 
@@ -1266,6 +1800,22 @@ def save_to_library(
 
     db.add(entry)
     db.commit()
+
+    # Automatic keyword assignment: a freshly saved paper without
+    # keywords gets them right away (local YAKE, best-effort).
+    try:
+        if generate_keywords_if_missing(paper):
+            validate_paper(paper)
+            refresh_prepared_text(paper)
+            db.commit()
+            set_recommendation_index_stale(True)
+
+    except Exception as error:
+        print(
+            "WARNING: Keyword assignment on save failed for paper "
+            f"id={paper.id}: {error}"
+        )
+        db.rollback()
 
     return {
         "status": "saved"
@@ -1319,6 +1869,61 @@ IMPLEMENTED_PIPELINES = {
     "tfidf_sbert_metadata",
 }
 
+# The dial-allocated pipeline: the six presets plus "custom".
+ALL_PIPELINE_IDS = IMPLEMENTED_PIPELINES | {"custom"}
+
+
+def _resolve_custom_weights(
+    pipeline: str,
+    w_tfidf: float | None,
+    w_sbert: float | None,
+    w_metadata: float | None,
+) -> dict[str, float] | None:
+    """
+    Normalize the dial allocation for pipeline="custom"; returns None
+    for the presets. Raises 400 on misuse (missing/partial weights,
+    or weights supplied with a preset pipeline).
+    """
+    provided = (
+        w_tfidf is not None,
+        w_sbert is not None,
+        w_metadata is not None,
+    )
+
+    if pipeline == "custom":
+        if not all(provided):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "The custom pipeline requires w_tfidf, "
+                    "w_sbert and w_metadata."
+                ),
+            )
+
+        try:
+            return build_custom_weights(
+                w_tfidf,  # type: ignore[arg-type]
+                w_sbert,  # type: ignore[arg-type]
+                w_metadata,  # type: ignore[arg-type]
+            )
+
+        except ValueError as error:
+            raise HTTPException(
+                status_code=400,
+                detail=str(error),
+            )
+
+    if any(provided):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "w_tfidf/w_sbert/w_metadata may only be used "
+                "with pipeline=custom."
+            ),
+        )
+
+    return None
+
 
 @app.get(
     "/api/recommendations",
@@ -1329,21 +1934,31 @@ def get_recommendations(
     query: str | None = None,
     seed_paper_id: int | None = None,
     top_k: int = 10,
+    w_tfidf: float | None = None,
+    w_sbert: float | None = None,
+    w_metadata: float | None = None,
     db: Session = Depends(get_session),
 ):
     # --------------------------------------------------------
     # Validate pipeline
     # --------------------------------------------------------
 
-    if pipeline not in IMPLEMENTED_PIPELINES:
+    if pipeline not in ALL_PIPELINE_IDS:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Unsupported recommendation pipeline: {pipeline}. "
                 f"Supported pipelines: "
-                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}"
+                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}, custom"
             ),
         )
+
+    custom_weights = _resolve_custom_weights(
+        pipeline,
+        w_tfidf,
+        w_sbert,
+        w_metadata,
+    )
 
     # --------------------------------------------------------
     # Require either query OR seed paper
@@ -1406,6 +2021,7 @@ def get_recommendations(
             seed_paper_id=seed_paper_id,
             pipeline=pipeline,
             top_k=top_k,
+            custom_weights=custom_weights,
         )
 
     except ValueError as error:
@@ -1426,30 +2042,394 @@ def get_recommendations(
 
     return results
 
+
+# ============================================================
+# RECOMMENDATION EXECUTION TRACE
+# ============================================================
+
+@app.post(
+    "/api/recommendations/trace",
+    response_model=RecommendationTraceResponse,
+)
+def get_recommendation_trace(
+    request: RecommendationTraceRequest,
+    db: Session = Depends(get_session),
+):
+    """
+    Run the recommendation search with instrumentation attached.
+
+    Returns the same ranked results as /api/recommendations, plus an
+    ordered list of trace events showing the actual intermediate
+    values at every step of the computation (prepared query text,
+    component scores, normalization bounds, weighted combination,
+    ranking) -- for the mathematical visualization in the UI.
+    """
+
+    # --------------------------------------------------------
+    # Require either query OR seed paper
+    # --------------------------------------------------------
+
+    if (
+        not request.query
+        and request.seed_paper_id is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a query or seed_paper_id.",
+        )
+
+    # --------------------------------------------------------
+    # Do not allow both at the same time
+    # --------------------------------------------------------
+
+    if (
+        request.query
+        and request.seed_paper_id is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Provide either a query or seed_paper_id, "
+                "not both."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Validate seed paper
+    # --------------------------------------------------------
+
+    if request.seed_paper_id is not None:
+        seed_paper = (
+            db.query(Paper)
+            .filter(Paper.id == request.seed_paper_id)
+            .first()
+        )
+
+        if not seed_paper:
+            raise HTTPException(
+                status_code=404,
+                detail="Seed paper not found.",
+            )
+
+    custom_weights = _resolve_custom_weights(
+        request.pipeline,
+        request.w_tfidf,
+        request.w_sbert,
+        request.w_metadata,
+    )
+
+    # --------------------------------------------------------
+    # Run the traced search
+    # --------------------------------------------------------
+
+    try:
+        return run_traced_search(
+            db=db,
+            query=request.query,
+            seed_paper_id=request.seed_paper_id,
+            pipeline=request.pipeline,
+            top_k=request.top_k,
+            custom_weights=custom_weights,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    except Exception as error:
+        print()
+        print("RECOMMENDATION TRACE FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Recommendation trace failed.",
+        ) from error
+
+# ============================================================
+# PIPELINE COMPARISON ("PIPELINE BATTLE")
+# ============================================================
+
+@app.post(
+    "/api/recommendations/compare",
+    response_model=CompareResponse,
+)
+def compare_recommendation_pipelines(
+    request: CompareRequest,
+    db: Session = Depends(get_session),
+):
+    """
+    Run all six recommendation pipelines against the same query or
+    seed paper and return the ranked results side by side, plus
+    consensus ranking and pairwise agreement statistics -- the raw
+    material for the thesis evaluation chapter.
+    """
+
+    # --------------------------------------------------------
+    # Require either query OR seed paper
+    # --------------------------------------------------------
+
+    if (
+        not request.query
+        and request.seed_paper_id is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a query or seed_paper_id.",
+        )
+
+    if (
+        request.query
+        and request.seed_paper_id is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Provide either a query or seed_paper_id, "
+                "not both."
+            ),
+        )
+
+    if request.seed_paper_id is not None:
+        seed_paper = (
+            db.query(Paper)
+            .filter(Paper.id == request.seed_paper_id)
+            .first()
+        )
+
+        if not seed_paper:
+            raise HTTPException(
+                status_code=404,
+                detail="Seed paper not found.",
+            )
+
+    try:
+        result = compare_pipelines(
+            db=db,
+            query=request.query,
+            seed_paper_id=request.seed_paper_id,
+            top_k=request.top_k,
+        )
+
+        # Log the run to the battle history so the frontend can
+        # tally wins over time. Runs with no winner (empty
+        # repository) are not recorded.
+        if result.winner is not None:
+            db.add(
+                BattleRun(
+                    query=request.query,
+                    seed_paper_id=request.seed_paper_id,
+                    top_k=request.top_k,
+                    winner_pipeline_id=result.winner.pipeline_id,
+                    winner_metric=result.winner.metric,
+                    winner_value=result.winner.value,
+                    avg_consensus_rank=result.winner.avg_consensus_rank,
+                )
+            )
+            db.commit()
+
+        return result
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    except Exception as error:
+        print()
+        print("PIPELINE COMPARISON FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Pipeline comparison failed.",
+        ) from error
+
+
+# ============================================================
+# BATTLE HISTORY
+# ============================================================
+
+@app.get("/api/evaluation/battles")
+def get_battle_history(
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_session),
+):
+    """
+    Battle history, paginated, newest first — plus the win tally
+    across ALL recorded runs so the Arena page's champion board
+    stays correct no matter which page is displayed.
+
+    Every recorded pipeline-battle run is logged; the tally counts
+    wins per pipeline over the whole table.
+    """
+
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+
+    total = db.query(BattleRun).count()
+    pages = max(1, (total + page_size - 1) // page_size)
+
+    runs = (
+        db.query(BattleRun)
+        .order_by(
+            BattleRun.created_at.desc(),
+            BattleRun.id.desc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    tally_rows = (
+        db.query(
+            BattleRun.winner_pipeline_id,
+            func.count(BattleRun.id),
+        )
+        .group_by(BattleRun.winner_pipeline_id)
+        .all()
+    )
+
+    return {
+        "runs": [
+            {
+                "id": run.id,
+                "query": run.query,
+                "seed_paper_id": run.seed_paper_id,
+                "top_k": run.top_k,
+                "winner_pipeline_id": run.winner_pipeline_id,
+                "winner_metric": run.winner_metric,
+                "winner_value": run.winner_value,
+                "avg_consensus_rank": run.avg_consensus_rank,
+                "created_at": run.created_at.isoformat(),
+            }
+            for run in runs
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": pages,
+        "tally": [
+            {
+                "pipeline_id": pipeline_id,
+                "wins": wins,
+            }
+            for pipeline_id, wins in tally_rows
+        ],
+    }
+
+
 # ============================================================
 # SIMILAR PAPERS GRAPH
 # ============================================================
+
+@app.get("/api/catalog")
+def get_catalog(
+    db: Session = Depends(get_session),
+):
+    """
+    The repository taxonomy — subjects, categories and document
+    types — as seed defaults merged with every value actually
+    stored in the papers table. Adding a reference with a new
+    subject or category automatically extends the catalog.
+
+    `subject_categories` maps each subject to the categories that
+    actually co-occur with it in the imported references, so the
+    Upload form can auto-suggest categories matching the chosen
+    subject. Subjects with no stored rows fall back to the seed
+    category list.
+    """
+
+    rows = (
+        db.query(Paper.subject_category, Paper.document_type)
+        .all()
+    )
+
+    stored_subjects: list[str] = []
+    stored_categories: list[str] = []
+    stored_document_types: list[str] = []
+    subject_categories: dict[str, list[str]] = {}
+
+    for subject_category, document_type in rows:
+        parts = (subject_category or "").split(":", 2)
+
+        subject = parts[0].strip()
+        if subject:
+            stored_subjects.append(subject)
+
+        if len(parts) > 1:
+            category = parts[1].strip()
+            if category:
+                stored_categories.append(category)
+                # Record the subject -> category co-occurrence seen
+                # in the imported reference set.
+                subject_categories.setdefault(subject, [])
+                if category not in subject_categories[subject]:
+                    subject_categories[subject].append(category)
+
+        if document_type and document_type.strip():
+            stored_document_types.append(document_type.strip())
+
+    # Every known subject gets a suggestion list: stored
+    # co-occurrences first, seed defaults as the fallback for
+    # subjects the reference set hasn't classified yet.
+    for subject in merge_defaults(
+        DEFAULT_SUBJECTS,
+        stored_subjects,
+    ):
+        subject_categories.setdefault(subject, list(DEFAULT_CATEGORIES))
+
+    return {
+        "subjects": merge_defaults(
+            DEFAULT_SUBJECTS,
+            stored_subjects,
+        ),
+        "categories": merge_defaults(
+            DEFAULT_CATEGORIES,
+            stored_categories,
+        ),
+        "document_types": merge_defaults(
+            DEFAULT_DOCUMENT_TYPES,
+            stored_document_types,
+        ),
+        "subject_categories": subject_categories,
+    }
+
 
 @app.get("/api/papers/{paper_id}/similar-graph")
 def get_similar_papers_graph(
     paper_id: int,
     pipeline: str = "tfidf_sbert_metadata",
     top_k: int = 10,
+    w_tfidf: float | None = None,
+    w_sbert: float | None = None,
+    w_metadata: float | None = None,
     db: Session = Depends(get_session),
 ):
     # --------------------------------------------------------
     # Validate pipeline
     # --------------------------------------------------------
 
-    if pipeline not in IMPLEMENTED_PIPELINES:
+    if pipeline not in ALL_PIPELINE_IDS:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Unsupported recommendation pipeline: {pipeline}. "
                 f"Supported pipelines: "
-                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}"
+                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}, custom"
             ),
         )
+
+    custom_weights = _resolve_custom_weights(
+        pipeline,
+        w_tfidf,
+        w_sbert,
+        w_metadata,
+    )
 
     # --------------------------------------------------------
     # Validate top_k
@@ -1510,6 +2490,7 @@ def get_similar_papers_graph(
             seed_paper_id=paper_id,
             pipeline=pipeline,
             top_k=top_k,
+            custom_weights=custom_weights,
         )
 
     except ValueError as error:
@@ -1529,6 +2510,19 @@ def get_similar_papers_graph(
         ) from error
 
     # --------------------------------------------------------
+    # Build the weighted graph (connectedpapers-js model):
+    # origin star + pairwise edges, weighted shortest paths,
+    # shared author/topic groups.
+    # --------------------------------------------------------
+
+    graph = build_connected_graph(
+        seed=seed_paper,
+        papers=[seed_paper] + [result["paper"] for result in results],
+        pipeline=pipeline,
+        weights=custom_weights,
+    )
+
+    # --------------------------------------------------------
     # Center node = selected paper
     # --------------------------------------------------------
 
@@ -1542,11 +2536,14 @@ def get_similar_papers_graph(
             "doi": seed_paper.doi,
             "similarity": 1.0,
             "relationship": "current",
+            "path": [seed_paper.id],
+            "path_length": 0.0,
         }
     ]
 
     # --------------------------------------------------------
-    # Similar-paper nodes
+    # Similar-paper nodes (path = shortest weighted route back
+    # to the origin, straight from the graph builder)
     # --------------------------------------------------------
 
     for result in results:
@@ -1562,22 +2559,10 @@ def get_similar_papers_graph(
                 "doi": paper.doi,
                 "similarity": result["score"],
                 "relationship": "similar",
+                "path": graph["node_paths"].get(paper.id, []),
+                "path_length": graph["path_lengths"].get(paper.id, 0.0),
             }
         )
-
-    # --------------------------------------------------------
-    # Connect the selected paper to each similar paper
-    # --------------------------------------------------------
-
-    edges = [
-        {
-            "source": paper_id,
-            "target": node["id"],
-            "similarity": node["similarity"],
-        }
-        for node in nodes
-        if node["id"] != paper_id
-    ]
 
     # --------------------------------------------------------
     # Return graph data
@@ -1586,8 +2571,17 @@ def get_similar_papers_graph(
     return {
         "paper_id": paper_id,
         "pipeline": pipeline,
+        "start_id": graph["start_id"],
         "nodes": nodes,
-        "edges": edges,
+        "edges": graph["edges"],
+        # JSON object keys are strings -- keep the map honest instead
+        # of letting Python ints silently stringify on the wire.
+        "path_lengths": {
+            str(node_id): distance
+            for node_id, distance in graph["path_lengths"].items()
+        },
+        "common_authors": graph["common_authors"],
+        "common_topics": graph["common_topics"],
     }
 
 # ============================================================

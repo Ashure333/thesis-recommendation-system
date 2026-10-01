@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getLibrary, removeFromLibrary, LibraryEntry, Paper } from "../../api";
+import {
+  getLibrary,
+  removeFromLibrary,
+  assignLibraryKeywords,
+  LibraryEntry,
+  Paper,
+} from "../../api";
 import PaperViewerModal from "../../components/PaperViewerModal";
+import MathText from "../../components/MathText";
 import { Button, EmptyState, PageHeader, PageShell } from "../../components/ui";
+import HuntItem from "../../components/retro/HuntItem";
+import { HUNT_ITEMS } from "../../data/hunt";
 
 export default function MyLibrary() {
   const navigate = useNavigate();
@@ -14,16 +23,65 @@ export default function MyLibrary() {
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
 
-  function load() {
+  async function load() {
     setLoading(true);
     setError(null);
-    getLibrary()
-      .then(setEntries)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+
+    try {
+      let list = await getLibrary();
+
+      /*
+       * Automatic keyword assigner: any saved paper that has no
+       * keywords gets them generated (locally, YAKE) before the
+       * list is shown -- no button, no prompt.
+       */
+      const needsKeywords = list.some(
+        (entry) => !(entry.paper.keywords ?? "").trim()
+      );
+
+      if (needsKeywords) {
+        try {
+          const result = await assignLibraryKeywords();
+
+          if (result.updated > 0) {
+            // Pick up the freshly generated keywords.
+            list = await getLibrary();
+          }
+        } catch {
+          // Best-effort: show the library even if the sweep failed.
+        }
+      }
+
+      setEntries(list);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Couldn't load your library."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(load, []);
+  useEffect(() => {
+    void load();
+  }, []);
+
+  /* Keep the list in sync when the pet deletes a paper by
+     eating/zapping/burning a dropped row. */
+  useEffect(() => {
+    async function refresh() {
+      try {
+        setEntries(await getLibrary());
+      } catch {
+        // Keep the current list; the next manual visit reloads.
+      }
+    }
+
+    window.addEventListener("library-changed", refresh);
+    return () => window.removeEventListener("library-changed", refresh);
+  }, []);
 
   async function handleRemove(paperId: number) {
     try {
@@ -59,6 +117,7 @@ export default function MyLibrary() {
 
   return (
     <PageShell>
+      <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-star")!} />
       <PageHeader
         eyebrow="Saved papers"
         title="My Library"
@@ -68,14 +127,14 @@ export default function MyLibrary() {
             : `${entries.length} saved paper${entries.length === 1 ? "" : "s"}.`
         }
         action={
-          <Link to="/repository" className="text-sm text-gold hover:underline">
+          <Link to="/repository" className="text-sm font-bold text-ink underline hover:decoration-2">
             + Browse Repository
           </Link>
         }
       />
 
       {error && (
-        <div className="status-error mb-5 rounded border border-sbert/40 bg-sbert/10 px-3 py-2 text-sm text-sbert">
+        <div className="status-error mb-5">
           Couldn't load your library: {error}. Is the backend running on port 8000?
         </div>
       )}
@@ -85,13 +144,19 @@ export default function MyLibrary() {
           title="Your library is empty."
           description="Save papers from the repository or recommendation results to keep them here."
           action={
-            <Link to="/repository" className="text-sm text-gold hover:underline">
+            <Link to="/repository" className="text-sm font-bold text-ink underline hover:decoration-2">
               Browse repository
             </Link>
           }
         />
       ) : (
-        <section className="overflow-hidden rounded-lg border border-line bg-panel">
+        <>
+        <p className="mb-4 text-xs text-muted">
+          Tip: drag a saved paper onto the pixel pet — it will dispose of
+          it (zap, eat, crumple, or burn) and remove it from the library.
+        </p>
+
+        <section className="overflow-hidden rounded border-[3px] border-gray-900 bg-white" data-tips="library-shortlist">
           {entries.map(({ paper }) => {
             const subject = paper.subject_category?.split(":")[0]?.trim() ?? "";
             const isCS = subject.toLowerCase().includes("computer");
@@ -103,18 +168,41 @@ export default function MyLibrary() {
                 .filter(Boolean) ?? [];
 
             return (
-              <article key={paper.id} className="paper-row border-b border-line p-4 last:border-b-0">
+              <article
+                key={paper.id}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(
+                    "application/x-research-paper",
+                    JSON.stringify({ id: paper.id, title: paper.title }),
+                  );
+                  event.dataTransfer.effectAllowed = "move";
+                }}
+                title="Drag me onto the pet to dispose of this paper"
+                className="paper-row border-b border-gray-200 p-4 last:border-b-0"
+              >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0">
                     {/* Metadata Header with Tags */}
                     <div className="mb-2 flex items-center gap-2 text-xs">
-                      <span
-                        className={`rounded px-1.5 py-0.5 ${
-                          isCS ? "bg-cs/20 text-cs" : "bg-math/20 text-math"
-                        }`}
-                      >
-                        {isCS ? "CS" : "Math"}
-                      </span>
+                      {subject ? (
+                        <span
+                          className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-ink"
+                        >
+                          {isCS
+                            ? "CS"
+                            : subject === "Mathematics"
+                              ? "Math"
+                              : subject}
+                        </span>
+                      ) : (
+                        <span
+                          title="No subject assigned yet — the classifier couldn't place this one."
+                          className="rounded border-[2px] border-dashed border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-muted"
+                        >
+                          Unfiled
+                        </span>
+                      )}
                       <span className="text-muted">
                         {paper.publication_year ?? "—"}
                       </span>
@@ -129,9 +217,9 @@ export default function MyLibrary() {
                       type="button"
                       onClick={() => handleOpenPaper(paper)}
                       title="Open paper"
-                      className="paper-title block text-left text-sm font-medium text-ink hover:text-gold hover:underline"
+                      className="paper-title block text-left"
                     >
-                      {paper.title}
+                      <MathText text={paper.title} />
                     </button>
 
                     <p className="mt-1 text-xs text-muted">
@@ -140,7 +228,7 @@ export default function MyLibrary() {
 
                     {paper.abstract && (
                       <p className="mt-2 line-clamp-2 max-w-3xl text-xs leading-5 text-muted">
-                        {paper.abstract}
+                        <MathText text={paper.abstract} />
                       </p>
                     )}
 
@@ -149,13 +237,13 @@ export default function MyLibrary() {
                       {keywordList.slice(0, 2).map((k) => (
                         <span
                           key={k}
-                          className="rounded bg-panelAlt px-2 py-0.5 text-[11px] text-muted"
+                          className="rounded border-[2px] border-gray-900 bg-white px-2 py-0.5 text-xs font-bold text-ink"
                         >
                           {k}
                         </span>
                       ))}
                       {keywordList.length > 2 && (
-                        <span className="text-[11px] text-muted">
+                        <span className="text-xs text-muted">
                           +{keywordList.length - 2} more
                         </span>
                       )}
@@ -189,7 +277,7 @@ export default function MyLibrary() {
                     <button
                       type="button"
                       onClick={() => handleRemove(paper.id)}
-                      className="inline-flex h-9 items-center justify-center rounded-md border border-sbert/40 px-3 text-xs font-medium text-sbert hover:border-sbert transition-colors"
+                      className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-xs font-bold text-ink hover:bg-accent hover:text-onAccent transition-colors"
                     >
                       Remove
                     </button>
@@ -199,6 +287,7 @@ export default function MyLibrary() {
             );
           })}
         </section>
+        </>
       )}
 
       {/* PDF Viewer Modal */}

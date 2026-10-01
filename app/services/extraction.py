@@ -606,14 +606,54 @@ def _extract_explicit_keywords(
 # YAKE keyword extraction
 # ---------------------------------------------------------------------
 
+# Author name tokens shorter than this are too collision-prone to
+# scrub ("de", "la", "J.", ...).
+_AUTHOR_TOKEN_MIN_LENGTH = 4
+
+
+def _scrub_author_names(text: str, author: str | None) -> str:
+    """
+    Remove the author's own name tokens from keyword-source text.
+
+    Abstracts pulled from citation records routinely open with the
+    authors themselves ("Nils Reimers, Iryna Gurevych. Proceedings
+    of ..."), and YAKE would happily rank fragments like "networks
+    nils reimers" as keywords. The scrub is whole-word and
+    CASE-SENSITIVE on the capitalized form, so ordinary prose
+    ("nils" as a common noun, lowercase mid-sentence words) is
+    untouched.
+    """
+    if not author or not text:
+        return text
+
+    tokens: set[str] = set()
+
+    for piece in re.split(r"[,;/]|\band\b", author):
+        for word in piece.split():
+            word = word.strip(".")
+            if (
+                len(word) >= _AUTHOR_TOKEN_MIN_LENGTH
+                and word[:1].isupper()
+            ):
+                tokens.add(word)
+
+    for token in tokens:
+        text = re.sub(rf"\b{re.escape(token)}\b", " ", text)
+
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _build_keyword_source_text(
     title: str | None,
     abstract: str | None,
+    author: str | None = None,
 ) -> str:
     """
     Build the text used by YAKE.
 
     The title is repeated once to give it slightly more importance.
+    When an author is known, their name tokens are scrubbed first so
+    they can never surface as keywords.
     """
     parts: list[str] = []
 
@@ -624,9 +664,11 @@ def _build_keyword_source_text(
     if abstract:
         parts.append(abstract)
 
-    return " ".join(
+    source = " ".join(
         parts
     ).strip()
+
+    return _scrub_author_names(source, author)
 
 
 def _extract_yake_keywords(
@@ -698,6 +740,7 @@ def generate_keywords_from_metadata(
     title: str | None,
     abstract: str | None,
     max_keywords: int = 8,
+    author: str | None = None,
 ) -> dict[str, Any]:
     """
     Generate keywords via YAKE directly from a paper's own title and
@@ -712,6 +755,9 @@ def generate_keywords_from_metadata(
     text the paper already has, without needing pdfplumber or a file
     at all.
 
+    Pass ``author`` when it is known: their name tokens are scrubbed
+    from the source text so author names can never become keywords.
+
     Returns the same shape as extract_metadata_from_pdf()'s keyword
     fields:
         {
@@ -723,6 +769,7 @@ def generate_keywords_from_metadata(
     source_text = _build_keyword_source_text(
         title=title,
         abstract=abstract,
+        author=author,
     )
 
     keywords = _extract_yake_keywords(

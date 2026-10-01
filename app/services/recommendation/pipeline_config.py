@@ -93,3 +93,40 @@ def get_pipeline_weights(pipeline: str) -> PipelineWeights:
         raise ValueError(
             f"Unsupported recommendation pipeline: {pipeline}"
         ) from exc
+
+def build_custom_weights(
+    tfidf: float,
+    sbert: float,
+    metadata: float,
+) -> PipelineWeights:
+    """
+    Normalize a dial allocation (any non-negative scale — e.g. the
+    0..100 percentages the UI dials produce) into component weights
+    that sum to 1, matching PIPELINE_CONFIGS' shape.
+
+    Raises:
+        ValueError:
+            If any weight is negative or the total is zero.
+    """
+    values: PipelineWeights = {
+        "tfidf": float(tfidf),
+        "sbert": float(sbert),
+        "metadata": float(metadata),
+    }
+
+    if any(value < 0 for value in values.values()):
+        raise ValueError(
+            "Pipeline weights must be non-negative."
+        )
+
+    total = sum(values.values())
+
+    if total <= 0:
+        raise ValueError(
+            "At least one pipeline weight must be greater than 0."
+        )
+
+    return {
+        name: round(value / total, 6)
+        for name, value in values.items()
+    }

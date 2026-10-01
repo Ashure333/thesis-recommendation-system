@@ -153,6 +153,7 @@ def score_candidates(
     query: str | None,
     seed_paper: Paper | None,
     candidates: list[Paper],
+    trace: object | None = None,
 ) -> dict[int, float]:
     """
     Calculate the Metadata recommendation score for every candidate.
@@ -166,6 +167,10 @@ def score_candidates(
 
     Missing signals contribute 0 rather than being removed from the
     calculation.
+
+    When a trace recorder is provided, the per-signal scores for every
+    candidate are recorded so the frontend can show the four terms of
+    the formula with their real values.
 
     Returns:
 
@@ -185,6 +190,7 @@ def score_candidates(
     )
 
     scores: dict[int, float] = {}
+    signal_scores: dict[int, dict] = {}
 
     for paper in candidates:
         title_score = _text_similarity(
@@ -214,9 +220,38 @@ def score_candidates(
             + 0.25 * year_score
         )
 
-        scores[paper.id] = max(
+        metadata_score = max(
             0.0,
             min(1.0, metadata_score),
+        )
+
+        scores[paper.id] = metadata_score
+
+        signal_scores[paper.id] = {
+            "title": round(title_score, 6),
+            "abstract": round(abstract_score, 6),
+            "keywords": round(keyword_score, 6),
+            "year": round(year_score, 6),
+            "total": round(metadata_score, 6),
+        }
+
+    if trace is not None:
+        trace.record(
+            "component.metadata.signals",
+            "Metadata component: the four per-signal similarities "
+            "behind each candidate's score "
+            "(0.25 * each; missing fields contribute 0).",
+            {
+                "query_metadata": {
+                    "title": query_metadata["title"],
+                    "abstract": query_metadata["abstract"],
+                    "keywords": query_metadata["keywords"],
+                    "publication_year": (
+                        query_metadata["publication_year"]
+                    ),
+                },
+                "signals": signal_scores,
+            },
         )
 
     return scores

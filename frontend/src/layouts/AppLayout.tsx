@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Link,
   NavLink,
   Outlet,
   useLocation,
@@ -7,48 +8,84 @@ import {
 
 import {
   getRecommendationIndexStatus,
+  getLibrary,
 } from "../api";
 
 import RecommendationIndexAlert from "../components/RecommendationIndexAlert";
+import AccentPicker from "../components/AccentPicker";
+import SlimeLogo from "../components/retro/SlimeLogo";
+import MarqueeTicker from "../components/retro/MarqueeTicker";
+import FitGuard from "../components/retro/FitGuard";
+import ScrollFollowPopup from "../components/retro/ScrollFollowPopup";
+import PixelPet from "../components/retro/PixelPet";
+import { ArrowRight, BlockCursor, Dot } from "../components/retro/PixelIcons";
+import { pipelineConfigs, customPipelineConfig } from "../data/pipelineConfigs";
+import { usePipelineMode } from "../state/pipelineMode";
 
 
 // ============================================================
 // SHARED APP NAVIGATION
 // ============================================================
 
-const libraryCount = 4;
+/** Temporary walkthrough tab — flip to false to hide it. */
+const SHOW_WALKTHROUGH_TAB = true;
 
-const activePipelineLabel =
-  "TF-IDF + S-BERT + Metadata";
-
+/** Temporary engine walkthrough tab — flip to false to hide it. */
+const SHOW_ENGINE_TAB = true;
 
 const navItems = [
   {
-    to: "/search",
+    to: "/recommendations",
     label: "Search",
+    tip: "nav-search",
   },
   {
     to: "/repository",
     label: "Repository",
-  },
-  {
-    to: "/recommendations",
-    label: "Recommendations",
+    tip: "nav-repository",
   },
   {
     to: "/upload",
     label: "Upload",
+    tip: "nav-upload",
   },
   {
     to: "/library",
     label: "My Library",
-    badge: libraryCount,
+    badge: true,
+    tip: "nav-library",
   },
   {
     to: "/evaluation",
-    label: "Evaluation",
+    label: "Arena",
+    tip: "nav-evaluation",
   },
+  ...(SHOW_WALKTHROUGH_TAB
+    ? [
+        {
+          to: "/walkthrough",
+          label: "Walkthrough",
+          tip: "nav-walkthrough",
+        },
+      ]
+    : []),
+  ...(SHOW_ENGINE_TAB
+    ? [
+        {
+          to: "/walkthrough-engine",
+          label: "Engine",
+          tip: "nav-engine",
+        },
+      ]
+    : []),
 ];
+
+
+const NAV_LINK =
+  "font-pixelify flex shrink-0 items-center gap-1.5 rounded border-[3px] px-2.5 py-1.5 lg:px-3 " +
+  "text-sm font-medium text-ink pixel-ease " +
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 " +
+  "focus-visible:outline-gray-900";
 
 
 // ============================================================
@@ -58,19 +95,43 @@ const navItems = [
 export default function AppLayout() {
 
   const location = useLocation();
+  const contentRef = useRef<HTMLElement | null>(null);
 
+  const { pipelineId, customWeights } = usePipelineMode();
 
   // ----------------------------------------------------------
-  // Special full-screen UI
+  // Live library count for the nav badge
   // ----------------------------------------------------------
-  //
-  // LibraryUITest owns the entire available page area.
-  //
-  // Normal pages continue using the existing centered layout.
-  //
 
-  const isLibraryUITest =
-    location.pathname === "/library-ui-test";
+  const [libraryCount, setLibraryCount] = useState(0);
+
+  useEffect(() => {
+    getLibrary()
+      .then((entries) => setLibraryCount(entries.length))
+      .catch(() => setLibraryCount(0));
+  }, []);
+
+  // Refresh the badge whenever a paper is saved/removed.
+  useEffect(() => {
+    function handleLibraryChange() {
+      getLibrary()
+        .then((entries) => setLibraryCount(entries.length))
+        .catch(() => setLibraryCount(0));
+    }
+
+    window.addEventListener("library-changed", handleLibraryChange);
+    return () => window.removeEventListener("library-changed", handleLibraryChange);
+  }, []);
+
+  const activePipelineConfig =
+    pipelineId === "custom"
+      ? customPipelineConfig(customWeights)
+      : pipelineConfigs.find(
+          (config) => config.id === pipelineId,
+        ) ?? pipelineConfigs[pipelineConfigs.length - 1];
+
+  const activePipelineLabel =
+    activePipelineConfig.codename;
 
 
   // ----------------------------------------------------------
@@ -159,76 +220,76 @@ export default function AppLayout() {
 
   return (
 
-    <div className="flex min-h-screen w-full flex-col bg-navy">
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-canvas text-ink">
 
 
       {/* ======================================================
           TOP NAVIGATION
+          3px ink outline · cream bar · accent = active fill
           ====================================================== */}
 
-      <header className="flex shrink-0 items-center justify-between border-b border-line bg-panel px-6 py-3">
+      <header className="flex shrink-0 items-center justify-between gap-4 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5 sm:px-6">
 
         {/* ----------------------------------------------------
             LEFT SIDE
             ---------------------------------------------------- */}
 
-        <div className="flex items-center gap-8">
+        <div className="flex min-w-0 items-center gap-3 lg:gap-8">
 
 
-          {/* Logo */}
+          {/* Logo — the animated slime mark + glitching pixel title */}
 
-          <div className="flex items-center gap-2">
+          <Link to="/recommendations" className="flex shrink-0 items-center gap-2.5">
 
-            <span className="flex h-7 w-7 items-center justify-center rounded bg-gold/20 font-serif text-sm text-gold">
-              R
-            </span>
+            <SlimeLogo />
 
+            <p className="font-pixelify animate-glitch hidden text-base font-bold tracking-wide text-ink lg:block">
+              RE:SEARCH
+              <BlockCursor className="animate-blink ml-1 inline-block h-[0.9em] w-[0.55em] text-accent" />
+            </p>
 
-            <div className="leading-tight">
-
-              <p className="text-sm font-medium text-ink">
-                PaperRec
-              </p>
-
-              <p className="text-[10px] uppercase tracking-wide text-muted">
-                BulSU BSMCS
-              </p>
-
-            </div>
-
-          </div>
+          </Link>
 
 
           {/* Navigation */}
 
-          <nav className="flex gap-1">
+          <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
 
             {navItems.map((item) => (
 
               <NavLink
                 key={item.to}
                 to={item.to}
+                data-tips={item.tip}
                 className={({ isActive }) =>
                   [
-                    "flex items-center gap-1.5 rounded px-3 py-1.5 text-sm transition-colors",
+                    NAV_LINK,
                     isActive
-                      ? "bg-panelAlt text-ink"
-                      : "text-muted hover:text-ink",
+                      ? "border-gray-900 bg-accent text-onAccent"
+                      : "border-transparent hover:bg-accentSoft",
                   ].join(" ")
                 }
               >
 
-                {item.label}
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <ArrowRight className="animate-blink h-2.5 w-2.5" />
+                    )}
+
+                    {item.label}
 
 
-                {item.badge !== undefined && (
+                    {item.badge && libraryCount > 0 && (
 
-                  <span className="rounded bg-gold/20 px-1.5 text-xs text-gold">
+                      <span className="rounded border-[2px] border-gray-900 bg-white px-1.5 text-xs font-bold text-ink">
 
-                    {item.badge}
+                        {libraryCount}
 
-                  </span>
+                      </span>
 
+                    )}
+                  </>
                 )}
 
               </NavLink>
@@ -241,16 +302,36 @@ export default function AppLayout() {
 
 
         {/* ----------------------------------------------------
-            ACTIVE PIPELINE
+            RIGHT SIDE — pipeline + theme color
             ---------------------------------------------------- */}
 
-        <div className="rounded border border-gold/30 bg-gold/10 px-3 py-1 text-xs text-gold">
+        <div className="flex shrink-0 items-center gap-2.5">
 
-          Pipeline: {activePipelineLabel}
+          <div
+            title={`Pipeline: ${activePipelineConfig.label}`}
+            data-tips="pipeline-chip"
+            className="font-pixelify hidden rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 text-xs font-bold tracking-[0.15em] text-ink xl:block"
+          >
+
+            <span className="flex items-center gap-1.5">
+              <Dot className="animate-rec h-2 w-2 text-accent" />
+              MODE: {activePipelineLabel}
+            </span>
+
+          </div>
+
+          <AccentPicker />
 
         </div>
 
       </header>
+
+
+      {/* ======================================================
+          ARCADE ATTRACT TICKER
+          ====================================================== */}
+
+      <MarqueeTicker />
 
 
       {/* ======================================================
@@ -271,50 +352,20 @@ export default function AppLayout() {
           PAGE CONTENT
           ====================================================== */}
 
-      {isLibraryUITest ? (
+      <PixelPet />
 
-        /*
-         * ====================================================
-         * FULL-SCREEN PAGE
-         * ====================================================
-         *
-         * DO NOT put:
-         *
-         *   mx-auto
-         *   max-w-[1400px]
-         *   px-6
-         *   py-8
-         *
-         * here.
-         *
-         * LibraryUITest is a 3-pane application-style interface
-         * and needs to occupy the entire available viewport.
-         */
+      <main
+        ref={contentRef}
+        key={`page:${location.pathname}`}
+        className="animate-route-in mx-auto w-full max-w-[1400px] overflow-y-auto px-4 py-8 sm:px-6"
+      >
 
-        <main className="min-h-0 w-full flex-1 overflow-hidden p-0">
+        <Outlet />
 
-          <Outlet />
+      </main>
 
-        </main>
-
-      ) : (
-
-        /*
-         * ====================================================
-         * NORMAL PAGES
-         * ====================================================
-         *
-         * Keep the existing application layout for every
-         * other page.
-         */
-
-        <main className="mx-auto w-full max-w-[1400px] px-6 py-8">
-
-          <Outlet />
-
-        </main>
-
-      )}
+      <FitGuard key={`fit:${location.pathname}`} target={contentRef} />
+      <ScrollFollowPopup key={`scroll:${location.pathname}`} target={contentRef} />
 
     </div>
 

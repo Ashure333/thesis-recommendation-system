@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     UniqueConstraint,
 )
@@ -326,4 +327,53 @@ class PersonalLibrary(Base):
             f"<PersonalLibrary "
             f"user_id={self.user_id} "
             f"paper_id={self.paper_id}>"
+        )
+
+
+class BattleRun(Base):
+    """One pipeline-battle run on the Evaluation page.
+
+    Records which pipeline won the run (by independence-weighted
+    consensus) so the frontend can tally wins over time.
+    """
+
+    __tablename__ = "battle_runs"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    query = Column(Text, nullable=True)
+    seed_paper_id = Column(Integer, nullable=True)
+    top_k = Column(Integer, nullable=False)
+
+    winner_pipeline_id = Column(
+        String(50),
+        nullable=False,
+        index=True,
+    )
+
+    winner_metric = Column(
+        String(50),
+        nullable=False,
+        default="independence_weighted_consensus",
+    )
+
+    winner_value = Column(Float, nullable=True)
+    avg_consensus_rank = Column(Float, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+        index=True,
+    )
+
+    def __repr__(self):
+        return (
+            f"<BattleRun id={self.id} "
+            f"winner={self.winner_pipeline_id!r} "
+            f"created_at={self.created_at}>"
         )

@@ -239,6 +239,7 @@ def generate_keywords_if_missing(paper: Paper) -> bool:
     result = generate_keywords_from_metadata(
         title=paper.title,
         abstract=paper.abstract,
+        author=paper.author,
     )
 
     if not result["keywords"]:

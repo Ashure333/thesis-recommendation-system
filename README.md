@@ -241,7 +241,7 @@ kazuyaaaadesu-tfidf-sbert-metadata-recommendationsystem/
 │           ├── main/
 │           └── repository/
 │
-├── paperrec-scholar-extension/
+├── research-scholar-extension/
 │   ├── background.js
 │   ├── content.js
 │   └── manifest.json
@@ -631,13 +631,13 @@ The frontend communicates with the backend using the configured `VITE_API_URL`, 
 The repository also contains:
 
 ```text
-paperrec-scholar-extension/
+research-scholar-extension/
 ├── background.js
 ├── content.js
 └── manifest.json
 ```
 
-The extension is a Chrome Manifest V3 extension for sending Google Scholar BibTeX citations into the local PaperRec frontend.
+The extension is a Chrome Manifest V3 extension for sending Google Scholar BibTeX citations into the local Re:Search frontend.
 
 To load it in Chrome:
 
@@ -645,8 +645,8 @@ To load it in Chrome:
 2. Go to `chrome://extensions/`.
 3. Enable **Developer mode**.
 4. Select **Load unpacked**.
-5. Choose the project's `paperrec-scholar-extension/` folder.
-6. Keep the PaperRec frontend running at `http://localhost:5173` or `http://127.0.0.1:5173`.
+5. Choose the project's `research-scholar-extension/` folder.
+6. Keep the Re:Search frontend running at `http://localhost:5173` or `http://127.0.0.1:5173`.
 
 The extension manifest currently targets Chrome 110+.
 
@@ -664,7 +664,7 @@ Then verify the frontend by opening:
 http://localhost:5173
 ```
 
-You should be able to access the PaperRec interface.
+You should be able to access the Re:Search interface.
 
 For a backend smoke test, run:
 
@@ -711,7 +711,7 @@ Start FastAPI
       ↓
 Start Vite
       ↓
-Open PaperRec in the browser
+Open Re:Search in the browser
 ```
 
 ---
@@ -880,7 +880,7 @@ BibTeX
      ↓
 Copy citation
      ↓
-PaperRec BibTeX import
+Re:Search BibTeX import
 ```
 
 ### Google Scholar URL import
@@ -1162,7 +1162,7 @@ The selected file is downloaded, checked against the paper, and stored using the
 | `/recommendations` | Recommendations | Generate and inspect recommendations |
 | `/upload`          | Upload          | Import papers                        |
 | `/library`         | My Library      | View saved papers                    |
-| `/evaluation`      | Evaluation      | Recommendation evaluation interface  |
+| `/evaluation`      | Arena           | Comparative evaluation of the six pipelines  |
 
 The shared application navigation is defined in:
 

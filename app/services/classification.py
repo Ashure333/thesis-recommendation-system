@@ -1,5 +1,226 @@
 from app.models.models import Paper
 
+# =========================================================
+# BROAD-SUBJECT FALLBACK — the taxonomy grows.
+#
+# When the specific rules miss, the paper's broad subject is
+# detected from a domain keyword map and a NEW category is
+# synthesized from the paper's own strongest topic phrase, so
+# an upload can recommend (and the catalog can later adopt) a
+# subject/category that has never been stored before. Without
+# this, unknown papers fall back to the form's static default
+# ("Computer Science: Machine Learning") no matter what the
+# paper actually is.
+# =========================================================
+
+SUBJECT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "Education": (
+        "education",
+        "teaching",
+        "curriculum",
+        "pedagogy",
+        "classroom",
+        "school",
+        "student learning",
+        "blended learning",
+        "e-learning",
+        "learning motivation",
+        "learning environment",
+    ),
+    "Psychology": (
+        "psychology",
+        "cognitive",
+        "behavioral",
+        "perception",
+        "anxiety",
+        "depression",
+        "mental health",
+        "personality",
+    ),
+    "Biology": (
+        "biology",
+        "gene",
+        "genetic",
+        "dna",
+        "rna",
+        "protein",
+        "enzyme",
+        "cell biology",
+        "organism",
+        "molecular biology",
+        "microbiology",
+    ),
+    "Chemistry": (
+        "chemistry",
+        "chemical",
+        "molecule",
+        "polymer",
+        "compound",
+        "catalyst",
+        "reaction kinetics",
+    ),
+    "Physics": (
+        "physics",
+        "quantum",
+        "electromagnetic",
+        "particle physics",
+        "photon",
+        "relativity",
+        "thermodynamics",
+    ),
+    "Statistics": (
+        "statistics",
+        "statistical analysis",
+        "regression",
+        "hypothesis testing",
+        "confidence interval",
+        "sampling method",
+        "anova",
+    ),
+    "Economics": (
+        "economics",
+        "economic",
+        "market",
+        "inflation",
+        "supply chain",
+        "pricing",
+        "trade policy",
+    ),
+    "Business Administration": (
+        "business",
+        "business management",
+        "management practices",
+        "management strategy",
+        "organizational management",
+        "entrepreneurship",
+        "marketing",
+        "organizational",
+        "strategic management",
+    ),
+    "Information Technology": (
+        "information technology",
+        "information system",
+        "database system",
+        "software system",
+        "web application",
+        "mobile application",
+        "system implementation",
+    ),
+    "Engineering": (
+        "engineering",
+        "structural",
+        "mechanical",
+        "electrical",
+        "civil",
+        "control system",
+        "signal processing",
+        "robotics",
+    ),
+}
+
+# Words too generic to name a category ("The Effects of Blended
+# Learning" must not produce a category named "The Effects").
+_GENERIC_CATEGORY_WORDS = {
+    "the",
+    "a",
+    "an",
+    "of",
+    "for",
+    "and",
+    "on",
+    "in",
+    "to",
+    "with",
+    "using",
+    "based",
+    "towards",
+    "toward",
+    "study",
+    "analysis",
+    "effects",
+    "effect",
+    "impact",
+    "new",
+    "toward",
+}
+
+
+def _synthesize_category(paper: Paper) -> str | None:
+    """Pick the paper's strongest topic phrase as a NEW category name.
+
+    Prefers the first meaningful keyword token; falls back to the
+    title's first meaningful phrase. The phrase is returned exactly
+    as authored (no title-casing, which would mangle acronyms).
+    """
+
+    sources: list[str] = []
+
+    for field in (paper.keywords, paper.title):
+        if not field:
+            continue
+        sources.extend(
+            part.strip()
+            for part in field.replace("|", ",").replace(";", ",").split(",")
+            if part.strip()
+        )
+
+    for candidate in sources:
+        words = [
+            word
+            for word in candidate.lower().split()
+            if len(word) >= 3 and word not in _GENERIC_CATEGORY_WORDS
+        ]
+
+        if not words:
+            continue
+
+        # The candidate must carry real topical weight, not just
+        # one filler word, and must not just repeat the subject.
+        if len(words) == 1 and words[0] in {
+            "method",
+            "methods",
+            "model",
+            "models",
+            "approach",
+            "review",
+            "survey",
+        }:
+            continue
+
+        return candidate[:60]
+
+    return None
+
+
+def _classify_broad_subject(paper: Paper) -> str | None:
+    """Detect the broad subject and synthesize a new category.
+
+    Returns "Subject: New Category" or None when no subject can
+    be detected (the paper stays unclassified rather than being
+    force-fit into a wrong category).
+    """
+
+    text = (
+        f"{paper.title or ''} {paper.abstract or ''} {paper.keywords or ''}"
+    ).lower()
+
+    best: tuple[int, str] | None = None
+
+    for subject, keywords in SUBJECT_KEYWORDS.items():
+        hits = sum(1 for keyword in keywords if keyword in text)
+
+        if hits and (best is None or hits > best[0]):
+            best = (hits, subject)
+
+    if best is None:
+        return None
+
+    category = _synthesize_category(paper)
+    if not category:
+        return None
+
+    return f"{best[1]}: {category}"
+
 
 def classify_paper(paper: Paper) -> str | None:
     """
@@ -8,7 +229,24 @@ def classify_paper(paper: Paper) -> str | None:
     Returns:
         "Subject: Category"
         or None if the paper cannot be classified confidently.
+
+    Also assigns the answer to paper.subject_category when it is
+    currently empty -- every importer already calls this function
+    (file preview, upload, identifier preview, metadata import), so
+    they all become categorized without changing their code. A
+    subject a curator already set is never overwritten: same
+    fill-only rule enrich_paper_metadata() follows.
     """
+    category = _classify_paper_category(paper)
+
+    if category and not (paper.subject_category or "").strip():
+        paper.subject_category = category
+
+    return category
+
+
+def _classify_paper_category(paper: Paper) -> str | None:
+    """Keyword-rule classification core (pure -- never mutates)."""
 
     title = (paper.title or "").lower()
     abstract = (paper.abstract or "").lower()
@@ -171,7 +409,6 @@ def classify_paper(paper: Paper) -> str | None:
         keyword in text
         for keyword in [
             "variational inequality",
-            "variational inequalities",
             "bregman distance",
             "bregman nonexpansive",
             "fixed point",
@@ -211,13 +448,16 @@ def classify_paper(paper: Paper) -> str | None:
     #
     # These papers use graph theory as a foundation, but their
     # primary contribution is the mathematical/network
-    # optimization model.
+    # optimization model. The bare phrase "network model" is
+    # deliberately NOT a match: "neural network model" is a
+    # computer-science phrase, and this rule must not capture it.
     if any(
         keyword in text
         for keyword in [
             "multi-commodity flow",
             "network optimization",
-            "network model",
+            "network optimization model",
+            "network flow model",
             "healthcare logistics",
         ]
     ):
@@ -293,6 +533,7 @@ def classify_paper(paper: Paper) -> str | None:
             "lotka volterra",
             "predator prey",
             "population dynamics",
+            "population model",
             "epidemic diseases",
             "sir model",
             "chemical reaction network",
@@ -300,7 +541,8 @@ def classify_paper(paper: Paper) -> str | None:
             "traffic flow model",
             "multi-commodity flow",
             "network optimization",
-            "network model",
+            "network optimization model",
+            "network flow model",
             "healthcare logistics",
             "traffic flow models",
         ]
@@ -332,7 +574,8 @@ def classify_paper(paper: Paper) -> str | None:
             "hardy spaces",
             "banach fixed point",
             "banach's fixed point",
-            "monotonicity",
+            "monotone operator",
+            "monotone convergence",
             "variational inequality",
             "bregman",
             "bregman distance",
@@ -345,14 +588,19 @@ def classify_paper(paper: Paper) -> str | None:
         return "Mathematics: Mathematical Analysis"
 
     # Probability Theory
+    #
+    # Bare "probability", "probabilistic", and "stochastic" are too
+    # generic ("probability of success", "probabilistic methods",
+    # "stochastic optimization") and appear across many disciplines;
+    # only specific probability-theory phrasing is accepted here.
     if any(
         keyword in text
         for keyword in [
             "probability theory",
-            "probability",
-            "probabilistic",
+            "probability distribution",
             "random variable",
-            "stochastic",
+            "stochastic process",
+            "stochastic differential",
             "point process",
             "point processes",
         ]
@@ -385,6 +633,20 @@ def classify_paper(paper: Paper) -> str | None:
         ]
     ):
         return "Mathematics: Topology"
+
+    # =========================================================
+    # NEW SUBJECT/CATEGORY SYNTHESIS
+    # =========================================================
+
+    # The specific rules missed: detect the broad subject and
+    # synthesize a new category from the paper's own topic
+    # phrasing. This is how the taxonomy grows — an upload can
+    # recommend a subject/category that was never stored before,
+    # and the catalog adopts it once the paper is saved.
+
+    broad = _classify_broad_subject(paper)
+    if broad:
+        return broad
 
     # =========================================================
     # UNKNOWN
