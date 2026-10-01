@@ -6,15 +6,23 @@
 
    CHARACTER — the pet is a self-aware slime in the spirit of
    Rimuru Tempest (転生したらスライムだった件): playful and
-   gluttonous, it brings out its ultimate skills (Beelzebub,
-   Gluttony, Imaginary Space) to gobble library papers, and names
-   everything it likes. Friends (ナカマ) are its whole deal.
+   gluttonous, as a slime it brings out its ultimate skills
+   (Beelzebub, Gluttony, Imaginary Space) to gobble library
+   papers, and names everything it likes. Friends (ナカマ) are
+   its whole deal.
 
    The lines stay neutral on purpose: each of the eleven forms gets
    its own in-character signature talk (FORM_LINES), so the shared
    pools below never name a particular form's character — otherwise
    every pet would claim to be Rimuru, or talk about Veldora while
    wearing Glaucira's sprite.
+
+   DISPOSAL is per character too: when a crumpled paper is thrown
+   at the pet, only the slime forms (Original, Rimuru) actually
+   eat it. Every other form answers with a power from its role —
+   Gojo casts Cursed Techniques, Glaucira breathes Storm Breath,
+   Mashiro Rima punches it flat — with its own hover and reaction
+   lines (FORM_DROP_MODES / FORM_HUNGRY_LINES / FORM_DROP_LINES).
    ============================================================ */
 
 export interface PetLine {
@@ -152,13 +160,70 @@ const HUNGRY_LINES: PetLine[] = [
   { jp: "ナニカ タベル モノ ハ ナイ カ", en: "Anything edible around?" },
 ];
 
+/** Hover lines for the forms that do NOT want to eat the paper —
+ *  each waits for the throw with its own power. The slime forms
+ *  fall back to the shared HUNGRY_LINES above. */
+const FORM_HUNGRY_LINES: Record<string, PetLine[]> = {
+  veldora: [
+    { jp: "オレ ニ カケル ナ", en: "Come — taste my storm." },
+    { jp: "クダケナ", en: "I'll blow it away." },
+    { jp: "チョウセン ダ", en: "Challenge accepted." },
+  ],
+  benimaru: [
+    { jp: "ホノオ ガ ヒカル", en: "My flames are hungry." },
+    { jp: "キョウカ ナ", en: "Careful — fire answers." },
+    { jp: "イッテン デ ハイ", en: "One spark and it's ash." },
+  ],
+  shion: [
+    { jp: "ウゴク ナ", en: "Hold still." },
+    { jp: "イチッキリ", en: "One clean cut." },
+    { jp: "キレイ ニ クレル ヨ", en: "I'll tidy this up." },
+  ],
+  ranga: [
+    { jp: "ガルルル…", en: "*growl*…" },
+    { jp: "イナヅマ マタウ", en: "Lightning's itching." },
+    { jp: "ワン！", en: "Woof!" },
+  ],
+  shuna: [
+    { jp: "シズカ ニ ナレ", en: "Rest quietly." },
+    { jp: "オリガミ ニ ナル ヨ", en: "You'll make fine origami." },
+    { jp: "トジコメ テ アゲル", en: "I'll seal you away." },
+  ],
+  gobta: [
+    { jp: "ネムテル タビニ", en: "Toss it while I nap." },
+    { jp: "ダレ…？", en: "Huh…? Who's there?" },
+    { jp: "ヤキグチ ジャナイ…", en: "Not a snack…" },
+  ],
+  ciel: [
+    { jp: "ターゲット キロク", en: "Target locked." },
+    { jp: "ユソク カンリョウ", en: "Trajectory calculated." },
+    { jp: "イドウ ヨソク カイシ", en: "Movement predicted." },
+  ],
+  diablo: [
+    { jp: "ヤッテ ミロ", en: "Go on — throw it." },
+    { jp: "ジカン ヲ モダウ ナ", en: "Don't waste my time." },
+    { jp: "リョウイキ ノ ジュンビ オワッタ", en: "Domain's ready." },
+  ],
+  milim: [
+    { jp: "パパンチ ナ ラ", en: "Wanna see my punch?" },
+    { jp: "ミナセ ヨ", en: "I dare you." },
+    { jp: "ワンツー サン！", en: "1, 2, 3!" },
+  ],
+};
+
 let _hungryIndex = 0;
 
-export function getHungryLine(): PetLine {
-  const line = HUNGRY_LINES[_hungryIndex % HUNGRY_LINES.length];
+export function getHungryLine(variant = "rimuru"): PetLine {
+  const pool = FORM_HUNGRY_LINES[variant] ?? HUNGRY_LINES;
+  const line = pool[_hungryIndex % pool.length];
   _hungryIndex += 1;
   return line;
 }
+
+/** The four ways the pet disposes of a paper (also the body
+ *  reaction animations). Only the slime forms ever pick "eat"
+ *  when a paper is thrown at them — see FORM_DROP_MODES. */
+export type DropMode = "zap" | "eat" | "crumple" | "burn";
 
 /** The pet's line for each paper-destruction mode (rotates). */
 const DESTRUCTION_LINES: Record<string, PetLine[]> = {
@@ -191,11 +256,113 @@ const DESTRUCTION_LINES: Record<string, PetLine[]> = {
   default: [{ en: "Gone!" }],
 };
 
+/** The mode each form uses when a crumpled paper is thrown at it.
+ *  Only the slime forms (Original, Rimuru) eat — everyone else
+ *  answers with a power from their role. */
+const FORM_DROP_MODES: Record<string, DropMode[]> = {
+  original: ["eat"],
+  rimuru: ["eat"],
+  veldora: ["burn"],
+  benimaru: ["burn"],
+  shion: ["crumple"],
+  ranga: ["zap"],
+  shuna: ["crumple"],
+  gobta: ["crumple"],
+  ciel: ["zap"],
+  diablo: ["zap"],
+  milim: ["crumple"],
+};
+
+/** In-character reaction lines for the mode the form actually
+ *  uses. The slime forms fall back to the shared DESTRUCTION_LINES
+ *  eat pool (Gluttony, Beelzebub, munch munch…). */
+const FORM_DROP_LINES: Record<string, Partial<Record<DropMode, PetLine[]>>> = {
+  veldora: {
+    burn: [
+      { jp: "ストーム ブレス！", en: "Storm Breath!" },
+      { jp: "オーロラ ノ ヒカリデ サク", en: "Aurora light — incinerated." },
+      { jp: "カゼト ヒノカゲキ", en: "Wind and flame unleashed." },
+    ],
+  },
+  benimaru: {
+    burn: [
+      { jp: "クロ ホノオ！", en: "Black Flame!" },
+      { jp: "ホムラ！", en: "Homura — death flame!" },
+      { jp: "センエン ノ ヒ", en: "Crimson incineration." },
+    ],
+  },
+  shion: {
+    crumple: [
+      { jp: "アックス オフル！", en: "Axe swing!" },
+      { jp: "ツブレタ ダ", en: "Crushed in one strike." },
+      { jp: "オサメ カンリョウ", en: "Cleanup complete." },
+    ],
+  },
+  ranga: {
+    zap: [
+      { jp: "ライデン！", en: "Thunderbolt!" },
+      { jp: "ヤミカミ ノリ", en: "Dark lightning strikes!" },
+      { jp: "ワンッ！", en: "Woof — gone!" },
+    ],
+  },
+  shuna: {
+    crumple: [
+      { jp: "オリガミ ニ シテ アゲル", en: "Folded into origami." },
+      { jp: "フシグ ナヨウ ニ", en: "Folded away neatly." },
+      { jp: "イノリ デ トジコメ", en: "Sealed with a prayer." },
+    ],
+  },
+  gobta: {
+    crumple: [
+      { jp: "ネムイ ウチ ニ ナッタ", en: "Flattened in my sleep." },
+      { jp: "ダレカ ヤッタ…？", en: "Did I do that?" },
+      { jp: "イネムリ ヲ マワシタ", en: "Blame the nap." },
+    ],
+  },
+  ciel: {
+    zap: [
+      { jp: "キョウフン カンリョウ", en: "Annihilation complete." },
+      { jp: "サガテ タダシイ", en: "Verified correct." },
+      { jp: "ウリョ カンリョウ", en: "Analysis done — erased." },
+    ],
+  },
+  diablo: {
+    zap: [
+      { jp: "アオ！", en: "Cursed Technique: Blue!" },
+      { jp: "アカ！", en: "Cursed Technique: Red!" },
+      { jp: "虚式 ムラサキ", en: "Hollow Purple!" },
+      { jp: "ジュツシキ カイホウ！", en: "Cursed Techniques!" },
+    ],
+  },
+  milim: {
+    crumple: [
+      { jp: "ワン ツー パンチ！", en: "1, 2 — punch!" },
+      { jp: "コナゴナ ニ ナッタ", en: "Punched into a paper ball!" },
+      { jp: "オオキク ナ ヨウ ニ", en: "Knocked flat!" },
+    ],
+  },
+};
+
+/** The mode this form uses on a thrown crumpled paper. Unknown
+ *  forms fall back to the full random pool. */
+export function getDropMode(variant: string): DropMode {
+  const modes = FORM_DROP_MODES[variant];
+  if (!modes || modes.length === 0) {
+    const all: DropMode[] = ["zap", "eat", "crumple", "burn"];
+    return all[Math.floor(Math.random() * all.length)];
+  }
+  return modes[Math.floor(Math.random() * modes.length)];
+}
+
 let _destructionIndex = 0;
 
-/** The pet's line for each paper-destruction mode (rotates). */
-export function getDestructionLine(mode: string): PetLine {
-  const pool = DESTRUCTION_LINES[mode] ?? DESTRUCTION_LINES.default;
+/** The pet's line for a paper-destruction reaction: the form's own
+ *  power lines when it has them, the shared pool otherwise. */
+export function getDestructionLine(mode: string, variant?: string): PetLine {
+  const formPool = variant
+    ? FORM_DROP_LINES[variant]?.[mode as DropMode]
+    : undefined;
+  const pool = formPool ?? DESTRUCTION_LINES[mode] ?? DESTRUCTION_LINES.default;
   const line = pool[_destructionIndex % pool.length];
   _destructionIndex += 1;
   return line;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   getPaperPdfUrl,
   updatePaper,
@@ -213,9 +214,7 @@ export default function PaperViewerModal({
     return null;
   }
 
-  const pdfUrl = previewUrl ?? getPaperPdfUrl(currentPaper.id);
-
-  // An external preview URL always renders in the frame; otherwise
+  const pdfUrl = previewUrl ?? getPaperPdfUrl(currentPaper.id);  // An external preview URL always renders in the frame; otherwise
   // only papers with a stored .pdf do.
   const isPdf =
     previewUrl != null ||
@@ -288,20 +287,26 @@ export default function PaperViewerModal({
     }
   };
 
-  return (
+  /* Portalled to <body>: the route-in animation on <main> leaves a
+     persistent identity transform, which would trap this fixed scrim
+     inside <main> — the header stayed visible above the dialog and
+     the 92vh window was clipped at the viewport bottom. */
+  return createPortal(
     /* Scrim is the solid cream canvas rather than a translucent black:
        the spec allows no translucency, and the ink outline + slab read
        best against cream. */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-canvas p-6"
+      className="fixed inset-0 z-[9990] flex items-center justify-center bg-canvas p-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
         }
       }}
     >
-      {/* Sizing lives on the wrapper so the slab matches the dialog exactly. */}
-      <div className="relative h-[92vh] w-[95vw] max-w-[1600px]">
+      {/* Sizing lives on the wrapper so the slab matches the dialog
+          exactly. The maxes keep it inside the scrim padding at every
+          viewport (92vh/95vw alone overrun p-6 on short windows). */}
+      <div className="relative h-[92vh] w-[95vw] max-h-[calc(100dvh-3rem)] max-w-[min(1600px,calc(100vw-3rem))]">
         {/* offset-lg slab: second solid layer, 8px right / 8px down */}
         <span
           aria-hidden="true"
@@ -551,6 +556,7 @@ export default function PaperViewerModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

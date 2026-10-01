@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   comparePipelines,
   webComparePipelines,
@@ -78,6 +78,8 @@ export default function Lab() {
 
   const [battle, setBattle] = useState<CompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  // A newer simulation cancels the web fetch still in flight.
+  const battleAbortRef = useRef<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   /* Web mode: battle the pipelines over live OpenAlex/Crossref/
@@ -148,6 +150,10 @@ export default function Lab() {
 
     const startedAt = Date.now();
 
+    battleAbortRef.current?.abort();
+    const controller = new AbortController();
+    battleAbortRef.current = controller;
+
     try {
       const customWeights = {
         tfidf: normalized.tfidf,
@@ -163,6 +169,7 @@ export default function Lab() {
             sort: webSort,
             openAccess,
             customWeights,
+            signal: controller.signal,
           })
         : await comparePipelines({
             query: query.trim(),
@@ -170,6 +177,8 @@ export default function Lab() {
             customWeights,
             recordBattle: false,
           });
+
+      if (controller.signal.aborted) return;
 
       const elapsed = Date.now() - startedAt;
       if (elapsed < 2400) {
@@ -193,12 +202,14 @@ export default function Lab() {
         writeBattles(next);
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+
       setBattle(null);
       setError(
         err instanceof Error ? err.message : "Lab battle failed.",
       );
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 

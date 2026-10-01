@@ -468,8 +468,10 @@ export default function Walkthrough() {
             </p>
             <p className="text-sm leading-6 text-ink">
               The pet is a self-aware slime in the spirit of Rimuru Tempest:
-              playful and gluttonous, it answers dragged-onto papers with its
-              ultimate skills — Beelzebub, Gluttony, Imaginary Space — leans
+              playful and gluttonous, as a slime it answers dragged-onto
+              papers with its ultimate skills — Beelzebub, Gluttony,
+              Imaginary Space — while every other form disposes of them with
+              a power from its own role. It leans
               on its inner Great Sage to analyze recommendations, and names
               everything it likes. It speaks a
               second voice — Japanese lines always shown with their
@@ -525,7 +527,7 @@ export default function Walkthrough() {
                 ],
                 [
                   "Drag a paper over the pet",
-                  "A translucent, dashed ring marches around the pet — the delete boundary — and the pet opens wide. Dropping destroys the paper (zap / eat / crumple / burn, at random) and removes it from the library.",
+                  "A translucent, dashed ring marches around the pet — the delete boundary — and the pet readies its power. Dropping destroys the paper with the form's signature move: only the slime forms eat it, Gojo zaps it with Cursed Techniques, Glaucira burns it with Storm Breath, Mashiro Rima punches it flat — and the paper leaves the library.",
                 ],
                 [
                   "Menu CHAT toggle",
@@ -537,7 +539,7 @@ export default function Walkthrough() {
                 ],
               ]}
             />
-            <WikiCite ids={["drag-delete-ring", "hover-dwell", "locked-ephemeral"]} />
+            <WikiCite ids={["drag-delete-ring", "per-form-disposal", "hover-dwell", "locked-ephemeral"]} />
 
             <WikiSub id="treasures" title="The six treasures">
               <WikiTable
@@ -685,10 +687,13 @@ export default function Walkthrough() {
                 BibTeX citations straight into the Upload page.
               </li>
               <li>
-                The pet is a Rimuru-inspired slime: it gobbles
-                library papers with its ultimate skills (eat mode shouts
-                Gluttony or Beelzebub), and its Great Sage persona, Ciel, is
-                one of the forms it can shift into.
+                The pet is a Rimuru-inspired slime: in its slime forms it
+                gobbles library papers with its ultimate skills (eat mode
+                shouts Gluttony or Beelzebub), but the other nine forms
+                never eat — each disposes of a thrown paper with a power
+                from its role (Gojo's Cursed Techniques, Glaucira's Storm
+                Breath, Mashiro Rima's punch). Its Great Sage persona,
+                Ciel, is one of the forms it can shift into.
               </li>
             </ul>
           </WikiSection>

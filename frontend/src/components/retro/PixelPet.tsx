@@ -16,7 +16,9 @@ import CrumpledPaper from "./CrumpledPaper";
 import {
   getPetLines,
   getDestructionLine,
+  getDropMode,
   getHungryLine,
+  type DropMode,
 } from "../../data/petlines";
 import { removeFromLibrary } from "../../api";
 import { answerQuestion } from "../../data/help";
@@ -103,8 +105,9 @@ const BUBBLE_W = 220;
 const BUBBLE_H = 44;
 const BUBBLE_GAP = 10;
 
-/* Ways the pet can dispose of a library paper dropped on it. */
-const DESTRUCTION_MODES = ["zap", "eat", "crumple", "burn"] as const;
+/* Ways the pet can dispose of a library paper dropped on it.
+   Which one it picks is the CURRENT FORM's call — only the slime
+   forms eat (see FORM_DROP_MODES in petlines.ts). */
 const DESTRUCTION_MS = 1_600;
 
 /* Custom drag payload set by the My Library rows. */
@@ -296,25 +299,12 @@ export default function PixelPet() {
     });
   }
 
-  /* Keep the menu fully visible: after it renders, measure its real
-     (transformed) size and pull it back inside the viewport. */
-  useEffect(() => {
-    if (!menuPos) return;
-    const menu = menuRef.current;
-    if (!menu) return;
-    const rect = menu.getBoundingClientRect();
-    const clamped = {
-      x: Math.max(8, Math.min(menuPos.x, window.innerWidth - rect.width - 8)),
-      y: Math.max(8, Math.min(menuPos.y, window.innerHeight - rect.height - 8)),
-    };
-    if (clamped.x !== menuPos.x || clamped.y !== menuPos.y) {
-      setMenuPos(clamped);
-    }
-  }, [menuPos]);
-
   function closeMenu() {
     setMenuPos(null);
   }
+
+  /* Keep the menu fully visible and clear of the pet — declared
+     further down, after petSize/petPos exist (see below). */
 
   /* --------------------------------------------------------
      Single click vs double click: a single click pets the pet
@@ -369,6 +359,75 @@ export default function PixelPet() {
      the saved position has to be clamped against the real footprint. */
   const petBoxSize = petBox(petSize);
   const [petPos, setPetPos] = useState<PetPos>(() => readPetPos(petSize));
+
+  /* Keep the menu fully visible: after it renders, measure its real
+     (transformed) size and pull it back inside the viewport. Then
+     push it clear of the pet itself — the pet grows leftward/upward
+     from its right/bottom anchor, so without this the character
+     disappears behind its own menu as SIZE increases (it looked
+     like the sprite wasn't scaling at all). */
+  useEffect(() => {
+    if (!menuPos) return;
+    const menu = menuRef.current;
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+
+    let next = {
+      x: Math.max(8, Math.min(menuPos.x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(menuPos.y, window.innerHeight - rect.height - 8)),
+    };
+
+    /* Pet footprint in viewport space (right/bottom anchored). */
+    const box = petBox(petSize);
+    const petLeft = window.innerWidth - petPos.right - box;
+    const petTop = window.innerHeight - petPos.bottom - box;
+    const petRight = petLeft + box;
+    const petBottom = petTop + box;
+    const GAP = 8;
+
+    const overlaps =
+      rect.left < petRight &&
+      rect.right > petLeft &&
+      rect.top < petBottom &&
+      rect.bottom > petTop;
+
+    if (overlaps) {
+      /* Candidate escapes: slide the menu away from the pet along
+         whichever single axis needs the least movement and still
+         lands inside the viewport. */
+      const candidates = [
+        { x: next.x - (rect.right + GAP - petLeft), y: next.y },
+        { x: next.x + (petRight + GAP - rect.left), y: next.y },
+        { x: next.x, y: next.y - (rect.bottom + GAP - petTop) },
+        { x: next.x, y: next.y + (petBottom + GAP - rect.top) },
+      ].filter(
+        (c) =>
+          c.x >= 8 &&
+          c.x <= window.innerWidth - rect.width - 8 &&
+          c.y >= 8 &&
+          c.y <= window.innerHeight - rect.height - 8,
+      );
+
+      if (candidates.length > 0) {
+        candidates.sort(
+          (a, b) =>
+            Math.abs(a.x - menuPos.x) + Math.abs(a.y - menuPos.y) -
+            (Math.abs(b.x - menuPos.x) + Math.abs(b.y - menuPos.y)),
+        );
+        next = candidates[0];
+      } else {
+        /* No fully clear spot: take the smallest shift, clamped. */
+        const left = { x: Math.max(8, next.x - (rect.right + GAP - petLeft)), y: next.y };
+        const up = { x: next.x, y: Math.max(8, next.y - (rect.bottom + GAP - petTop)) };
+        next =
+          Math.abs(left.x - menuPos.x) <= Math.abs(up.y - menuPos.y) ? left : up;
+      }
+    }
+
+    if (next.x !== menuPos.x || next.y !== menuPos.y) {
+      setMenuPos(next);
+    }
+  }, [menuPos, petSize, petPos]);
 
   function handlePetSizeChange(next: number) {
     const clamped = Math.max(MIN_PET_SIZE, Math.min(MAX_PET_SIZE, next));
@@ -991,12 +1050,13 @@ export default function PixelPet() {
 
   /* --------------------------------------------------------
      Paper drops: a library paper dragged onto the pet gets
-     destroyed (zap / eat / crumple / burn, at random) and is
-     deleted from the library. Pure visual flair.
+     destroyed with the current form's signature power — the
+     slime forms eat it, the others zap / crumple / burn it —
+     and is deleted from the library. Pure visual flair.
      -------------------------------------------------------- */
 
   const [dropFx, setDropFx] = useState<{
-    mode: (typeof DESTRUCTION_MODES)[number];
+    mode: DropMode;
     title: string;
   } | null>(null);
   const [petHungry, setPetHungry] = useState(false);
@@ -1013,13 +1073,13 @@ export default function PixelPet() {
   /* The bubble speaks the hungry line while a paper hovers over
      the pet, the destruction line while one is being disposed
      of or the pet reacts to an action, and the cycling line
-     otherwise. */
+     otherwise. All three speak as the CURRENT form. */
   const activeSpeech = petHungry
-    ? getHungryLine()
+    ? getHungryLine(effectiveForm.variant)
     : dropFx
-      ? getDestructionLine(dropFx.mode)
+      ? getDestructionLine(dropFx.mode, effectiveForm.variant)
       : petAnim
-        ? getDestructionLine(petAnim)
+        ? getDestructionLine(petAnim, effectiveForm.variant)
         : speechLine;
 
   useEffect(() => {
@@ -1058,11 +1118,23 @@ export default function PixelPet() {
     }
     if (!paper || typeof paper.id !== "number") return;
 
-    const mode =
-      DESTRUCTION_MODES[Math.floor(Math.random() * DESTRUCTION_MODES.length)];
+    /* The current form picks how to dispose of the paper: only
+       the slime forms eat it; every other character answers
+       with its signature power (Gojo zaps, Glaucira burns…). */
+    const mode = getDropMode(effectiveForm.variant);
 
     setDropFx({ mode, title: paper.title ?? `Paper #${paper.id}` });
     celebrate();
+
+    /* The body plays the power too, so the character visibly
+       casts rather than only the paper chip reacting. */
+    if (petAnimTimerRef.current !== null) {
+      window.clearTimeout(petAnimTimerRef.current);
+    }
+    setPetAnim(mode);
+    petAnimTimerRef.current = window.setTimeout(() => {
+      setPetAnim(null);
+    }, 1_000);
 
     /* Eating a paper makes the pet shapeshift through the forms,
        then return to the selected form (Rimuru-style transformation). */
@@ -1421,8 +1493,9 @@ export default function PixelPet() {
             }}
           />
 
-          {/* body — hungry (paper dragged over) opens wide; event
-              animations (zap/eat/crumple/burn) play on the body */}
+          {/* body — hungry (paper dragged over) opens wide; the
+              power animations (zap/eat/crumple/burn) play on the
+              body for thrown papers and app events alike */}
           <div
             className={`pet-bob relative z-10 ${hop ? "pet-hop" : ""}`}
           >

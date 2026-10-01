@@ -335,7 +335,8 @@ h1, h2, h3 {
 
 /* ============================================================
    PAPER DESTRUCTION FX — drag a library paper onto the pet and
-   it zaps / eats / crumples / burns the paper chip (random).
+   the current form disposes of it with its signature power
+   (the slime forms eat; everyone else zaps / crumples / burns).
    ============================================================ */
 
 .drop-fx-chip {

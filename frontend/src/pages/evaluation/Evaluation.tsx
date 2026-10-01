@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { History, Trophy } from "lucide-react";
 
@@ -96,6 +96,8 @@ export default function Evaluation() {
   const [topK, setTopK] = useState(10);
   const [battle, setBattle] = useState<CompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  // A newer battle cancels the web fetch still in flight.
+  const battleAbortRef = useRef<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<BattleRun[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -168,6 +170,10 @@ export default function Evaluation() {
     // state open long enough for the six battle rounds to play.
     const startedAt = Date.now();
 
+    battleAbortRef.current?.abort();
+    const controller = new AbortController();
+    battleAbortRef.current = controller;
+
     try {
       const data = webMode
         ? await webComparePipelines({
@@ -176,11 +182,14 @@ export default function Evaluation() {
             sources: webSources || "openalex,crossref,arxiv",
             sort: webSort,
             openAccess,
+            signal: controller.signal,
           })
         : await comparePipelines({
             query: queryText.trim(),
             topK,
           });
+
+      if (controller.signal.aborted) return;
 
       const elapsed = Date.now() - startedAt;
       if (elapsed < MIN_BATTLE_MS) {
@@ -195,6 +204,8 @@ export default function Evaluation() {
         void loadHistory();
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+
       setBattle(null);
       setError(
         err instanceof Error
@@ -202,7 +213,7 @@ export default function Evaluation() {
           : "Pipeline comparison failed."
       );
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 

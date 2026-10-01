@@ -278,6 +278,8 @@ export interface WebSearchParams {
   sources?: string;
   sort?: "relevance" | "citations" | "year";
   limit?: number;
+  /** Aborts the request when a newer search supersedes this one. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -297,9 +299,9 @@ export function searchWeb(
   query.set("sort", params.sort ?? "relevance");
   if (params.limit) query.set("limit", String(params.limit));
 
-  return fetch(`${API_URL}/api/search-web?${query.toString()}`).then(
-    handle<WebSearchResult[]>
-  );
+  return fetch(`${API_URL}/api/search-web?${query.toString()}`, {
+    signal: params.signal,
+  }).then(handle<WebSearchResult[]>);
 }
 
 export async function importBibtex(
@@ -564,9 +566,11 @@ export function webComparePipelines(params: {
   peerReviewed?: boolean;
   openAccess?: boolean;
   customWeights?: { tfidf: number; sbert: number; metadata: number };
+  signal?: AbortSignal;
 }): Promise<CompareResponse> {
   return fetch(`${API_URL}/api/recommendations/web-compare`, {
     method: "POST",
+    signal: params.signal,
     headers: {
       "Content-Type": "application/json",
     },
