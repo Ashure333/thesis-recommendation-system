@@ -75,6 +75,11 @@ export const TIPS: Tip[] = [
     title: "Engine",
     body: "The mathematics and computer science behind Re:Search: the vector space model, S-BERT embeddings, metadata fusion, the similar-papers graph, and the Arena's voting system, with a worked example.",
   },
+  {
+    id: "nav-changelog",
+    title: "Changelog",
+    body: "The recent changes to Re:Search, newest first — new features, fixes, and polish. Swap between the timeline and card layouts to read them.",
+  },
 
   /* ---------- Header utilities ---------- */
 

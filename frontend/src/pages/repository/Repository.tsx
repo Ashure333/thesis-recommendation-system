@@ -235,7 +235,7 @@ export default function Repository() {
   const [webSearched, setWebSearched] = useState(false);
   const [peerReviewed, setPeerReviewed] = useState(true);
   const [openAccessOnly, setOpenAccessOnly] = useState(false);
-  const [webSources, setWebSources] = useState("openalex,crossref");
+  const [webSources, setWebSources] = useState("openalex,crossref,arxiv");
   const [webSort, setWebSort] = useState<"relevance" | "citations" | "year">(
     "relevance",
   );
@@ -353,8 +353,9 @@ export default function Repository() {
   }, [searchMode, search, subject, category, documentType, minYear, maxYear, sortBy]);
 
   /* ------------------------------------------------------------
-     Web search uses legitimate APIs only (OpenAlex + Crossref),
-     peer-reviewed types by default, server-side filtering.
+     Web search uses legitimate APIs only (OpenAlex, Crossref,
+     arXiv), peer-reviewed types by default, server-side
+     filtering.
      ------------------------------------------------------------ */
 
   async function runWebSearch() {
@@ -605,7 +606,7 @@ export default function Repository() {
           loading
             ? "Loading papers…"
             : searchMode === "web"
-              ? `Web search · legitimate sources (OpenAlex + Crossref) · ${
+              ? `Web search · legitimate sources (OpenAlex, Crossref, arXiv) · ${
                   webSearched
                     ? `${webResults.length} result${webResults.length === 1 ? "" : "s"}`
                     : "peer-reviewed by default"

@@ -6,10 +6,15 @@
 
    CHARACTER — the pet is a self-aware slime in the spirit of
    Rimuru Tempest (転生したらスライムだった件): playful and
-   gluttonous, it "predates" on library papers, leans on its
-   inner Great Sage to analyze recommendations, and names
-   everything it likes. Friends (ナカマ) are its whole deal —
-   including the storm dragon chattering from inside it.
+   gluttonous, it brings out its ultimate skills (Beelzebub,
+   Gluttony, Imaginary Space) to gobble library papers, and names
+   everything it likes. Friends (ナカマ) are its whole deal.
+
+   The lines stay neutral on purpose: each of the eleven forms gets
+   its own in-character signature talk (FORM_LINES), so the shared
+   pools below never name a particular form's character — otherwise
+   every pet would claim to be Rimuru, or talk about Veldora while
+   wearing Glaucira's sprite.
    ============================================================ */
 
 export interface PetLine {
@@ -23,20 +28,15 @@ const IDLE_LINES: PetLine[] = [
   { jp: "コンニチハ！", en: "Hello!" },
   { en: "Hover me for tips." },
   { jp: "ココ ダヨ", en: "I'm right here." },
-  { en: "6 modes enter. 1 leaves." },
   { jp: "タノシイネ", en: "This is fun." },
   { en: "Click me to chat." },
   { jp: "ガンバレ！", en: "You got this!" },
-  { jp: "オレ ハ スライム ダ", en: "I am a slime." },
-  { jp: "テンセイ シタ ラ スライム ダッタ", en: "Reincarnated… as a slime." },
-  { jp: "ダイケンジャ ガ ブンセキチュウ", en: "Great Sage is analyzing…" },
   { jp: "ナカマ ダ ヨ", en: "We're friends." },
   { jp: "ナマエ オ ツケテ アゲル", en: "Let me name you." },
-  { jp: "ベンドラ ガ ヨロコンデル", en: "Veldora is pleased." },
   { jp: "イツカ オオキク ナル ゾ", en: "Someday I'll be great." },
   { en: "Searching the archive is my job." },
   { jp: "ナニ オ サガス？", en: "What shall we find?" },
-  { en: "Great Sage says: pick a pipeline." },
+  { en: "Pick a pipeline and I'll read it." },
   { jp: "キミ ノ バン ダ", en: "Your move." },
 ];
 
@@ -56,10 +56,11 @@ const COMPLETE_LINES: PetLine[] = [
   { jp: "キイテ ミテ！", en: "Ask me anything!" },
   { en: "Your move, partner." },
   { jp: "ゼンブ ナカマ ダ", en: "Everyone's a friend now." },
-  { jp: "ココ ガ テンペスト ダ", en: "This is Tempest now." },
+  { en: "Every form unlocked. Take your pick." },
 ];
 
-/** Signature idle talk per pet form — each pet speaks in character. */
+/** Signature idle talk per pet form — each pet speaks in character, and
+ *  matches the form's actual name/identity in petForms.ts. */
 const FORM_LINES: Record<string, PetLine[]> = {
   original: [
     { jp: "スライム ダ ヨ", en: "I'm a slime." },
@@ -68,13 +69,14 @@ const FORM_LINES: Record<string, PetLine[]> = {
   ],
   rimuru: [
     { jp: "オレ ハ スライム ダ", en: "I am a slime." },
-    { jp: "ホショク！", en: "Predator!" },
+    { jp: "ベルゼブブ！", en: "Beelzebub!" },
+    { jp: "クウソウ クウカン！", en: "Imaginary Space!" },
     { jp: "ナカマ ダ ヨ", en: "We're friends." },
   ],
   veldora: [
     { jp: "ドラゴン ノ イブキ ダ", en: "A dragon's breath." },
     { jp: "ソラ オ トブ ゾ", en: "I'll take to the sky." },
-    { jp: "アラシヲ ヨベル", en: "I can summon storms." },
+    { jp: "オーロラ ノ ヒカル", en: "Aurora light." },
   ],
   benimaru: [
     { jp: "ハナ ノ ヨウ ニ サク", en: "Bloom like a flower." },
@@ -85,8 +87,8 @@ const FORM_LINES: Record<string, PetLine[]> = {
     { jp: "ムーンライト ノ シタ デ", en: "Under the moonlight." },
   ],
   ranga: [
-    { jp: "ゴロゴロ…", en: "Purr…" },
-    { jp: "ネコ モ ナカマ ダ", en: "Cats are friends too." },
+    { jp: "ニョウ ニャ", en: "Meow." },
+    { jp: "ネコ ダ ケド ナカマ ダ", en: "A cat, but still a friend." },
     { jp: "フワフワ ダ", en: "So fluffy." },
   ],
   shuna: [
@@ -143,7 +145,7 @@ export function getPetLines(
 const HUNGRY_LINES: PetLine[] = [
   { jp: "クレ クレ！", en: "Gimme!" },
   { jp: "ハラペコ ダ", en: "I'm starving." },
-  { jp: "ホショク タイ", en: "Predator!" },
+  { jp: "タベタイ！", en: "Feed me!" },
   { jp: "オレ オ ナメルナヨ", en: "Don't underestimate me." },
   { jp: "ウマイ ウマイ", en: "Yummy, yummy." },
   { jp: "コウシ デ オシエロ", en: "Feed me, I'll teach you." },
@@ -167,7 +169,8 @@ const DESTRUCTION_LINES: Record<string, PetLine[]> = {
     { jp: "テンカイ！", en: "Domain Expansion!" },
   ],
   eat: [
-    { jp: "ホショク！", en: "Predator!" },
+    { jp: "ボウショク！", en: "Gluttony!" },
+    { jp: "ベルゼブブ！", en: "Beelzebub!" },
     { jp: "モグモグ…", en: "*munch munch*… gone!" },
     { jp: "オイシイ ダ", en: "Delicious." },
     { jp: "マルノミ ダ", en: "Swallowed whole." },

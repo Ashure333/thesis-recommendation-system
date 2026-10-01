@@ -42,7 +42,7 @@ export const PET_FORMS: PetForm[] = [
     name: "Rimuru",
     variant: "rimuru",
     blurb: "Blue-haired sword-bearing slime hero.",
-    lore: "Rimuru Tempest — TenSura (That Time I Got Reincarnated as a Slime). A salaryman reborn as a slime who devoured his way to demon-lordhood: Predator, Great Sage, and the founding of the nation of Tempest.",
+    lore: "Rimuru Tempest — TenSura (That Time I Got Reincarnated as a Slime). A salaryman reborn as a slime who devoured his way to demon-lordhood: the ultimate skills Beelzebub, Gluttony and Imaginary Space, plus Great Sage and the founding of the nation of Tempest.",
   },
   {
     id: "veldora",

@@ -1,11 +1,51 @@
 import { Link } from "react-router-dom";
 import { BlockCursor, ArrowRight } from "../../components/retro/PixelIcons";
+import { CHANGELOG, type ChangeTag } from "../../data/changelog";
 
 /* ============================================================
    WIKI LAYOUT PRIMITIVES — shared by the walkthrough pages.
    Bulbapedia-style: sticky contents rail, infobox, sectioned
    content, detailed tables, category chips.
    ============================================================ */
+
+const CITE_TAG_STYLE: Record<ChangeTag, string> = {
+  NEW: "bg-accent text-onAccent",
+  FIXED: "bg-gray-900 text-onInk",
+  ENHANCED: "bg-white text-ink border-2 border-gray-900",
+};
+
+export function WikiCite({ ids }: { ids: readonly string[] }) {
+  const entries = ids
+    .map((id) => CHANGELOG.find((entry) => entry.id === id))
+    .filter((entry) => entry !== undefined);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded border-l-[6px] border-accent bg-surface px-3 py-2 font-mono text-xs">
+      <span className="font-bold tracking-[0.15em] text-muted">
+        CITED · CHANGELOG
+      </span>
+
+      {entries.map((entry) => (
+        <Link
+          key={entry.id}
+          to="/changelog"
+          className="flex items-center gap-1.5 rounded border-2 border-gray-900 bg-white px-1.5 py-0.5 font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+          title={entry.body}
+        >
+          <span className="text-muted">{entry.date}</span>
+          <span>{entry.title}</span>
+          <span
+            className={`rounded px-1 text-[10px] font-bold tracking-[0.15em] ${CITE_TAG_STYLE[entry.tag]}`}
+          >
+            {entry.tag}
+          </span>
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 export function Chip({ children }: { children: React.ReactNode }) {
   return (
@@ -201,13 +241,25 @@ export function WikiFooter({ ctaTo, ctaLabel }: { ctaTo: string; ctaLabel: strin
       <p className="font-mono text-xs font-bold tracking-[0.2em] text-muted">
         END OF WALKTHROUGH
       </p>
-      <Link
-        to={ctaTo}
-        className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accent px-3 py-1.5 font-mono text-xs font-bold tracking-[0.15em] text-onAccent transition-transform duration-100 pixel-ease hover:translate-x-0.5 hover:translate-y-0.5"
-      >
-        {ctaLabel}
-        <ArrowRight className="h-3 w-3" />
-      </Link>
+
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Every wiki cites the changelog so readers can trace the
+            section back to the change that shaped it. */}
+        <Link
+          to="/changelog"
+          className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-surface px-3 py-1.5 font-mono text-xs font-bold tracking-[0.15em] text-ink transition-transform duration-100 pixel-ease hover:translate-x-0.5 hover:translate-y-0.5 hover:bg-accentSoft"
+        >
+          SEE THE CHANGELOG
+        </Link>
+
+        <Link
+          to={ctaTo}
+          className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accent px-3 py-1.5 font-mono text-xs font-bold tracking-[0.15em] text-onAccent transition-transform duration-100 pixel-ease hover:translate-x-0.5 hover:translate-y-0.5"
+        >
+          {ctaLabel}
+          <ArrowRight className="h-3 w-3" />
+        </Link>
+      </div>
     </footer>
   );
 }

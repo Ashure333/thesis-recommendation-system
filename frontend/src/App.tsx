@@ -18,6 +18,7 @@ import Evaluation from "./pages/evaluation/Evaluation";
 import Lab from "./pages/lab/Lab";
 import Walkthrough from "./pages/walkthrough/Walkthrough";
 import MathWalkthrough from "./pages/walkthrough/MathWalkthrough";
+import Changelog from "./pages/Changelog";
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/walkthrough" element={<Walkthrough />} />
           <Route path="/walkthrough-engine" element={<MathWalkthrough />} />
           <Route path="/faq" element={<FAQ />} />
+          <Route path="/changelog" element={<Changelog />} />
         </Route>
 
         {/* Unknown paths fall back to sign-in */}

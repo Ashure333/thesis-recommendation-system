@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CloseX } from "../../components/retro/PixelIcons";
 import {
   Chip,
+  WikiCite,
   WikiFooter,
   WikiHeader,
   WikiInfobox,
@@ -41,7 +42,7 @@ const TREASURES = [
 const ACHIEVEMENTS = [
   ["first-tip", "First Contact", "Discover your first tip"],
   ["tip-collector", "Tip Collector", "Discover 5 tips"],
-  ["tip-master", "Tip Master", "Discover every tip (23/23)"],
+  ["tip-master", "Tip Master", "Discover every tip (26/26)"],
   ["first-treasure", "Treasure Hunter", "Collect your first treasure"],
   ["treasure-hunter", "Treasure Hoarder", "Collect 3 treasures"],
   ["hunt-complete", "Hunt Complete", "Collect all 6 treasures"],
@@ -65,8 +66,10 @@ const ENDPOINTS = [
   ["GET", "/api/recommendations", "Get ranked recommendations"],
   ["GET", "/api/recommendations/trace", "Real-time math trace of one search"],
   ["POST", "/api/recommendations/compare", "Arena battle: all six pipelines at once"],
+  ["POST", "/api/recommendations/web-compare", "Web battle: all six pipelines over live web hits"],
   ["GET", "/api/recommendations/status", "Check if the index is stale"],
   ["POST", "/api/recommendations/rebuild", "Rebuild vectors and embeddings"],
+  ["GET", "/api/search-web", "Search OpenAlex, Crossref, and arXiv"],
   ["GET", "/api/evaluation/battles", "Battle history for the Arena tally"],
   ["GET", "/api/library", "The personal library"],
   ["POST", "/api/library/{id}", "Save a paper"],
@@ -92,7 +95,7 @@ const INFOBOX_ROWS: [string, string][] = [
   ["Tech", "FastAPI · SQLAlchemy · SQLite · scikit-learn · sentence-transformers · React · TypeScript · Vite · Tailwind"],
   ["Models", "TF-IDF (scikit-learn) · S-BERT (all-MiniLM-L6-v2)"],
   ["Pipelines", "6 fixed configurations + 1 custom dial"],
-  ["Pages", "Recommendations · Repository · Upload · My Library · Arena · FAQ"],
+  ["Pages", "Recommendations · Repository · Upload · My Library · Arena · Lab · Walkthrough · Engine · FAQ · Changelog"],
   ["Extra", "Pixel pet · scavenger hunt · achievements · research assistant"],
   ["Status", "Local research prototype"],
 ];
@@ -120,6 +123,7 @@ const OTHER_PAGES = [
   ["/evaluation", "Arena"],
   ["/walkthrough-engine", "Engine"],
   ["/faq", "FAQ"],
+  ["/changelog", "Changelog"],
 ] as const;
 
 const FORMS = [
@@ -334,6 +338,10 @@ export default function Walkthrough() {
                   "A stats panel summarizes the stored corpus.",
                 ],
                 [
+                  "Web mode",
+                  "Toggle from stored papers to live search: OpenAlex, Crossref, and arXiv with a source selector, peer-reviewed and open-access filters, and relevance/citations/year sorting. Hits can be inspected in the same details pane and imported into the repository.",
+                ],
+                [
                   "Paper actions",
                   "View the attached PDF in a modal, edit metadata, search for an open-access PDF online, or delete the record.",
                 ],
@@ -343,6 +351,7 @@ export default function Walkthrough() {
                 ],
               ]}
             />
+            <WikiCite ids={["arxiv-source"]} />
           </WikiSection>
 
           <WikiSection id="upload" title="Walkthrough: Upload">
@@ -441,8 +450,13 @@ export default function Walkthrough() {
                   "Battle records",
                   "A win tally over time, the current champion, and streaks; every run is logged to the battle history.",
                 ],
+                [
+                  "Repository / Web scope",
+                  "Switches the candidate pool between the repository and live web hits (OpenAlex, Crossref, arXiv — with per-source and open-access toggles). Web battles vectorize every hit on the fly with the stored TF-IDF vectorizer and S-BERT model; they are exploratory and never recorded to the tally.",
+                ],
               ]}
             />
+            <WikiCite ids={["web-battles", "battle-records"]} />
           </WikiSection>
 
           <WikiSection id="pet" title="The pixel pet & scavenger hunt">
@@ -454,9 +468,10 @@ export default function Walkthrough() {
             </p>
             <p className="text-sm leading-6 text-ink">
               The pet is a self-aware slime in the spirit of Rimuru Tempest:
-              playful and gluttonous, it "predates" on library papers
-              dragged onto it, leans on its inner Great Sage to analyze
-              recommendations, and names everything it likes. It speaks a
+              playful and gluttonous, it answers dragged-onto papers with its
+              ultimate skills — Beelzebub, Gluttony, Imaginary Space — leans
+              on its inner Great Sage to analyze recommendations, and names
+              everything it likes. It speaks a
               second voice — Japanese lines always shown with their
               translation — and each form talks in character: Gojo casts
               Ryoiki Tenkai, Kabi asks for apples, Ciel reports
@@ -464,7 +479,7 @@ export default function Walkthrough() {
               signature lines.
             </p>
 
-            <WikiSub id="forms" title="The ten forms">
+            <WikiSub id="forms" title="The eleven forms">
               <WikiTable
                 headers={["Form", "Lore", "Source"]}
                 rows={FORMS.map(([id, name, lore, source]) => [
@@ -485,7 +500,10 @@ export default function Walkthrough() {
               pixels. All forms still follow the theme and animate with the
               same bob, bounce, and reaction keyframes. The chosen form is
               remembered per browser; old selections fall back to Rimuru.
+              While the CHAT toggle is locked, the pet and logo revert to
+              the Original form automatically.
             </p>
+            <WikiCite ids={["petdex-sprites", "locked-ephemeral"]} />
             <WikiTable
               headers={["Interaction", "What happens"]}
               rows={[
@@ -506,11 +524,20 @@ export default function Walkthrough() {
                   "Moves the pet anywhere in the viewport; the tooltip flips sides to stay on screen.",
                 ],
                 [
+                  "Drag a paper over the pet",
+                  "A translucent, dashed ring marches around the pet — the delete boundary — and the pet opens wide. Dropping destroys the paper (zap / eat / crumple / burn, at random) and removes it from the library.",
+                ],
+                [
+                  "Menu CHAT toggle",
+                  "UNLOCKED opens the help library early with everything maxed — but the session is ephemeral: tips, clicks, asks, and treasures collected during free access never write real progress, and locking again restores the exact pre-unlock state.",
+                ],
+                [
                   "Chat (after the hunt)",
                   "The pet becomes a help library: quick questions and a free-text ask field answered from the tip catalogue.",
                 ],
               ]}
             />
+            <WikiCite ids={["drag-delete-ring", "hover-dwell", "locked-ephemeral"]} />
 
             <WikiSub id="treasures" title="The six treasures">
               <WikiTable
@@ -524,7 +551,7 @@ export default function Walkthrough() {
             </WikiSub>
             <p className="text-sm leading-6 text-ink">
               Finding all six unlocks the pet's full capabilities: every
-              tip becomes discovered (the counter reads 23/23), the deep
+              tip becomes discovered (the counter reads 26/26), the deep
               tips join the click cycle, and the chat library opens.
             </p>
 
@@ -658,10 +685,10 @@ export default function Walkthrough() {
                 BibTeX citations straight into the Upload page.
               </li>
               <li>
-                The pet is a Rimuru-inspired slime: it "predates" on
-                library papers (eat mode is Predator, zap mode is Black
-                Flame), and its Great Sage persona, Ciel, is one of the ten
-                forms it can shift into.
+                The pet is a Rimuru-inspired slime: it gobbles
+                library papers with its ultimate skills (eat mode shouts
+                Gluttony or Beelzebub), and its Great Sage persona, Ciel, is
+                one of the forms it can shift into.
               </li>
             </ul>
           </WikiSection>

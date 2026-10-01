@@ -37,10 +37,9 @@ const STATE_ROWS: Record<PetAnimState, number> = {
 };
 
 /* Sheets whose running-left/running-right rows are authored swapped
-   relative to the Codex convention (detected against Rimuru's sheet). */
+   relative to the Codex convention (verified against Rimuru's sheet
+   and by visual checks: Sion and Veldora run correctly unswapped). */
 const SWAPPED_RUN: Record<string, boolean> = {
-  veldora: true,
-  shion: true,
   shuna: true,
   diablo: true,
 };

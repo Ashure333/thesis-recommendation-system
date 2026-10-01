@@ -12,99 +12,61 @@ import MathText from "../../components/MathText";
 import PetFigure from "../../components/PetFigure";
 import { Button, EmptyState, PageHeader, PageShell } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
+import { crumpledBallDataURL } from "../../components/retro/CrumpledPaper";
 import { HUNT_ITEMS } from "../../data/hunt";
-import { usePetForm } from "../../state/petForm";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 
 /* ============================================================
-   PET DRAG IMAGE — the drag ghost for a library row.
-   Renders the currently selected pet form (accent blob with
-   ink outline and eyes) as the thing that follows the cursor,
-   instead of the default browser row snapshot.
+   PAPER DRAG GHOST — the drag ghost for a library row.
+   Every row is dragged as a crumpled paper ball (the pet's own
+   crumple graphic): the paper is about to be disposed of, so it
+   already looks the part. The ghost is a decoded <img> (data
+   URL) prepared in advance, since Chromium ignores raw canvases.
    ============================================================ */
 
-/* Corner radii (0..1 of the half size) per form variant. */
-const DRAG_RADII: Record<string, [number, number, number, number]> = {
-  original: [0.72, 0.72, 0.5, 0.5],
-  tall: [0.85, 0.85, 0.55, 0.55],
-  wide: [0.62, 0.62, 0.5, 0.5],
-  teardrop: [0.9, 0.9, 0.5, 0.5],
-  squash: [0.58, 0.58, 0.5, 0.5],
-  chunky: [0.5, 0.5, 0.5, 0.5],
-  sleepy: [0.72, 0.72, 0.5, 0.5],
-  happy: [0.72, 0.72, 0.5, 0.5],
-  grump: [0.72, 0.72, 0.5, 0.5],
-  spike: [0.9, 0.9, 0.5, 0.5],
-};
+/* Prepared <img> ghost, decoded before the drag starts. */
+let dragGhost: HTMLImageElement | null = null;
 
-function petDragImage(variant: string): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = 96;
-  canvas.height = 96;
+function prepareDragGhost(): HTMLImageElement {
+  if (dragGhost) return dragGhost;
+  const img = new Image();
+  img.src = crumpledBallDataURL(96);
+  void img.decode().catch(() => undefined);
+  dragGhost = img;
+  return img;
+}
 
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
-
-  const accent =
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--accent")
-      .trim() || "243 156 18";
-  const ink = "#2c3e50";
-
-  const size = 84;
-  const x = (96 - size) / 2;
-  const y = (96 - size) / 2 + 4;
-
-  // Ground shadow.
-  ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
-  ctx.beginPath();
-  ctx.ellipse(48, 84, 34, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Blob body, silhouette from the variant.
-  const [tl, tr, br, bl] = DRAG_RADII[variant] ?? DRAG_RADII.original;
-  const half = size / 2;
-  ctx.beginPath();
-  ctx.roundRect(
-    x,
-    y,
-    size,
-    size,
-    [tl * half, tr * half, br * half, bl * half],
-  );
-  ctx.fillStyle = `rgb(${accent})`;
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = ink;
-  ctx.stroke();
-
-  // Eyes.
-  const eyeY = y + size * 0.42;
-  const eyeR = 8;
-  for (const ex of [36, 60]) {
-    ctx.beginPath();
-    ctx.arc(ex, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = ink;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(ex + 1.5, eyeY - 1, 3, 0, Math.PI * 2);
-    ctx.fillStyle = ink;
-    ctx.fill();
+function petDragImage(): HTMLImageElement {
+  const img = prepareDragGhost();
+  /* Chromium only paints drag images that live in the document — a
+     bare offscreen img/canvas is silently ignored and the browser
+     falls back to its default icon. Pin it offscreen for the drag,
+     then drop it again. */
+  if (!img.isConnected) {
+    img.style.position = "fixed";
+    img.style.left = "-10000px";
+    img.style.top = "0";
+    img.style.width = "96px";
+    img.style.height = "96px";
+    img.style.pointerEvents = "none";
+    document.body.appendChild(img);
+    window.setTimeout(() => {
+      img.remove();
+    }, 1000);
   }
-
-  return canvas;
+  return img;
 }
 
 export default function MyLibrary() {
   const navigate = useNavigate();
-  const { form } = usePetForm();
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  /* Prepare the crumpled-paper drag ghost ahead of time. */
+  useEffect(() => {
+    prepareDragGhost();
+  }, []);
 
   // PDF Viewer State
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
@@ -267,9 +229,9 @@ export default function MyLibrary() {
                     JSON.stringify({ id: paper.id, title: paper.title }),
                   );
                   event.dataTransfer.effectAllowed = "move";
-                  // The drag ghost is the pet's current form.
+                  // The drag ghost is a crumpled paper ball for every row.
                   event.dataTransfer.setDragImage(
-                    petDragImage(form.variant),
+                    petDragImage(),
                     48,
                     48,
                   );
