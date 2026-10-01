@@ -89,10 +89,13 @@ DEBUGGING "it returns nothing":
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, asdict, field
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -109,7 +112,7 @@ logger = logging.getLogger(__name__)
 
 # Contact address required by Unpaywall's terms of use ("polite pool").
 # Swap this for a real contact address for this deployment.
-UNPAYWALL_CONTACT_EMAIL = "paperrec-dev@example.com"
+UNPAYWALL_CONTACT_EMAIL = "research-dev@example.com"
 
 # Optional: set these environment variables to unlock higher rate
 # limits / extra sources. Both are no-ops if left unset.
@@ -120,6 +123,27 @@ REQUEST_TIMEOUT = 10  # seconds
 MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB safety cap
 MAX_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 1.5
+
+# ---------------------------------------------------------------------
+# Result cache
+#
+# One import normally searches for the same paper twice: /api/papers/
+# preview runs the finder so candidates can be shown before saving,
+# then upload_paper()'s background enrichment runs it again. Keying the
+# result list on DOI (or normalized title + year) with a short TTL makes
+# the second search -- and any manual "Find PDF Online" retry of the
+# same paper -- free instead of re-running all six sources.
+#
+# Empty results are cached too, but for much less long: a transient
+# outage shouldn't lock a paper out of finding a PDF for 15 minutes.
+# ---------------------------------------------------------------------
+
+RESULT_CACHE_TTL_SECONDS = 15 * 60
+RESULT_CACHE_EMPTY_TTL_SECONDS = 60
+RESULT_CACHE_MAX_ENTRIES = 256
+
+_RESULT_CACHE_LOCK = threading.Lock()
+_RESULT_CACHE: dict[str, tuple[float, list["PdfCandidate"]]] = {}
 
 # Below this title-similarity score, a candidate is dropped rather than
 # shown -- a low-confidence "match" does more harm than good in a
@@ -743,13 +767,44 @@ def _search_semantic_scholar(paper: Paper) -> list[PdfCandidate]:
 # Source 3 -- arXiv (by title)
 # ---------------------------------------------------------------------
 
-def _parse_arxiv_entries(xml_text: str) -> list[re.Match]:
+ARXIV_API_URL = "https://export.arxiv.org/api/query"
+
+# arXiv's API requires at least 3 seconds between requests; a bare
+# HTTP (port 80) request is also blocked or downgraded on many
+# networks, so the endpoint must be HTTPS.
+_ARXIV_MIN_INTERVAL = 3.0
+_ARXIV_LAST_REQUEST = 0.0
+
+
+def _arxiv_throttle() -> None:
+    global _ARXIV_LAST_REQUEST
+
+    elapsed = time.monotonic() - _ARXIV_LAST_REQUEST
+
+    if elapsed < _ARXIV_MIN_INTERVAL:
+        time.sleep(_ARXIV_MIN_INTERVAL - elapsed)
+
+    _ARXIV_LAST_REQUEST = time.monotonic()
+
+
+def _parse_arxiv_entries(xml_text: str) -> list[str]:
     return re.findall(r"<entry>(.*?)</entry>", xml_text, re.DOTALL)
 
 
+def _is_arxiv_error_feed(entries: list[str]) -> bool:
+    """arXiv returns a single <entry> titled "Error" for rejected queries."""
+    if len(entries) != 1:
+        return False
+
+    title_match = re.search(r"<title>(.*?)</title>", entries[0], re.DOTALL)
+    return bool(title_match and "Error" in title_match.group(1))
+
+
 def _run_arxiv_query(query: str) -> list[str]:
+    _arxiv_throttle()
+
     response = _get_with_retry(
-        "http://export.arxiv.org/api/query",
+        ARXIV_API_URL,
         params={"search_query": query, "start": 0, "max_results": 5},
         source="arxiv",
     )
@@ -758,7 +813,24 @@ def _run_arxiv_query(query: str) -> list[str]:
         logger.debug("[arxiv] query failed: %r", query)
         return []
 
-    return _parse_arxiv_entries(response.text)
+    entries = _parse_arxiv_entries(response.text)
+
+    if _is_arxiv_error_feed(entries):
+        summary_match = re.search(
+            r"<summary>(.*?)</summary>",
+            entries[0],
+            re.DOTALL,
+        )
+        logger.debug(
+            "[arxiv] query rejected for %r: %s",
+            query,
+            " ".join(summary_match.group(1).split())[:140]
+            if summary_match
+            else "unknown error",
+        )
+        return []
+
+    return entries
 
 
 def _search_arxiv(paper: Paper) -> list[PdfCandidate]:
@@ -1012,6 +1084,122 @@ def _search_google_scholar_via_serpapi(paper: Paper) -> list[PdfCandidate]:
 # Public search entry point
 # ---------------------------------------------------------------------
 
+# The six sources are independent HTTP lookups, so they run concurrently
+# on a small bounded pool instead of one after another. Per-source
+# retry/backoff (_get_with_retry) is unchanged -- only the ordering is.
+# Worst-case latency is now the slowest source, not the sum of all six.
+_SOURCE_SEARCHERS = (
+    _search_unpaywall,
+    _search_crossref_pdf_links,
+    _search_semantic_scholar,
+    _search_arxiv,
+    _search_openalex,
+    _search_google_scholar_via_serpapi,
+)
+
+_SOURCE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=len(_SOURCE_SEARCHERS),
+    thread_name_prefix="pdf-finder",
+)
+
+
+def _search_source(
+    searcher,
+    paper: Paper,
+) -> list[PdfCandidate]:
+    """
+    Runs one source search without letting its failure cancel the
+    others -- a crashed source yields [] instead of failing the whole
+    discovery.
+    """
+    try:
+        return searcher(paper)
+    except Exception:
+        logger.exception(
+            "[find_pdf_candidates] source %s crashed for paper id=%s",
+            getattr(searcher, "__name__", searcher),
+            paper.id,
+        )
+        return []
+
+
+def _cache_keys_for(paper: Paper) -> list[str]:
+    """
+    Identity keys for the result cache. Both keys are written when
+    available so a later lookup hits regardless of whether this request
+    arrived with a DOI (e.g. preview resolved one via Crossref, the
+    upload re-extracts the file and starts without one).
+    """
+    keys: list[str] = []
+
+    if paper.doi:
+        keys.append(f"doi:{_normalize_doi(paper.doi)}")
+
+    if paper.title:
+        year = paper.publication_year or ""
+        keys.append(
+            f"title:{_normalize_title(paper.title)}|{year}"
+        )
+
+    return keys
+
+
+def _cache_get(keys: list[str]) -> list[PdfCandidate] | None:
+    if not keys:
+        return None
+
+    now = time.monotonic()
+
+    with _RESULT_CACHE_LOCK:
+        for key in keys:
+            entry = _RESULT_CACHE.get(key)
+
+            if entry is None:
+                continue
+
+            expires_at, value = entry
+
+            if expires_at <= now:
+                _RESULT_CACHE.pop(key, None)
+                continue
+
+            return copy.deepcopy(value)
+
+    return None
+
+
+def _cache_put(keys: list[str], results: list[PdfCandidate]) -> None:
+    if not keys:
+        return
+
+    ttl = (
+        RESULT_CACHE_TTL_SECONDS
+        if results
+        else RESULT_CACHE_EMPTY_TTL_SECONDS
+    )
+    expires_at = time.monotonic() + ttl
+    snapshot = copy.deepcopy(results)
+
+    with _RESULT_CACHE_LOCK:
+        if len(_RESULT_CACHE) >= RESULT_CACHE_MAX_ENTRIES:
+            now = time.monotonic()
+
+            expired = [
+                key
+                for key, (expiry, _) in _RESULT_CACHE.items()
+                if expiry <= now
+            ]
+            for key in expired:
+                _RESULT_CACHE.pop(key, None)
+
+            # dict insertion order: evict oldest entries first
+            while len(_RESULT_CACHE) >= RESULT_CACHE_MAX_ENTRIES:
+                _RESULT_CACHE.pop(next(iter(_RESULT_CACHE)))
+
+        for key in keys:
+            _RESULT_CACHE[key] = (expires_at, snapshot)
+
+
 def find_pdf_candidates(
     paper: Paper,
     max_results: int = 5,
@@ -1030,20 +1218,66 @@ def find_pdf_candidates(
     was found but scored below min_confidence, each tagged with why --
     useful for figuring out why a particular paper isn't returning
     anything.
+
+    The six sources are queried in parallel (see _SOURCE_EXECUTOR) and
+    results are memoized for RESULT_CACHE_TTL_SECONDS under the paper's
+    DOI/title, so the preview -> save round-trip only pays for the
+    searches once. Calls made with non-default arguments bypass the
+    cache.
     """
+
+    cacheable = (
+        max_results == 5
+        and min_confidence == MIN_CONFIDENCE
+        and not include_rejected
+    )
+
+    # Look up before the Crossref DOI resolution below: a cached result
+    # must not pay for that extra round-trip either.
+    if cacheable:
+        cached = _cache_get(_cache_keys_for(paper))
+
+        if cached is not None:
+            logger.debug(
+                "[find_pdf_candidates] cache hit for paper id=%s title=%r",
+                paper.id,
+                paper.title,
+            )
+            return cached
 
     if not paper.doi:
         resolved_doi = _resolve_doi_via_crossref(paper)
         if resolved_doi:
             paper.doi = resolved_doi
 
+    # Fan out: every source runs at once on the bounded pool, in
+    # parallel. (Zotero does the same thing for folder imports --
+    # Promise.all over per-file work -- and flags its own serial fetch
+    # path with a "TODO: Add some concurrency?".)
     all_candidates: list[PdfCandidate] = []
-    all_candidates.extend(_search_unpaywall(paper))
-    all_candidates.extend(_search_crossref_pdf_links(paper))
-    all_candidates.extend(_search_semantic_scholar(paper))
-    all_candidates.extend(_search_arxiv(paper))
-    all_candidates.extend(_search_openalex(paper))
-    all_candidates.extend(_search_google_scholar_via_serpapi(paper))
+
+    try:
+        futures = [
+            _SOURCE_EXECUTOR.submit(_search_source, searcher, paper)
+            for searcher in _SOURCE_SEARCHERS
+        ]
+
+    except RuntimeError:
+        # The interpreter is shutting down and the pool will not
+        # accept new work. Run serially instead of failing outright --
+        # a background enrichment finishing during shutdown should
+        # still get its results.
+        logger.debug(
+            "[find_pdf_candidates] executor closed; "
+            "running sources serially"
+        )
+
+        for searcher in _SOURCE_SEARCHERS:
+            all_candidates.extend(_search_source(searcher, paper))
+
+    else:
+        for future in futures:
+            all_candidates.extend(future.result())
 
     if not all_candidates:
         logger.debug(
@@ -1084,7 +1318,13 @@ def find_pdf_candidates(
     if include_rejected:
         return accepted[:max_results], rejected
 
-    return accepted[:max_results]
+    results = accepted[:max_results]
+
+    if cacheable:
+        # Keyed AFTER resolution, so the DOI found above is cached too.
+        _cache_put(_cache_keys_for(paper), results)
+
+    return results
 
 
 # ---------------------------------------------------------------------

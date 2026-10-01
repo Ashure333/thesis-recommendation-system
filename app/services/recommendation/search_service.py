@@ -35,6 +35,7 @@ from app.services.recommendation import (
 
 from app.services.recommendation.pipeline_config import (
     PIPELINE_NAMES,
+    PipelineWeights,
     get_pipeline_weights,
 )
 
@@ -51,6 +52,84 @@ PipelineName = Literal[
     "sbert_metadata",
     "tfidf_sbert_metadata",
 ]
+
+# The six presets plus "custom" — the dial-allocated pipeline, which
+# always carries its own weights via `custom_weights`.
+SearchPipelineName = Literal[
+    "tfidf",
+    "sbert",
+    "tfidf_sbert",
+    "tfidf_metadata",
+    "sbert_metadata",
+    "tfidf_sbert_metadata",
+    "custom",
+]
+
+
+def _round_scores(
+    scores: dict[int, float],
+    digits: int = 6,
+) -> dict[int, float]:
+    """
+    Round per-paper score dicts for trace payloads.
+
+    The full-precision floats are what the ranking actually uses;
+    the rounded copies are only for display.
+    """
+
+    return {
+        paper_id: round(float(score), digits)
+        for paper_id, score in scores.items()
+    }
+
+
+def _summarize_scores(
+    scores: dict[int, float],
+) -> dict:
+    """
+    Compact numeric summary (min / max / count) of a score mapping,
+    used by trace events so the frontend can annotate the math with
+    the actual distribution before normalization.
+    """
+
+    if not scores:
+        return {
+            "count": 0,
+            "min": None,
+            "max": None,
+        }
+
+    values = list(scores.values())
+
+    return {
+        "count": len(values),
+        "min": round(float(min(values)), 6),
+        "max": round(float(max(values)), 6),
+    }
+
+
+def _normalization_bounds(
+    scores: dict[int, float],
+) -> dict:
+    """
+    The (min, max) pair that min-max normalization rescales against,
+    with the degeneracy flag (all scores equal).
+
+    This is exactly what min_max_normalize() computes internally --
+    recorded here so the trace can show the formula's actual bounds.
+    """
+
+    summary = _summarize_scores(scores)
+
+    return {
+        "min": summary["min"],
+        "max": summary["max"],
+        "normalized": summary["count"] > 0,
+        "degenerate": (
+            summary["count"] > 0
+            and summary["min"] == summary["max"]
+        ),
+    }
 
 
 def min_max_normalize(
@@ -165,12 +244,16 @@ def _combine_scores(
     tfidf_scores: dict[int, float],
     sbert_scores: dict[int, float],
     metadata_scores: dict[int, float],
+    weights: PipelineWeights | None = None,
 ) -> dict[int, float]:
     """
-    Combine component scores using the selected pipeline weights.
+    Combine component scores using the selected pipeline weights —
+    the preset's shares, or an explicit override (the dial
+    allocation for the custom pipeline).
     """
 
-    weights = get_pipeline_weights(pipeline)
+    if weights is None:
+        weights = get_pipeline_weights(pipeline)
 
     normalized_tfidf = min_max_normalize(
         tfidf_scores
@@ -222,24 +305,56 @@ def search_papers(
     db: Session,
     query: str | None = None,
     seed_paper_id: int | None = None,
-    pipeline: PipelineName = "tfidf",
+    pipeline: SearchPipelineName = "tfidf",
     top_k: int = 10,
+    trace: object | None = None,
+    custom_weights: PipelineWeights | None = None,
 ) -> list[dict]:
     """
-    Run one of the six configured recommendation pipelines.
+    Run one of the six configured recommendation pipelines — or the
+    "custom" pipeline, whose dial-provided weights replace the
+    preset allocation (they must sum to 1; build them with
+    pipeline_config.build_custom_weights).
 
     Only results with a final combined score greater than 0
     are returned.
+
+    When a trace recorder is provided (duck-typed: it only needs a
+    record(event, message, data) method), every step of the
+    computation is recorded with its actual intermediate values so
+    the frontend can visualize the math with real numbers.
     """
 
     # --------------------------------------------------------
-    # Validate pipeline
+    # Validate pipeline / custom weights
     # --------------------------------------------------------
 
-    if pipeline not in PIPELINE_NAMES:
+    if pipeline not in PIPELINE_NAMES and pipeline != "custom":
         raise ValueError(
             f"Unsupported recommendation pipeline: {pipeline}"
         )
+
+    if pipeline == "custom":
+        if custom_weights is None:
+            raise ValueError(
+                "The custom pipeline requires weights "
+                "(tfidf, sbert, metadata)."
+            )
+    elif custom_weights is not None:
+        raise ValueError(
+            "custom_weights may only be used with pipeline='custom'."
+        )
+
+    # --------------------------------------------------------
+    # Effective weights: the dial allocation for "custom",
+    # otherwise the preset's configured shares.
+    # --------------------------------------------------------
+
+    weights = (
+        custom_weights
+        if custom_weights is not None
+        else get_pipeline_weights(pipeline)
+    )
 
     # --------------------------------------------------------
     # Validate top_k
@@ -259,6 +374,19 @@ def search_papers(
         seed_paper_id,
     )
 
+    if trace is not None:
+        trace.record(
+            "input",
+            "Request inputs as received by the engine.",
+            {
+                "pipeline": pipeline,
+                "top_k": top_k,
+                "query": query,
+                "seed_paper_id": seed_paper_id,
+                "weights": weights,
+            },
+        )
+
     # --------------------------------------------------------
     # Build query representation
     # --------------------------------------------------------
@@ -268,6 +396,22 @@ def search_papers(
         seed_paper=seed_paper,
     )
 
+    if trace is not None:
+        trace.record(
+            "prepared_query",
+            "Query representation after text preparation "
+            "(Title + Abstract + Keywords, normalized).",
+            {
+                "text": prepared_query,
+                "length": len(prepared_query),
+                "source": (
+                    "seed_paper"
+                    if seed_paper is not None
+                    else "free_text_query"
+                ),
+            },
+        )
+
     # --------------------------------------------------------
     # Get candidates
     # --------------------------------------------------------
@@ -276,6 +420,24 @@ def search_papers(
 
     if not candidates:
         return []
+
+    if trace is not None:
+        trace.record(
+            "candidates",
+            "Candidate set: papers valid for recommendation "
+            "with prepared text.",
+            {
+                "count": len(candidates),
+                "papers": [
+                    {
+                        "id": paper.id,
+                        "title": paper.title,
+                        "year": paper.publication_year,
+                    }
+                    for paper in candidates
+                ],
+            },
+        )
 
     # --------------------------------------------------------
     # Remove seed paper from its own recommendations
@@ -291,13 +453,9 @@ def search_papers(
     if not candidates:
         return []
 
-    # --------------------------------------------------------
-    # Pipeline weights
-    # --------------------------------------------------------
-
-    weights = get_pipeline_weights(
-        pipeline
-    )
+    # (The effective pipeline weights — preset shares or the dial
+    # allocation for "custom" — were resolved before the seed and
+    # are used to gate which components run below.)
 
     # --------------------------------------------------------
     # Component scores
@@ -325,6 +483,28 @@ def search_papers(
             )
         )
 
+        if trace is not None:
+            trace.record(
+                "component.tfidf",
+                "TF-IDF component: cosine similarity between the "
+                "query vector and each stored candidate vector.",
+                {
+                    "vector_dim": len(query_vector),
+                    "nonzero_terms": sum(
+                        1 for value in query_vector
+                        if value != 0.0
+                    ),
+                    "top_terms": (
+                        tfidf_pipeline.top_query_terms(
+                            prepared_query,
+                            k=5,
+                        )
+                    ),
+                    "scores": _round_scores(tfidf_scores),
+                    "summary": _summarize_scores(tfidf_scores),
+                },
+            )
+
     # --------------------------------------------------------
     # S-BERT
     # --------------------------------------------------------
@@ -343,6 +523,18 @@ def search_papers(
             )
         )
 
+        if trace is not None:
+            trace.record(
+                "component.sbert",
+                "S-BERT component: cosine similarity between the "
+                "query embedding and each candidate embedding.",
+                {
+                    "vector_dim": len(query_vector),
+                    "scores": _round_scores(sbert_scores),
+                    "summary": _summarize_scores(sbert_scores),
+                },
+            )
+
     # --------------------------------------------------------
     # Metadata
     # --------------------------------------------------------
@@ -353,8 +545,19 @@ def search_papers(
                 query=query,
                 seed_paper=seed_paper,
                 candidates=candidates,
+                trace=trace,
             )
         )
+
+        if trace is not None:
+            trace.record(
+                "component.metadata.summary",
+                "Metadata component: combined 4-signal score.",
+                {
+                    "scores": _round_scores(metadata_scores),
+                    "summary": _summarize_scores(metadata_scores),
+                },
+            )
 
     # --------------------------------------------------------
     # Combine
@@ -365,7 +568,39 @@ def search_papers(
         tfidf_scores=tfidf_scores,
         sbert_scores=sbert_scores,
         metadata_scores=metadata_scores,
+        weights=weights,
     )
+
+    if trace is not None:
+        trace.record(
+            "normalization",
+            "Min-max normalization bounds applied to each "
+            "component's raw scores (metadata is already in [0, 1] "
+            "and is not normalized).",
+            {
+                "tfidf": _normalization_bounds(tfidf_scores),
+                "sbert": _normalization_bounds(sbert_scores),
+                "metadata": {
+                    "normalized": False,
+                    "min": _summarize_scores(
+                        metadata_scores
+                    )["min"],
+                    "max": _summarize_scores(
+                        metadata_scores
+                    )["max"],
+                },
+            },
+        )
+
+        trace.record(
+            "combine",
+            "Weighted combination: S(d) = sum of "
+            "weight * normalized_component_score(d).",
+            {
+                "weights": weights,
+                "scores": _round_scores(combined_scores),
+            },
+        )
 
     # --------------------------------------------------------
     # Rank
@@ -392,6 +627,30 @@ def search_papers(
             ).lower(),
         ),
     )
+
+    if trace is not None:
+        trace.record(
+            "rank",
+            "Ranking: S(d) descending; tie-break by newer "
+            "publication year, then title alphabetically.",
+            {
+                "ranked": [
+                    {
+                        "id": paper_id,
+                        "score": round(
+                            float(combined_scores[paper_id]),
+                            6,
+                        ),
+                        "year": (
+                            candidate_by_id[paper_id]
+                            .publication_year
+                        ),
+                    }
+                    for paper_id in ranked_ids
+                    if combined_scores[paper_id] > 0
+                ][:top_k],
+            },
+        )
 
     # --------------------------------------------------------
     # Return top K

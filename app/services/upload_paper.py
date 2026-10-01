@@ -2,11 +2,14 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from app.database import SessionLocal
 from app.models.models import Paper
 
 from app.services.bib_extraction import extract_metadata_from_bib
 from app.services.classification import classify_paper
+from app.services.enrichment_queue import enqueue_paper_enrichment
 from app.services.extraction import extract_metadata_from_pdf
+from app.services.latex_extraction import extract_metadata_from_tex
 from app.services.text_preparation import refresh_prepared_text
 from app.services.validation import validate_paper
 from app.services.storage import save_paper_file
@@ -54,7 +57,10 @@ def _needs_enrichment(paper: Paper) -> bool:
     return False
 
 
-def _try_enrich_from_pdf_discovery(paper: Paper) -> list[PdfCandidate]:
+def _try_enrich_from_pdf_discovery(
+    paper: Paper,
+    force_search: bool = False,
+) -> list[PdfCandidate]:
     """
     Best-effort automatic metadata enrichment: runs the same PDF-
     discovery lookup used by "Find PDF Online" (Unpaywall, Crossref,
@@ -67,7 +73,11 @@ def _try_enrich_from_pdf_discovery(paper: Paper) -> list[PdfCandidate]:
 
     Deliberately conservative:
         - Skipped entirely if the paper already looks complete
-          (_needs_enrichment), so a clean upload costs nothing extra.
+          (_needs_enrichment), so a clean upload costs nothing extra
+          -- unless force_search=True, which the background worker
+          uses for papers with no stored file at all (identifier
+          imports): those need discovery purely to find a PDF, even
+          when every field is already filled.
         - Skipped if there's no title to search with.
         - Never raises. A network hiccup here must never fail the
           upload itself.
@@ -75,7 +85,7 @@ def _try_enrich_from_pdf_discovery(paper: Paper) -> list[PdfCandidate]:
     validate_paper() and refresh_prepared_text() are re-run afterward
     only if enrich_paper_metadata() actually changed something.
     """
-    if not _needs_enrichment(paper):
+    if not force_search and not _needs_enrichment(paper):
         return []
 
     if not paper.title:
@@ -90,6 +100,11 @@ def _try_enrich_from_pdf_discovery(paper: Paper) -> list[PdfCandidate]:
                 f"INFO: Metadata enrichment filled {changed_fields} "
                 f"for {paper.source_filename!r}"
             )
+
+            # Re-classify with the recovered text (fill-only): a bib
+            # import classified on title alone may improve once the
+            # abstract/author arrive from discovery.
+            classify_paper(paper)
 
             validate_paper(paper)
             refresh_prepared_text(paper)
@@ -173,7 +188,7 @@ def upload_paper(
     original_filename: str | None = None,
 ) -> Paper:
     """
-    Import a PDF or BibTeX file into the repository.
+    Import a PDF, BibTeX, or LaTeX (.tex) file into the repository.
 
     PDF:
         Uses the existing PDF extraction pipeline. extraction.py also
@@ -186,10 +201,19 @@ def upload_paper(
         with a real PDF file instead of just the original .bib text,
         whenever one can be found.
 
-    Both:
-        Followed by automatic metadata enrichment (Step 5b) that fills
-        in whatever Title/Abstract/Publication Year/Author extraction
-        couldn't recover, using PDF-discovery search results.
+    LaTeX (.tex):
+        Uses latex_extraction.py, which reads Title/Abstract/
+        Keywords/Year directly from LaTeX source commands -- more
+        reliable than PDF layout guessing when a .tex source exists.
+
+    All:
+        Metadata enrichment and automatic PDF attachment (the old
+        Steps 5b/8b) no longer run inline -- they are the only
+        network-bound steps in this flow and now run on the
+        background enrichment queue after this function commits and
+        returns (see enrichment_queue.py and enrich_saved_paper()
+        below). The record is complete without them; they only fill
+        what's missing.
     """
 
     source = Path(source_path)
@@ -206,9 +230,9 @@ def upload_paper(
 
     extension = source.suffix.lower()
 
-    if extension not in {".pdf", ".bib"}:
+    if extension not in {".pdf", ".bib", ".tex"}:
         raise ValueError(
-            "Only PDF and BibTeX (.bib) files are supported."
+            "Only PDF, BibTeX (.bib), and LaTeX (.tex) files are supported."
         )
 
     filename = original_filename or source.name
@@ -219,6 +243,10 @@ def upload_paper(
 
     if extension == ".pdf":
         metadata = extract_metadata_from_pdf(
+            str(source)
+        )
+    elif extension == ".tex":
+        metadata = extract_metadata_from_tex(
             str(source)
         )
     else:
@@ -253,9 +281,13 @@ def upload_paper(
         ),
         source_filename=filename,
         extraction_method=(
-            "bibtex"
-            if extension == ".bib"
-            else "pdf"
+            "latex"
+            if extension == ".tex"
+            else (
+                "bibtex"
+                if extension == ".bib"
+                else "pdf"
+            )
         ),
     )
 
@@ -282,18 +314,15 @@ def upload_paper(
         )
 
     # ---------------------------------------------------------
-    # STEP 5b — Automatic metadata enrichment ("thorough" path)
+    # STEP 5b — DEFERRED
     #
-    # Runs before the first commit so an enriched paper is written
-    # to the database once, already enriched, rather than inserted
-    # incomplete and patched in a second write.
-    #
-    # The candidates found here are kept (not discarded) so Step 8b
-    # below can reuse them for automatic PDF attachment without a
-    # second round of network calls.
+    # Metadata enrichment (the old "thorough" path) used to run here,
+    # before the first commit. It is the first of two network-bound
+    # steps in this flow -- up to six HTTP sources with retries -- so
+    # it now runs on the background enrichment queue after this
+    # function returns. enrich_saved_paper() below performs the same
+    # enrichment on its own session once the paper is committed.
     # ---------------------------------------------------------
-
-    pdf_candidates = _try_enrich_from_pdf_discovery(paper)
 
     # ---------------------------------------------------------
     # STEP 6 — Prepare recommendation text
@@ -345,32 +374,118 @@ def upload_paper(
         raise
 
     # ---------------------------------------------------------
-    # STEP 8b — Automatic PDF attachment
+    # STEP 8b — DEFERRED
     #
-    # Only relevant for citation-only imports (.bib / Google Scholar):
-    # if PDF discovery already found a confident open-access match
-    # while enriching metadata (Step 5b), download it now and replace
-    # the stored .bib pointer with a real PDF file. Best-effort and
-    # non-fatal -- the paper already has a valid stored_path (the
-    # .bib file) even if this fails.
+    # Automatic PDF attachment for citation-only imports (.bib /
+    # Google Scholar / .tex) used to run here, blocking the request
+    # on a download. It now runs in the background worker together
+    # with enrichment, guarded by the per-paper attachment lock so it
+    # can never race an explicit attach-pdf request on the same file
+    # (see attachment_lock.py).
     # ---------------------------------------------------------
 
-    if extension == ".bib":
-        try:
-            attached = _try_auto_attach_pdf(paper, pdf_candidates)
+    # ---------------------------------------------------------
+    # STEP 9 — Hand off to the background enrichment queue
+    #
+    # At this point the paper record and its source file are both
+    # committed -- the import itself is finished and durable. What
+    # remains is best-effort network work.
+    # ---------------------------------------------------------
 
-            if attached:
-                db.commit()
-                db.refresh(paper)
-
-        except Exception as exc:
-            db.rollback()
-            print(
-                f"WARNING: Auto-attach step failed for paper "
-                f"id={paper.id}: {exc}"
-            )
+    enqueue_paper_enrichment(paper.id)
 
     return paper
+
+
+def enrich_saved_paper(paper_id: int) -> bool:
+    """
+    Background half of upload_paper() -- runs after the record is
+    committed, on its own session and worker thread (the caller's
+    Session must never be shared across threads).
+
+    Performs the same two steps the old inline Steps 5b and 8b did:
+
+        1. Metadata enrichment from PDF-discovery results. By design
+           enrich_paper_metadata() only fills missing/corrupt fields
+           and never overwrites good data, so it is safe if the user
+           has already edited the paper in the meantime.
+        2. Automatic open-access PDF attachment for citation-only
+           imports (extraction_method bibtex/latex), serialized with
+           any explicit attach-pdf request via attachment_lock().
+
+    Returns True when something on the paper actually changed.
+    """
+    from app.services.attachment_lock import attachment_lock
+
+    db = SessionLocal()
+
+    try:
+        paper = (
+            db.query(Paper)
+            .filter(Paper.id == paper_id)
+            .first()
+        )
+
+        if paper is None:
+            return False
+
+        # ------------------------------------------------------
+        # 1. Enrichment (network-bound, best-effort, never raises
+        #    out of _try_enrich_from_pdf_discovery). The candidate
+        #    list it searched for is reused below for auto-attach.
+        #
+        #    force_search for papers with NO stored file (identifier
+        #    imports): even a fully complete record needs discovery
+        #    to get an openable PDF.
+        # ------------------------------------------------------
+
+        candidates = _try_enrich_from_pdf_discovery(
+            paper,
+            force_search=not paper.stored_path,
+        )
+
+        changed = bool(db.dirty)
+
+        if changed:
+            db.commit()
+
+        # ------------------------------------------------------
+        # 2. Auto-attach for citation-only imports (no real PDF of
+        #    their own: .bib / .tex / metadata-only). The check
+        #    inside _try_auto_attach_pdf() makes this a no-op for
+        #    papers that already store a PDF.
+        # ------------------------------------------------------
+
+        if paper.extraction_method in {"bibtex", "latex", "metadata"}:
+            with attachment_lock(paper_id):
+                # Re-read after acquiring: the user's explicit
+                # attach-pdf request may have won the race while
+                # we waited -- _try_auto_attach_pdf() then sees the
+                # stored .pdf and no-ops.
+                try:
+                    db.refresh(paper)
+
+                except Exception:
+                    # The paper was deleted while enrichment was
+                    # running, so there is nothing left to attach to.
+                    print(
+                        f"INFO: Paper id={paper_id} no longer exists; "
+                        "skipping automatic PDF attachment."
+                    )
+                    return False
+
+                if _try_auto_attach_pdf(paper, candidates):
+                    db.commit()
+                    changed = True
+
+        return changed
+
+    except Exception:
+        db.rollback()
+        raise
+
+    finally:
+        db.close()
 
 
 def upload_paper_from_pdf(

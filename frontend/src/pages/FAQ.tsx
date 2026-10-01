@@ -1,10 +1,11 @@
 import { useState } from "react";
+import StaggerIn from "../components/retro/StaggerIn";
 
 const faqs = [
   {
-    question: "What is PaperRec?",
+    question: "What is Re:Search?",
     answer:
-      "PaperRec is an academic paper repository and recommendation system designed to help BulSU BSMCS students search, discover, and organize research papers.",
+      "Re:Search is an academic paper repository and recommendation system designed to help BulSU BSMCS students search, discover, and organize research papers.",
   },
   {
     question: "How do I search for papers?",
@@ -19,7 +20,7 @@ const faqs = [
   {
     question: "How do recommendations work?",
     answer:
-      "PaperRec uses the configured recommendation pipeline to identify papers that are related to your research interests and the papers you interact with.",
+      "Re:Search uses the configured recommendation pipeline to identify papers that are related to your research interests and the papers you interact with.",
   },
   {
     question: "How do I save a paper?",
@@ -34,7 +35,7 @@ const faqs = [
   {
     question: "What happens when I log out?",
     answer:
-      "Logging out ends your current PaperRec session and returns you to the sign-in page. Your repository papers are not deleted when you log out.",
+      "Logging out ends your current Re:Search session and returns you to the sign-in page. Your repository papers are not deleted when you log out.",
   },
 ];
 
@@ -49,16 +50,16 @@ export default function FAQ() {
     <div className="mx-auto max-w-4xl">
       {/* Header */}
       <div className="mb-8">
-        <p className="text-[10px] uppercase tracking-[0.16em] text-gold">
+        <p className="text-sm font-bold text-muted">
           Help Center
         </p>
 
-        <h1 className="mt-2 font-serif text-3xl text-ink">
+        <h1 className="font-pixelify mt-2 text-3xl font-bold leading-none text-ink">
           Frequently Asked Questions
         </h1>
 
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-          Find answers to common questions about using the PaperRec academic
+          Find answers to common questions about using the Re:Search academic
           repository and recommendation system.
         </p>
       </div>
@@ -69,21 +70,18 @@ export default function FAQ() {
           const isOpen = openIndex === index;
 
           return (
-            <div
-              key={faq.question}
-              className="overflow-hidden rounded-lg border border-line bg-panel"
-            >
+            <StaggerIn key={faq.question} index={index} className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
               <button
                 type="button"
                 onClick={() => toggleFAQ(index)}
-                className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-panelAlt"
+                className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition pixel-ease hover:bg-accentSoft"
               >
-                <span className="text-sm font-medium text-ink">
+                <span className="text-sm font-bold text-ink">
                   {faq.question}
                 </span>
 
                 <span
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line text-sm text-muted transition-transform ${
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[3px] border-gray-900 bg-white text-sm font-bold text-ink transition-transform pixel-ease ${
                     isOpen ? "rotate-45" : ""
                   }`}
                 >
@@ -92,22 +90,22 @@ export default function FAQ() {
               </button>
 
               {isOpen && (
-                <div className="border-t border-line px-5 py-4">
+                <div className="border-t border-gray-200 px-5 py-4">
                   <p className="text-sm leading-6 text-muted">{faq.answer}</p>
                 </div>
               )}
-            </div>
+            </StaggerIn>
           );
         })}
       </div>
 
       {/* Bottom note */}
-      <div className="mt-8 rounded-lg border border-gold/20 bg-gold/5 p-5">
+      <div className="mt-8 rounded border-[3px] border-dashed border-gray-900 bg-canvas p-5">
         <p className="text-sm font-medium text-ink">Need more help?</p>
 
         <p className="mt-1 text-sm leading-5 text-muted">
           Use the System Tutorial from the account menu for a quick walkthrough
-          of the main PaperRec features.
+          of the main Re:Search features.
         </p>
       </div>
     </div>

@@ -3,9 +3,186 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PaperRec</title>
+    <title>Re:Search</title>
+
+    <!-- Pixel/Inter combination: Pixelify Sans drives the retro
+         (mono) layer — ticker, badges, codenames, boot screen, pet.
+         Inter stays the body/UI sans. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Pixelify+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Apply the stored theme palette before first paint so the
+      // canvas, ink, and accent never flash from the default amber.
+      (function () {
+        var palettes = {
+          amber: {
+            accent: "243 156 18", soft: "253 236 207",
+            canvas: "255 250 240", surface: "254 247 236"255 255 255",
+            surfaceAlt: "254 242 222", hairline: "242 239 230",
+            ink: "44 62 80", muted: "99 112 126", field: "254 242 220",
+            gray: { "50": "249 244 235", "100": "244 241 232", "200": "242 239 230", "300": "221 220 214", "400": "172 179 185", "500": "140 148 155", "600": "99 112 126", "700": "82 98 115", "800": "56 74 92", "900": "44 62 80", "950": "26 35 44" },
+          },
+          coral: {
+            accent: "230 126 34", soft: "251 227 207",
+            canvas: "255 245 237", surface: "253 245 238"255 255 255",
+            surfaceAlt: "253 235 221", hairline: "242 234 228",
+            ink: "44 62 80", muted: "99 112 126", field: "253 234 219",
+            gray: { "50": "249 240 232", "100": "244 236 229", "200": "242 234 228", "300": "221 216 212", "400": "172 179 185", "500": "140 148 155", "600": "99 112 126", "700": "82 98 115", "800": "56 74 92", "900": "44 62 80", "950": "26 35 44" },
+          },
+          violet: {
+            accent: "176 111 240", soft: "237 224 250",
+            canvas: "248 244 252", surface: "249 243 254"255 255 255",
+            surfaceAlt: "242 233 251", hairline: "236 233 242",
+            ink: "44 62 80", muted: "99 112 126", field: "242 232 251",
+            gray: { "50": "242 239 247", "100": "238 235 243", "200": "236 233 242", "300": "215 215 224", "400": "172 179 185", "500": "140 148 155", "600": "99 112 126", "700": "82 98 115", "800": "56 74 92", "900": "44 62 80", "950": "26 35 44" },
+          },
+          sky: {
+            accent: "52 152 219", soft: "212 233 248",
+            canvas: "240 247 253", surface: "239 247 252"255 255 255",
+            surfaceAlt: "225 239 250", hairline: "228 236 243",
+            ink: "44 62 80", muted: "99 112 126", field: "223 238 250",
+            gray: { "50": "234 241 248", "100": "230 238 244", "200": "228 236 243", "300": "209 217 225", "400": "172 179 185", "500": "140 148 155", "600": "99 112 126", "700": "82 98 115", "800": "56 74 92", "900": "44 62 80", "950": "26 35 44" },
+          },
+          mint: {
+            accent: "22 160 133", soft: "207 236 230",
+            canvas: "240 250 247", surface: "236 247 245"255 255 255",
+            surfaceAlt: "223 243 238", hairline: "228 239 237",
+            ink: "44 62 80", muted: "99 112 126", field: "220 242 237",
+            gray: { "50": "234 244 242", "100": "230 241 239", "200": "228 239 237", "300": "209 220 220", "400": "172 179 185", "500": "140 148 155", "600": "99 112 126", "700": "82 98 115", "800": "56 74 92", "900": "44 62 80", "950": "26 35 44" },
+          },
+          rose: {
+            accent: "240 98 74", soft: "253 222 218",
+            canvas: "255 244 243", surface: "254 242 240"255 255 255",
+            surfaceAlt: "254 232 229", hairline: "242 233 233",
+            ink: "44 62 80", muted: "99 112 126", field: "254 231 228",
+            gray: { "50": "249 239 238", "100": "244 235 235", "200": "242 233 233", "300": "221 215 217", "400": "172 179 185", "500": "140 148 155", "600": "99 112 126", "700": "82 98 115", "800": "56 74 92", "900": "44 62 80", "950": "26 35 44" },
+          },
+          mono: {
+            accent: "143 153 154", soft: "225 229 230",
+            canvas: "240 242 243", surface: "246 247 247"255 255 255",
+            surfaceAlt: "232 235 236", hairline: "228 231 233",
+            ink: "44 62 80", muted: "99 112 126", field: "231 234 235",
+            gray: { "50": "234 237 238", "100": "230 233 235", "200": "228 231 233", "300": "209 213 217", "400": "172 179 185", "500": "140 148 155", "600": "99 112 126", "700": "82 98 115", "800": "56 74 92", "900": "44 62 80", "950": "26 35 44" },
+          },
+          copper: {
+            accent: "206 138 78", soft: "253 233 210",
+            canvas: "255 247 237", surface: "251 246 241"255 255 255",
+            surfaceAlt: "255 238 219", hairline: "240 228 212",
+            ink: "58 38 26", muted: "128 95 68", field: "255 240 222",
+            gray: { "50": "252 248 243", "100": "247 240 232", "200": "240 228 214", "300": "222 205 186", "400": "177 155 133", "500": "140 117 96", "600": "128 95 68", "700": "97 71 51", "800": "76 53 37", "900": "58 38 26", "950": "40 24 15" },
+            signals: { tfidf: "206 138 78", sbert: "18 128 112", meta: "222 174 116" },
+          },
+        };
+        try {
+          var id = localStorage.getItem("paperrec_accent");
+          var palette = palettes[id];
+          if (palette) {
+            var root = document.documentElement;
+            root.style.setProperty("--accent", palette.accent);
+            root.style.setProperty("--accent-soft", palette.soft);
+            root.style.setProperty("--canvas", palette.canvas);
+            root.style.setProperty("--surface", palette.surface);
+            root.style.setProperty("--surface-alt", palette.surfaceAlt);
+            root.style.setProperty("--hairline", palette.hairline);
+            root.style.setProperty("--ink", palette.ink);
+            root.style.setProperty("--muted", palette.muted);
+            root.style.setProperty("--field", palette.field);
+            for (var step in palette.gray) {
+              root.style.setProperty("--gray-" + step, palette.gray[step]);
+            }
+
+            // Auto text color: pick the more legible of ink/white per fill.
+            function chan(c) {
+              var s = c / 255;
+              return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+            }
+            function lum(t) {
+              var p = t.split(" ").map(Number).map(chan);
+              return 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+            }
+            function ratio(a, b) {
+              var la = lum(a), lb = lum(b);
+              return la >= lb ? (la + 0.05) / (lb + 0.05) : (lb + 0.05) / (la + 0.05);
+            }
+            function on(fill) {
+              return ratio(fill, palette.ink) >= ratio(fill, "255 255 255")
+                ? palette.ink
+                : "255 255 255";
+            }
+            root.style.setProperty("--on-accent", on(palette.accent));
+            root.style.setProperty("--on-ink", on(palette.ink));
+
+            // Pipeline signal colors adapt to the theme accent:
+            // TF-IDF keeps the hue, S-BERT +50deg, Metadata -50deg,
+            // lightness pinned at 0.5; achromatic accents use
+            // fixed distinct hues.
+            function hsl(t) {
+              var p = t.split(" ").map(Number).map(function (c) { return c / 255; });
+              var max = Math.max(p[0], p[1], p[2]), min = Math.min(p[0], p[1], p[2]);
+              var d = max - min, h = 0;
+              var l = (max + min) / 2;
+              var s = d === 0 ? 0 : l > 0.5 ? d / (2 - max - min) : d / (max + min);
+              if (d !== 0) {
+                if (max === p[0]) h = ((p[1] - p[2]) / d + (p[1] < p[2] ? 6 : 0)) * 60;
+                else if (max === p[1]) h = ((p[2] - p[0]) / d + 2) * 60;
+                else h = ((p[0] - p[1]) / d + 4) * 60;
+              }
+              return { h: h, s: s };
+            }
+            function fromHsl(h, s, l) {
+              var c = (1 - Math.abs(2 * l - 1)) * s;
+              var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+              var m = l - c / 2;
+              var r = 0, g = 0, b = 0;
+              if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+              else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+              else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+              return Math.round((r + m) * 255) + " " + Math.round((g + m) * 255) + " " + Math.round((b + m) * 255);
+            }
+            function tonal(acc, off) {
+              var x = hsl(acc);
+              var target = Math.max(0.18, Math.min(0.85, x.l + off));
+              return fromHsl(x.h, x.s, target);
+            }
+            function signals(acc) {
+              var x = hsl(acc);
+              if (x.s < 0.15) {
+                return { tfidf: "31 147 133", sbert: "201 85 43", meta: "110 86 207" };
+              }
+              // Analogous triad: accent ±30deg, legibility clamp.
+              return {
+                tfidf: acc,
+                sbert: fromHsl(((x.h + 30) % 360 + 360) % 360, x.s, legible(((x.h + 30) % 360 + 360) % 360)),
+                meta: fromHsl(((x.h - 30) % 360 + 360) % 360, x.s, legible(((x.h - 30) % 360 + 360) % 360)),
+              };
+            }
+            var sig = palette.signals || signals(palette.accent);
+            root.style.setProperty("--signal-tfidf", sig.tfidf);
+            root.style.setProperty("--signal-sbert", sig.sbert);
+            root.style.setProperty("--signal-meta", sig.meta);
+
+            // Subject tag colors adapt too (accent ±150deg, legibility clamp).
+            function legible(h) {
+              return h >= 35 && h <= 165 ? 0.38 : 0.5;
+            }
+            if (x.s < 0.15) {
+              root.style.setProperty("--tag-cs", "37 99 235");
+              root.style.setProperty("--tag-math", "47 158 79");
+            } else {
+              root.style.setProperty("--tag-cs", fromHsl(((x.h + 150) % 360 + 360) % 360, x.s, legible(((x.h + 150) % 360 + 360) % 360)));
+              root.style.setProperty("--tag-math", fromHsl(((x.h - 150) % 360 + 360) % 360, x.s, legible(((x.h - 150) % 360 + 360) % 360)));
+            }
+            root.dataset.accent = id;
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-navy text-ink">
+  <body class="bg-canvas text-ink">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

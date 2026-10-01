@@ -6,6 +6,12 @@ import { Button } from "./ui";
 interface FindPdfPanelProps {
   paper: Paper;
   onAttached: (paper: Paper) => void;
+  /**
+   * When provided, the per-candidate "Preview" control previews the
+   * PDF inside the app (e.g. the PaperViewerModal pop-up frame)
+   * instead of opening a new browser tab.
+   */
+  onPreview?: (url: string) => void;
 }
 
 /* ============================================================
@@ -22,7 +28,7 @@ const FOCUS =
 // "Preview" matches the buttons next to it.
 const UTILITY_LINK =
   `inline-flex items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 ` +
-  `text-sm font-medium leading-snug text-gray-900 hover:bg-[#FCA847] ${FOCUS}`;
+  `text-sm font-medium leading-snug text-gray-900 hover:bg-accent hover:text-onAccent ${FOCUS}`;
 
 const sourceLabels: Record<string, string> = {
   unpaywall: "Unpaywall",
@@ -42,7 +48,7 @@ function isLikelyBlockedError(message: string): boolean {
   );
 }
 
-export default function FindPdfPanel({ paper, onAttached }: FindPdfPanelProps) {
+export default function FindPdfPanel({ paper, onAttached, onPreview }: FindPdfPanelProps) {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [candidates, setCandidates] = useState<PdfCandidate[]>([]);
@@ -117,7 +123,7 @@ export default function FindPdfPanel({ paper, onAttached }: FindPdfPanelProps) {
                 href={blockedUrl}
                 target="_blank"
                 rel="noreferrer"
-                className={`font-bold text-gray-900 underline underline-offset-2 ${FOCUS}`}
+                className={`font-bold text-ink underline hover:decoration-2 ${FOCUS}`}
               >
                 opening it in your browser
               </a>
@@ -137,7 +143,7 @@ export default function FindPdfPanel({ paper, onAttached }: FindPdfPanelProps) {
       {candidates.length > 0 && (
         <div className="mt-6 space-y-4">
           <p className="text-sm font-bold text-gray-900">
-            Found {candidates.length} possible match{candidates.length > 1 ? "es" : ""} — confirm before attaching:
+            Found {candidates.length} possible match{candidates.length > 1 ? "es" : ""}. Confirm before attaching:
           </p>
 
           {candidates.map((candidate) => (
@@ -160,7 +166,7 @@ export default function FindPdfPanel({ paper, onAttached }: FindPdfPanelProps) {
                 href={candidate.landing_page_url || candidate.url}
                 target="_blank"
                 rel="noreferrer"
-                className={`mt-1 inline-block break-all text-sm text-gray-900 underline underline-offset-2 ${FOCUS}`}
+                className={`mt-1 inline-block break-all text-sm font-bold text-ink underline hover:decoration-2 ${FOCUS}`}
               >
                 {candidate.landing_page_url || candidate.url}
               </a>
@@ -175,14 +181,24 @@ export default function FindPdfPanel({ paper, onAttached }: FindPdfPanelProps) {
                   {attachingUrl === candidate.url ? "Attaching…" : "Use this PDF"}
                 </Button>
 
-                <a
-                  href={candidate.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={UTILITY_LINK}
-                >
-                  Preview
-                </a>
+                {onPreview ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => onPreview(candidate.url)}
+                  >
+                    Preview
+                  </Button>
+                ) : (
+                  <a
+                    href={candidate.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={UTILITY_LINK}
+                  >
+                    Preview
+                  </a>
+                )}
               </div>
             </div>
           ))}

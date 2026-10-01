@@ -1,10 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getPaperPdfUrl,
   updatePaper,
 } from "../api";
 import type { Paper } from "../api";
 import FindPdfPanel from "./FindPdfPanel";
+import MathText from "./MathText";
+import {
+  CITATION_FORMATS,
+  downloadCitation,
+} from "../utils/exportCitations";
 import { Button } from "./ui";
 
 interface PaperViewerModalProps {
@@ -13,6 +18,8 @@ interface PaperViewerModalProps {
   onClose: () => void;
   canEdit?: boolean;
   onPaperUpdated?: (paper: Paper) => void;
+  /** Optional external PDF to preview instead of the stored file. */
+  previewUrl?: string | null;
 }
 
 interface PaperForm {
@@ -38,7 +45,7 @@ interface PaperForm {
    No slab: nine stacked slabs in a sidebar would be noise, and the
    slab is reserved for the one dominant input on a page. */
 const INPUT =
-  "block w-full rounded border-[3px] border-gray-900 bg-[#E8F0FE] px-3 py-2 " +
+  "block w-full rounded border-[3px] border-gray-900 bg-field px-3 py-2 " +
   "text-sm font-medium text-gray-900 placeholder-gray-600 " +
   "focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-gray-900 " +
   "disabled:cursor-not-allowed disabled:opacity-50";
@@ -97,6 +104,7 @@ export default function PaperViewerModal({
   onClose,
   canEdit = false,
   onPaperUpdated,
+  previewUrl = null,
 }: PaperViewerModalProps) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -115,6 +123,29 @@ export default function PaperViewerModal({
     citation_count: "",
   });
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+
+  /* Export dropdown state. */
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        exportRef.current &&
+        !exportRef.current.contains(event.target as Node)
+      ) {
+        setExportOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [exportOpen]);
+
   useEffect(() => {
     setCurrentPaper(paper);
 
@@ -127,14 +158,68 @@ export default function PaperViewerModal({
     setError(null);
   }, [paper]);
 
+  // --------------------------------------------------------
+  // FOCUS MANAGEMENT
+  // When the viewer opens (or switches to another paper),
+  // move focus into the dialog so keyboard input lands in the
+  // pop-up instead of the page behind it. Focus is returned
+  // to whatever was focused before (e.g. the View button).
+  // --------------------------------------------------------
+
+  useEffect(() => {
+    if (!open || !currentPaper) {
+      return;
+    }
+
+    if (document.activeElement instanceof HTMLElement) {
+      previouslyFocused.current = document.activeElement;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      dialogRef.current?.focus();
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [open, currentPaper?.id]);
+
+  useEffect(() => {
+    if (open) {
+      return;
+    }
+
+    previouslyFocused.current?.focus();
+    previouslyFocused.current = null;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
+
   if (!open || !currentPaper) {
     return null;
   }
 
-  const pdfUrl = getPaperPdfUrl(currentPaper.id);
+  const pdfUrl = previewUrl ?? getPaperPdfUrl(currentPaper.id);
 
+  // An external preview URL always renders in the frame; otherwise
+  // only papers with a stored .pdf do.
   const isPdf =
-    currentPaper.stored_path?.toLowerCase().endsWith(".pdf") ?? false;
+    previewUrl != null ||
+    (currentPaper.stored_path?.toLowerCase().endsWith(".pdf") ?? false);
 
   const handleChange = (field: keyof PaperForm, value: string) => {
     setForm((previous) => ({
@@ -208,7 +293,7 @@ export default function PaperViewerModal({
        the spec allows no translucency, and the ink outline + slab read
        best against cream. */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#FFFDF8] p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-canvas p-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -224,22 +309,24 @@ export default function PaperViewerModal({
         />
 
         <div
+          ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby="paper-viewer-title"
-          className="relative z-10 flex h-full w-full flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white text-gray-900"
+          tabIndex={-1}
+          className="relative z-10 flex h-full w-full flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white text-gray-900 focus:outline-none"
         >
           {/* ================================================= */}
           {/* HEADER (navbar treatment: cream, ink rule below) */}
           {/* ================================================= */}
 
-          <div className="flex items-center justify-between gap-4 border-b-[3px] border-gray-900 bg-[#FFFDF8] px-5 py-3">
+          <div className="flex items-center justify-between gap-4 border-b-[3px] border-gray-900 bg-canvas px-5 py-3">
             <div className="min-w-0">
               <h2
                 id="paper-viewer-title"
                 className="truncate text-xl font-bold leading-snug text-gray-900"
               >
-                {currentPaper.title || "Untitled Paper"}
+                <MathText text={currentPaper.title} />
               </h2>
 
               <p className="text-sm text-gray-600">
@@ -257,6 +344,43 @@ export default function PaperViewerModal({
                   Edit
                 </Button>
               )}
+
+              {/* Export citation dropdown */}
+              <div ref={exportRef} className="relative">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setExportOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={exportOpen}
+                >
+                  Export ▾
+                </Button>
+
+                {exportOpen && (
+                  <ul
+                    role="menu"
+                    aria-label="Export citation"
+                    className="absolute right-0 top-full z-30 mt-1 w-56 overflow-hidden rounded border-[3px] border-gray-900 bg-white py-0.5"
+                  >
+                    {CITATION_FORMATS.map((format) => (
+                      <li key={format.id}>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            downloadCitation(currentPaper, format.id);
+                            setExportOpen(false);
+                          }}
+                          className="block w-full px-3 py-1.5 text-left text-sm font-medium text-gray-900 transition-colors pixel-ease hover:bg-accentSoft"
+                        >
+                          {format.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
 
               {editing && (
                 <>
@@ -312,7 +436,7 @@ export default function PaperViewerModal({
 
           <div className="flex min-h-0 flex-1">
             {/* ----------------- PDF READER ----------------- */}
-            <div className="min-w-0 flex-1 bg-[#FFFDF8]">
+            <div className="min-w-0 flex-1 bg-canvas">
               {isPdf ? (
                 <iframe
                   src={pdfUrl}
@@ -333,6 +457,7 @@ export default function PaperViewerModal({
                     </p>
 
                     <FindPdfPanel
+                      key={currentPaper.id}
                       paper={currentPaper}
                       onAttached={handlePdfAttached}
                     />
@@ -344,7 +469,7 @@ export default function PaperViewerModal({
             {/* ----------------- METADATA PANEL ----------------- */}
             <aside className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-l-[3px] border-gray-900 bg-white">
               <div className="p-5">
-                <h3 className="text-xl font-bold leading-snug text-gray-900">
+                <h3 className="font-pixelify text-xl font-bold leading-snug text-gray-900">
                   Paper information
                 </h3>
 
@@ -359,7 +484,7 @@ export default function PaperViewerModal({
                       <div key={field.key}>
                         <label
                           htmlFor={editing ? inputId : undefined}
-                          className="mb-1.5 block text-sm font-bold text-gray-900"
+                          className="font-pixelify mb-1.5 block text-base font-bold text-gray-900"
                         >
                           {field.label}
                         </label>
@@ -396,7 +521,14 @@ export default function PaperViewerModal({
                               isEmpty ? "text-gray-600" : "text-gray-900"
                             }`}
                           >
-                            {isEmpty ? field.emptyText ?? "—" : String(raw)}
+                            {isEmpty
+                              ? field.emptyText ?? "—"
+                              : field.key === "abstract" ||
+                                field.key === "title" ? (
+                                  <MathText text={String(raw)} />
+                                ) : (
+                                  String(raw)
+                                )}
                           </p>
                         )}
                       </div>

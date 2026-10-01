@@ -1,6 +1,9 @@
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { Button } from "../../components/ui";
+import { Check } from "../../components/retro/PixelIcons";
+
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,104 +33,78 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen bg-navy px-4 py-6 text-ink">
-      <div className="mx-auto w-full max-w-sm">
-        {/* Logo / Header */}
-        <div className="pt-2 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg border border-gold/50 text-base font-semibold text-gold">
-            R
+    <div className="rounded border-[3px] border-gray-900 bg-white p-6">
+      {submitted ? (
+        <div className="text-center">
+          <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded border-[3px] border-gray-900 bg-accent text-lg font-bold text-onAccent">
+            <Check className="h-6 w-6" />
           </div>
 
-          <h1 className="font-serif text-2xl">
-            Paper<span className="text-gold">Rec</span>
+          <h1 className="font-pixelify text-xl font-bold leading-snug text-ink">
+            Check your email
           </h1>
 
-          <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-muted">
-            BulSU BSMCS
+          <p className="mt-2 text-sm leading-5 text-muted">
+            If an account exists for that email address, you will receive
+            instructions to reset your password.
           </p>
+
+          <Link
+            to="/"
+            className="mt-5 inline-flex rounded border-[3px] border-gray-900 bg-white px-4 py-2 text-sm font-bold text-ink hover:bg-accent hover:text-onAccent"
+          >
+            Back to sign in
+          </Link>
         </div>
+      ) : (
+        <>
+          <div className="mb-5">
+            <h1 className="font-pixelify text-2xl font-bold leading-none text-ink">
+              Forgot your password?
+            </h1>
 
-        {/* Forgot Password Card */}
-        <div className="mt-6 rounded-xl border border-line bg-panel p-5 shadow-2xl">
-          {submitted ? (
-            <div className="text-center">
-              <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-gold/40 bg-gold/10 text-gold">
-                ✓
-              </div>
+            <p className="mt-2 text-sm leading-5 text-muted">
+              Enter your email address and we'll send you instructions to
+              reset your password.
+            </p>
+          </div>
 
-              <h2 className="font-serif text-xl">Check your email</h2>
-
-              <p className="mt-2 text-sm leading-5 text-muted">
-                If an account exists for that email address, you will receive
-                instructions to reset your password.
-              </p>
-
-              <Link
-                to="/"
-                className="mt-5 inline-flex rounded-md border border-line px-4 py-2 text-sm text-ink hover:bg-panelAlt"
-              >
-                Back to sign in
-              </Link>
+          {error && (
+            <div role="alert" className="status-error mb-4">
+              {error}
             </div>
-          ) : (
-            <>
-              <div className="mb-5">
-                <h2 className="font-serif text-xl">Forgot your password?</h2>
-
-                <p className="mt-1.5 text-sm leading-5 text-muted">
-                  Enter your email address and we'll send you instructions to
-                  reset your password.
-                </p>
-              </div>
-
-              {error && (
-                <div
-                  role="alert"
-                  className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
-                >
-                  {error}
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label
-                    htmlFor="forgot-email"
-                    className="mb-1.5 block text-sm font-medium"
-                  >
-                    Email address
-                  </label>
-
-                  <input
-                    id="forgot-email"
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    className="w-full rounded-md border border-line bg-navy px-3 py-2.5 text-sm outline-none focus:border-gold"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-md bg-gold px-4 py-2.5 text-sm font-semibold text-navy transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? "Sending..." : "Send reset instructions"}
-                </button>
-              </form>
-
-              <p className="mt-5 text-center text-sm text-muted">
-                Remember your password?{" "}
-                <Link to="/" className="font-medium text-gold hover:underline">
-                  Sign in
-                </Link>
-              </p>
-            </>
           )}
-        </div>
-      </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="forgot-email" className="field-label mb-1.5">
+                Email address
+              </label>
+
+              <input
+                id="forgot-email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                className="w-full rounded border-[3px] border-gray-900 bg-field px-3 py-2.5 text-sm font-medium text-ink placeholder:text-muted"
+              />
+            </div>
+
+            <Button type="submit" variant="primary" fullWidth disabled={loading}>
+              {loading ? "Sending..." : "Send reset instructions"}
+            </Button>
+          </form>
+
+          <p className="mt-5 text-center text-sm text-muted">
+            Remember your password?{" "}
+            <Link to="/" className="font-bold text-ink underline hover:decoration-2">
+              Sign in
+            </Link>
+          </p>
+        </>
+      )}
     </div>
   );
 }

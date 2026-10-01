@@ -94,10 +94,54 @@ export function getRepositoryStats(): Promise<RepositoryStats> {
   );
 }
 
+// ============================================================
+// CATALOG (backend-owned taxonomy, auto-grows with new papers)
+
+export interface Catalog {
+  subjects: string[];
+  categories: string[];
+  document_types: string[];
+  /**
+   * Categories that co-occur with each subject in the imported
+   * references, keyed by subject. Drives the Upload form's
+   * auto-suggested category list for the selected subject.
+   */
+  subject_categories: Record<string, string[]>;
+}
+
+export function getCatalog(): Promise<Catalog> {
+  return fetch(`${API_URL}/api/catalog`).then(
+    handle<Catalog>
+  );
+}
+
 export function getPaper(id: number): Promise<Paper> {
   return fetch(`${API_URL}/api/papers/${id}`).then(
     handle<Paper>
   );
+}
+
+// ============================================================
+// BACKGROUND ENRICHMENT STATUS
+//
+// After a save, the backend fills in missing metadata and attaches
+// found PDFs on a background queue. Poll this to know when to
+// refresh the paper.
+// ============================================================
+
+export type EnrichmentStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "done"
+  | "failed";
+
+export function getEnrichmentStatus(
+  paperId: number
+): Promise<{ paper_id: number; status: EnrichmentStatus }> {
+  return fetch(
+    `${API_URL}/api/papers/${paperId}/enrichment-status`
+  ).then(handle<{ paper_id: number; status: EnrichmentStatus }>);
 }
 
 export function getPaperPdfUrl(paperId: number): string {
@@ -127,6 +171,137 @@ export function uploadPaper(file: File): Promise<Paper> {
   }).then(handle<Paper>);
 }
 
+// ============================================================
+// ADD BY IDENTIFIER (DOI / arXiv / link)
+// ============================================================
+
+/** The preview payload shared by file and identifier lookups. */
+export interface PaperPreviewData {
+  title: string;
+  author: string | null;
+  abstract: string | null;
+  keywords: string | null;
+  publication_year: number | null;
+  doi: string | null;
+  subject_category: string | null;
+  document_type: string | null;
+  citation_count: number | null;
+  is_valid_for_recommendation: boolean;
+  missing_fields: string | null;
+  source_filename: string | null;
+  extraction_method: string | null;
+  pdf_candidates?: Array<{
+    url: string;
+    source: string;
+    title: string | null;
+    confidence: number;
+    landing_page_url: string | null;
+    license: string | null;
+  }>;
+}
+
+/**
+ * Resolve a pasted DOI, arXiv id, or link to either -- nothing is
+ * persisted; the result is a preview for review before saving.
+ */
+export function previewIdentifier(
+  identifier: string
+): Promise<PaperPreviewData> {
+  return fetch(`${API_URL}/api/papers/preview-identifier`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ identifier }),
+  }).then(handle<PaperPreviewData>);
+}
+
+export interface MetadataImportInput {
+  title: string;
+  author?: string | null;
+  abstract?: string | null;
+  keywords?: string | null;
+  publication_year?: number | null;
+  doi?: string | null;
+  subject_category?: string | null;
+  document_type?: string | null;
+  citation_count?: number | null;
+  source_filename?: string | null;
+  pdf_url?: string | null;
+}
+
+/**
+ * Create a paper directly from reviewed metadata (no source file) --
+ * the save step of the identifier flow.
+ */
+export function importPaperFromMetadata(
+  input: MetadataImportInput
+): Promise<Paper> {
+  return fetch(`${API_URL}/api/papers/import-metadata`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  }).then(handle<Paper>);
+}
+
+// ============================================================
+// WEB SEARCH (OpenAlex + Crossref)
+// ============================================================
+
+export interface WebSearchResult {
+  title: string;
+  author: string | null;
+  abstract: string | null;
+  publication_year: number | null;
+  doi: string | null;
+  venue: string | null;
+  /** Which legitimate API answered: "openalex" | "crossref". */
+  source: string;
+  citations: number | null;
+  /** null = unknown (Crossref has no reliable OA flag). */
+  is_oa: boolean | null;
+  landing_url: string | null;
+  document_type: string | null;
+  /** Direct full-text link (arXiv results carry one). */
+  pdf_url?: string | null;
+}
+
+export interface WebSearchParams {
+  q: string;
+  year_min?: number | null;
+  year_max?: number | null;
+  peer_reviewed?: boolean;
+  open_access?: boolean;
+  /** Comma-joined: "openalex,crossref". */
+  sources?: string;
+  sort?: "relevance" | "citations" | "year";
+  limit?: number;
+}
+
+/**
+ * Legitimate web search across OpenAlex + Crossref. Peer-reviewed
+ * types only unless peer_reviewed is explicitly turned off.
+ */
+export function searchWeb(
+  params: WebSearchParams
+): Promise<WebSearchResult[]> {
+  const query = new URLSearchParams({ q: params.q });
+
+  if (params.year_min != null) query.set("year_min", String(params.year_min));
+  if (params.year_max != null) query.set("year_max", String(params.year_max));
+  query.set("peer_reviewed", String(params.peer_reviewed ?? true));
+  query.set("open_access", String(params.open_access ?? false));
+  if (params.sources) query.set("sources", params.sources);
+  query.set("sort", params.sort ?? "relevance");
+  if (params.limit) query.set("limit", String(params.limit));
+
+  return fetch(`${API_URL}/api/search-web?${query.toString()}`).then(
+    handle<WebSearchResult[]>
+  );
+}
+
 export async function importBibtex(
   bibtex: string,
   filename = "google-scholar.bib"
@@ -152,12 +327,39 @@ export function getLibrary(): Promise<LibraryEntry[]> {
   );
 }
 
+/** Lets the nav badge refresh whenever the library changes. */
+function notifyLibraryChanged() {
+  window.dispatchEvent(new Event("library-changed"));
+}
+
 export function saveToLibrary(
   paperId: number
 ): Promise<{ status: string }> {
   return fetch(`${API_URL}/api/library/${paperId}`, {
     method: "POST",
-  }).then(handle<{ status: string }>);
+  })
+    .then(handle<{ status: string }>)
+    .then((result) => {
+      notifyLibraryChanged();
+      return result;
+    });
+}
+
+export interface AssignKeywordsResult {
+  checked: number;
+  updated: number;
+  paper_ids: number[];
+}
+
+/**
+ * Automatic keyword assigner: fills in YAKE keywords for every
+ * library paper that has none. Called by the My Library page on
+ * load; local and best-effort.
+ */
+export function assignLibraryKeywords(): Promise<AssignKeywordsResult> {
+  return fetch(`${API_URL}/api/library/assign-keywords`, {
+    method: "POST",
+  }).then(handle<AssignKeywordsResult>);
 }
 
 export function removeFromLibrary(
@@ -165,7 +367,12 @@ export function removeFromLibrary(
 ): Promise<void> {
   return fetch(`${API_URL}/api/library/${paperId}`, {
     method: "DELETE",
-  }).then(handle<void>);
+  })
+    .then(handle<void>)
+    .then((result) => {
+      notifyLibraryChanged();
+      return result;
+    });
 }
 
 export function deletePaper(
@@ -176,11 +383,26 @@ export function deletePaper(
   }).then(handle<void>);
 }
 
+/** Removes only the stored PDF; the paper record stays intact. */
+export function deletePaperPdf(paperId: number): Promise<Paper> {
+  return fetch(`${API_URL}/api/papers/${paperId}/pdf`, {
+    method: "DELETE",
+  }).then(handle<Paper>);
+}
+
+export interface DialWeights {
+  tfidf: number;
+  sbert: number;
+  metadata: number;
+}
+
 export interface RecommendationParams {
   pipeline: string;
   query?: string;
   seedPaperId?: number;
   topK?: number;
+  /** Dial allocation for pipeline="custom" (0..100 per signal). */
+  weights?: DialWeights;
 }
 
 export function getRecommendations(
@@ -208,9 +430,163 @@ export function getRecommendations(
     );
   }
 
+  if (params.weights) {
+    search.set("w_tfidf", String(params.weights.tfidf));
+    search.set("w_sbert", String(params.weights.sbert));
+    search.set("w_metadata", String(params.weights.metadata));
+  }
+
   return fetch(
     `${API_URL}/api/recommendations?${search.toString()}`
   ).then(handle<SearchResult[]>);
+}
+
+// ============================================================
+// RECOMMENDATION EXECUTION TRACE
+// ============================================================
+
+export interface TraceEvent {
+  event: string;
+  message: string;
+  data: Record<string, unknown>;
+}
+
+export interface RecommendationTrace {
+  events: TraceEvent[];
+  results: SearchResult[];
+}
+
+export function getRecommendationTrace(
+  params: RecommendationParams
+): Promise<RecommendationTrace> {
+  return fetch(`${API_URL}/api/recommendations/trace`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      pipeline: params.pipeline,
+      query: params.query ?? null,
+      seed_paper_id:
+        params.seedPaperId ?? null,
+      top_k: params.topK ?? 10,
+      ...(params.weights
+        ? {
+            w_tfidf: params.weights.tfidf,
+            w_sbert: params.weights.sbert,
+            w_metadata: params.weights.metadata,
+          }
+        : {}),
+    }),
+  }).then(handle<RecommendationTrace>);
+}
+
+// ============================================================
+// PIPELINE COMPARISON ("PIPELINE BATTLE")
+// ============================================================
+
+export interface CompareRankedPaper {
+  paper_id: number;
+  title: string | null;
+  year: number | null;
+  score: number;
+}
+
+export interface ComparePipelineBattle {
+  id: string;
+  results: CompareRankedPaper[];
+}
+
+export interface CompareConsensusEntry {
+  paper_id: number;
+  title: string | null;
+  year: number | null;
+  votes: number;
+  avg_rank: number | null;
+  best_rank: number | null;
+}
+
+export interface ComparePairwiseAgreement {
+  a: string;
+  b: string;
+  overlap: number;
+  mean_rank_gap: number | null;
+}
+
+export interface CompareWinner {
+  pipeline_id: string;
+  metric: "independence_weighted_consensus";
+  value: number;
+  avg_consensus_rank: number | null;
+}
+
+export interface CompareResponse {
+  query: string | null;
+  seed_paper_id: number | null;
+  top_k: number;
+  pipelines: ComparePipelineBattle[];
+  consensus: CompareConsensusEntry[];
+  pairwise: ComparePairwiseAgreement[];
+  winner: CompareWinner | null;
+}
+
+export function comparePipelines(params: {
+  query?: string;
+  seedPaperId?: number;
+  topK?: number;
+  customWeights?: { tfidf: number; sbert: number; metadata: number };
+  recordBattle?: boolean;
+}): Promise<CompareResponse> {
+  return fetch(`${API_URL}/api/recommendations/compare`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: params.query ?? null,
+      seed_paper_id: params.seedPaperId ?? null,
+      top_k: params.topK ?? 10,
+      custom_weights: params.customWeights ?? null,
+      record_battle: params.recordBattle ?? true,
+    }),
+  }).then(handle<CompareResponse>);
+}
+
+// ============================================================
+// BATTLE HISTORY
+
+export interface BattleRun {
+  id: number;
+  query: string | null;
+  seed_paper_id: number | null;
+  top_k: number;
+  winner_pipeline_id: string;
+  winner_metric: string;
+  winner_value: number | null;
+  avg_consensus_rank: number | null;
+  created_at: string;
+}
+
+export interface BattleHistoryResponse {
+  runs: BattleRun[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+  tally: { pipeline_id: string; wins: number }[];
+}
+
+export function getBattleHistory(
+  page = 1,
+  pageSize = 20,
+): Promise<BattleHistoryResponse> {
+  const search = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  return fetch(`${API_URL}/api/evaluation/battles?${search}`).then(
+    handle<BattleHistoryResponse>,
+  );
 }
 
 // ============================================================
@@ -289,52 +665,6 @@ export function notifyRecommendationIndexStale(): void {
 }
 
 // ============================================================
-// SEMANTIC SCHOLAR RESEARCH GRAPH
-// ============================================================
-
-export interface ConnectedPaperNode {
-  id: string;
-  title: string;
-  authors: string[];
-  year: number | null;
-  abstract: string | null;
-  url: string | null;
-  doi: string | null;
-
-  relationship:
-    | "current"
-    | "reference"
-    | "citation";
-}
-
-export interface ConnectedPaperEdge {
-  source: string;
-  target: string;
-
-  relationship:
-    | "reference"
-    | "citation";
-}
-
-export interface ConnectedPapersGraphData {
-  start_id: string;
-  semantic_scholar_id: string;
-
-  nodes: ConnectedPaperNode[];
-  edges: ConnectedPaperEdge[];
-}
-
-export function getConnectedPapersGraph(
-  paperId: number
-): Promise<ConnectedPapersGraphData> {
-  return fetch(
-    `${API_URL}/api/papers/${paperId}/connected-graph`
-  ).then(
-    handle<ConnectedPapersGraphData>
-  );
-}
-
-// ============================================================
 // SIMILAR PAPERS GRAPH
 // ============================================================
 
@@ -347,30 +677,51 @@ export interface SimilarGraphNode {
   doi: string | null;
   similarity: number;
   relationship: "current" | "similar";
+  /** Shortest weighted path from the origin (start_id) to this node. */
+  path: number[];
+  /** Weighted length of that path (hop cost = 1 - edge weight). */
+  path_length: number;
 }
 
-export interface SimilarGraphEdge {
-  source: number;
-  target: number;
-  similarity: number;
+/** A shared group: author or topic present on >= 2 graph papers. */
+export interface SimilarGraphCommonGroup {
+  name: string;
+  /** Paper ids that share this name. */
+  mentions: number[];
+  edges_count: number;
 }
 
 export interface SimilarPapersGraph {
   paper_id: number;
   pipeline: string;
+  /** The origin paper every path starts from. */
+  start_id: number;
   nodes: SimilarGraphNode[];
-  edges: SimilarGraphEdge[];
+  /** Weighted triples: [source, target, weight] (0..1). */
+  edges: [number, number, number][];
+  /** Weighted distance from the origin, keyed by paper id
+   *  (string keys -- this is a JSON object). */
+  path_lengths: Record<string, number>;
+  common_authors: SimilarGraphCommonGroup[];
+  common_topics: SimilarGraphCommonGroup[];
 }
 
 export function getSimilarPapersGraph(
   paperId: number,
   pipeline = "tfidf_sbert_metadata",
-  topK = 10
+  topK = 10,
+  weights?: DialWeights
 ): Promise<SimilarPapersGraph> {
   const search = new URLSearchParams();
 
   search.set("pipeline", pipeline);
   search.set("top_k", String(topK));
+
+  if (weights) {
+    search.set("w_tfidf", String(weights.tfidf));
+    search.set("w_sbert", String(weights.sbert));
+    search.set("w_metadata", String(weights.metadata));
+  }
 
   return fetch(
     `${API_URL}/api/papers/${paperId}/similar-graph?${search.toString()}`

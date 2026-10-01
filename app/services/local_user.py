@@ -29,7 +29,7 @@ def get_or_create_default_user(db: Session) -> User:
 
     user = User(
         username=DEFAULT_USERNAME,
-        email="local@paperrec.local",
+        email="local@research.local",
         password_hash="unused-single-user-mode",
     )
     db.add(user)

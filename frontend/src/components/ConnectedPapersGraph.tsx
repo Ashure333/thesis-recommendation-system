@@ -3,19 +3,31 @@ import {
   getSimilarPapersGraph,
   SimilarGraphNode,
   SimilarPapersGraph,
+  type DialWeights,
 } from "../api";
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  type SimulationNodeDatum,
+} from "d3-force";
+import { useTheme } from "../theme";
 
 interface ConnectedPapersGraphProps {
   paperId: number;
   pipeline?: string;
   topK?: number;
+  /** Dial allocation for pipeline="custom". */
+  weights?: DialWeights;
 }
 
 interface PositionedNode extends SimilarGraphNode {
   x: number;
   y: number;
   rank: number; // 0 for the current paper, 1..n for similar papers
-  ring: number;
+  isDot: boolean;
 }
 
 /*
@@ -34,124 +46,139 @@ interface PositionedNode extends SimilarGraphNode {
 /*
   LAYOUT NOTES
   ------------
-  The graph does not draw titles next to every node. Long labels collided and
-  forced a wide minimum width, which caused horizontal scrolling in the side
-  panel.
+  Layout follows the algorithm Connected Papers themselves describe
+  (connectedpapers.com/about): a FORCE-DIRECTED graph (d3-force)
+  that visually clusters similar papers together and pushes less
+  similar ones apart, so proximity encodes similarity. Selecting a
+  node highlights the SHORTEST PATH back to the origin paper.
 
-  Instead:
-    - the SVG only holds the nodes (numbered by rank), so it scales cleanly
-      down to any width with no min-width and no scrolling
-    - closer to the center = more similar (concentric rings by rank)
-    - titles live in a ranked list underneath, linked to the graph
-      (hover / click either one and the other highlights)
+  Titles are not drawn next to nodes (long labels collide and force
+  a wide minimum width). The SVG holds numbered nodes and scales to
+  any width; titles live in the ranked list underneath, linked to
+  the graph (hover / click either one and the other highlights).
 */
-const WIDTH = 400;
-const HEIGHT = 360;
+const WIDTH = 560;
+const HEIGHT = 440;
 const CENTER_X = WIDTH / 2;
 const CENTER_Y = HEIGHT / 2;
 
-const RING_RADII = [92, 158];
-const RING_CAPACITY = [4, 6, 8, 10];
-const RING_SQUASH = 0.98;
-
 const CURRENT_RADIUS = 30;
+
+// Extra papers fetched beyond the requested link count, rendered
+// as small unlabeled dots to suggest further connections.
+const SUGGESTIONS = 12;
+
+const DOT_RADIUS = 6.5;
 
 // Slab offset, in SVG user units (matches translate-x-1 / translate-y-1).
 const SLAB = 4;
 // Stroke of the chunky outline, in SVG user units.
 const OUTLINE = 3;
 
-// SVG needs raw hex values; these mirror the Tailwind tokens used elsewhere.
+// SVG needs concrete color values; these mirror the Tailwind tokens used elsewhere.
+// All read the live CSS variables so the graph follows the active theme palette.
 const COLORS = {
-  ink: "#111827", // gray-900
-  orange: "#FCA847", // brand orange: active state
-  surface: "#ffffff",
-  hairline: "#e5e7eb",
+  ink: "rgb(var(--ink) / 1)",
+  surface: "rgb(var(--surface) / 1)",
+  hairline: "rgb(var(--hairline) / 1)",
+  // Theme accent (amber by default) — the "orange = active" node fill.
+  orange: "rgb(var(--accent) / 1)",
+  // Auto-legibility text color for accent-filled nodes.
+  onAccent: "rgb(var(--on-accent) / 1)",
+  onInk: "rgb(var(--on-ink) / 1)",
 };
+
+function resolveAccent(): string {
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--accent")
+    .trim();
+
+  return `rgb(${raw || "243 156 18"})`;
+}
 
 const FOCUS_INSET =
   "focus-visible:outline focus-visible:outline-[3px] focus-visible:-outline-offset-[3px] focus-visible:outline-gray-900";
 
-function getRingRadius(ring: number) {
-  if (ring < RING_RADII.length) {
-    return RING_RADII[ring];
-  }
+/*
+ * Force-directed layout (d3-force), as described by Connected
+ * Papers: similar papers cluster together, less similar ones are
+ * pushed away. The origin paper is pinned at the center. Runs a
+ * fixed number of simulation ticks so the layout is deterministic
+ * per graph (no animation loop, no jank).
+ *
+ * Edge weight drives the link forces (stronger edge -> shorter
+ * rest length and higher stiffness), so proximity encodes the same
+ * blended similarity the edge itself carries.
+ */
+type GraphEdge = [number, number, number];
 
-  return (
-    RING_RADII[RING_RADII.length - 1] + (ring - RING_RADII.length + 1) * 40
-  );
-}
-
-function assignRings(count: number) {
-  const rings: number[] = [];
-  let ring = 0;
-  let used = 0;
-
-  for (let i = 0; i < count; i++) {
-    const capacity = RING_CAPACITY[Math.min(ring, RING_CAPACITY.length - 1)];
-
-    if (i - used >= capacity) {
-      used += capacity;
-      ring += 1;
-    }
-
-    rings.push(ring);
-  }
-
-  return rings;
-}
-
-function layoutNodes(
-  current: SimilarGraphNode | undefined,
-  similar: SimilarGraphNode[],
+function buildForceLayout(
+  nodes: SimilarGraphNode[],
+  edges: GraphEdge[],
+  dotIds: Set<number>,
 ): PositionedNode[] {
-  const result: PositionedNode[] = [];
+  const simNodes = nodes.map((node, index) => ({
+    ...node,
+    x: CENTER_X + Math.cos((index / Math.max(nodes.length, 1)) * Math.PI * 2) * 120,
+    y: CENTER_Y + Math.sin((index / Math.max(nodes.length, 1)) * Math.PI * 2) * 100,
+    fx: node.relationship === "current" ? CENTER_X : undefined,
+    fy: node.relationship === "current" ? CENTER_Y : undefined,
+    rank: 0,
+    isDot: dotIds.has(node.id),
+  }));
 
-  if (current) {
-    result.push({
-      ...current,
-      x: CENTER_X,
-      y: CENTER_Y,
-      rank: 0,
-      ring: -1,
-    });
+  const links = edges.map(([source, target, weight]) => ({
+    source,
+    target,
+    weight,
+  }));
+
+  const simulation = forceSimulation(simNodes as never)
+    .force(
+      "link",
+      forceLink(links as { source: number; target: number; weight: number }[])
+        .id((node: SimulationNodeDatum) => (node as { id: number }).id)
+        .distance(
+          (link: { source: number; target: number; weight: number }) =>
+            70 + (1 - link.weight) * 140,
+        )
+        .strength(
+          (link: { source: number; target: number; weight: number }) =>
+            0.15 + link.weight * 0.5,
+        ),
+    )
+    .force("charge", forceManyBody().strength(-190))
+    .force("center", forceCenter(CENTER_X, CENTER_Y))
+    .force(
+      "collide",
+      forceCollide((node: SimulationNodeDatum) => {
+        const typed = node as unknown as {
+          relationship: string;
+          isDot: boolean;
+        };
+
+        return typed.relationship === "current"
+          ? CURRENT_RADIUS + 6
+          : typed.isDot
+            ? DOT_RADIUS + 6
+            : 18;
+      }).iterations(2),
+    )
+    .stop();
+
+  // Deterministic settle — enough ticks for the layout to relax.
+  simulation.tick(200);
+
+  // Ranks follow similarity order, not layout position.
+  let rank = 0;
+  for (const node of simNodes) {
+    if (node.relationship === "similar") {
+      rank += 1;
+      node.rank = rank;
+    }
   }
 
-  // Most similar first, so they sit on the innermost ring.
-  const sorted = [...similar].sort((a, b) => b.similarity - a.similarity);
-  const rings = assignRings(sorted.length);
-
-  // How many nodes ended up on each ring (for even angular spacing).
-  const ringCounts = new Map<number, number>();
-  rings.forEach((ring) =>
-    ringCounts.set(ring, (ringCounts.get(ring) ?? 0) + 1),
-  );
-
-  const slotCursor = new Map<number, number>();
-
-  sorted.forEach((node, index) => {
-    const ring = rings[index];
-    const slot = slotCursor.get(ring) ?? 0;
-    slotCursor.set(ring, slot + 1);
-
-    const count = ringCounts.get(ring) ?? 1;
-
-    // Offset every other ring by half a slot so nodes don't line up radially.
-    const offset = ring % 2 === 1 ? Math.PI / count : Math.PI / 6;
-    const angle = -Math.PI / 2 + offset + (slot / count) * Math.PI * 2;
-
-    const radius = getRingRadius(ring);
-
-    result.push({
-      ...node,
-      x: CENTER_X + Math.cos(angle) * radius,
-      y: CENTER_Y + Math.sin(angle) * radius * RING_SQUASH,
-      rank: index + 1,
-      ring,
-    });
-  });
-
-  return result;
+  return simNodes as PositionedNode[];
 }
 
 // Similarity is encoded by size only (no tinted washes), so the fills stay
@@ -179,12 +206,33 @@ export default function ConnectedPapersGraph({
   paperId,
   pipeline = "tfidf_sbert_metadata",
   topK = 10,
+  weights,
 }: ConnectedPapersGraphProps) {
   const [graph, setGraph] = useState<SimilarPapersGraph | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<number | null>(null);
+  const { accent } = useTheme();
+  const [accentColor, setAccentColor] = useState(resolveAccent);
+
+  useEffect(() => {
+    setAccentColor(resolveAccent());
+  }, [accent]);
+
+  // Dial drags emit a stream of weight objects — fetch only after
+  // the user settles (~600ms), so the graph doesn't re-request per
+  // pointer move.
+  const [debouncedWeights, setDebouncedWeights] =
+    useState(weights);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedWeights(weights);
+    }, 600);
+
+    return () => window.clearTimeout(timeout);
+  }, [weights]);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,7 +243,12 @@ export default function ConnectedPapersGraph({
     setSelectedNodeId(null);
     setHoveredNodeId(null);
 
-    getSimilarPapersGraph(paperId, pipeline, topK)
+    getSimilarPapersGraph(
+      paperId,
+      pipeline,
+      topK + SUGGESTIONS,
+      debouncedWeights,
+    )
       .then((data) => {
         if (cancelled) {
           return;
@@ -221,7 +274,7 @@ export default function ConnectedPapersGraph({
     return () => {
       cancelled = true;
     };
-  }, [paperId, pipeline, topK]);
+  }, [paperId, pipeline, topK, debouncedWeights]);
 
   const currentNode = useMemo(
     () => graph?.nodes.find((node) => node.relationship === "current"),
@@ -237,8 +290,14 @@ export default function ConnectedPapersGraph({
       (node) => node.relationship === "similar",
     );
 
-    return layoutNodes(currentNode, similarNodes);
-  }, [graph, currentNode]);
+    const labeled = similarNodes.slice(0, topK);
+    const dots = similarNodes.slice(topK);
+    const dotIds = new Set(dots.map((node) => node.id));
+
+    const allNodes = currentNode ? [currentNode, ...similarNodes] : similarNodes;
+
+    return buildForceLayout(allNodes, graph.edges, dotIds);
+  }, [graph, currentNode, topK]);
 
   const nodeMap = useMemo(
     () => new Map(positionedNodes.map((node) => [node.id, node])),
@@ -250,19 +309,63 @@ export default function ConnectedPapersGraph({
     [positionedNodes],
   );
 
+  // The first `topK` similar papers are full labeled nodes; the
+  // rest become small suggestion dots.
+  const labeledNodes = useMemo(
+    () => rankedNodes.slice(0, topK),
+    [rankedNodes, topK],
+  );
+
+  const dotNodes = useMemo(
+    () => rankedNodes.slice(topK),
+    [rankedNodes, topK],
+  );
+
+  const dotIdSet = useMemo(
+    () => new Set(dotNodes.map((node) => node.id)),
+    [dotNodes],
+  );
+
   const similarityRange = useMemo(() => {
-    if (rankedNodes.length === 0) {
+    if (labeledNodes.length === 0) {
       return { min: 0, max: 1 };
     }
 
-    const values = rankedNodes.map((node) => node.similarity);
+    const values = labeledNodes.map((node) => node.similarity);
     return { min: Math.min(...values), max: Math.max(...values) };
-  }, [rankedNodes]);
+  }, [labeledNodes]);
 
   const activeId = hoveredNodeId ?? selectedNodeId;
 
   const toggleSelected = (id: number) =>
     setSelectedNodeId((prev) => (prev === id ? null : id));
+
+  // ----------------------------------------------------------
+  // SHORTEST PATH from the origin paper to the active node —
+  // the Connected Papers signature: highlight the similarity
+  // route on selection. The server computes the route as a
+  // weighted Dijkstra over the edge list (hop cost = 1 - weight),
+  // so what highlights is the real similarity route rather than
+  // a plain fewest-hops walk.
+  // ----------------------------------------------------------
+
+  const activePathKeys = useMemo(() => {
+    if (activeId == null || !graph) {
+      return new Set<string>();
+    }
+
+    const activeNode = graph.nodes.find((node) => node.id === activeId);
+    const path = activeNode?.path ?? [];
+    const pathKeys = new Set<string>();
+
+    for (let index = 0; index + 1 < path.length; index += 1) {
+      const from = path[index];
+      const to = path[index + 1];
+      pathKeys.add(`${Math.min(from, to)}-${Math.max(from, to)}`);
+    }
+
+    return pathKeys;
+  }, [graph, activeId]);
 
   /* ---------- LOADING / ERROR / EMPTY ---------- */
 
@@ -310,7 +413,8 @@ export default function ConnectedPapersGraph({
     );
   }
 
-  const ringCount = Math.max(...rankedNodes.map((node) => node.ring), 0) + 1;
+  const relatedCount =
+    labeledNodes.length + dotNodes.length;
 
   return (
     <div className="overflow-hidden text-gray-900">
@@ -321,7 +425,8 @@ export default function ConnectedPapersGraph({
             <PanelTitle>Similar Papers</PanelTitle>
 
             <p className="mt-1 text-sm text-gray-600">
-              Closer to the center means more similar.
+              Similar papers cluster together. Selecting a node
+              highlights the similarity path back to the origin.
             </p>
           </div>
 
@@ -339,7 +444,7 @@ export default function ConnectedPapersGraph({
       </div>
 
       {/* GRAPH: sits on the cream canvas so it reads as "inside" the panel */}
-      <div className="border-t-[3px] border-gray-900 bg-[#FFFDF8] px-2 py-3">
+      <div className="border-t-[3px] border-gray-900 bg-canvas px-2 py-3">
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           className="mx-auto block h-auto w-full max-w-[520px]"
@@ -347,56 +452,74 @@ export default function ConnectedPapersGraph({
           aria-label="Similar papers graph"
           onMouseLeave={() => setHoveredNodeId(null)}
         >
-          {/* RING GUIDES */}
-          {Array.from({ length: ringCount }).map((_, ring) => (
-            <ellipse
-              key={`ring-${ring}`}
-              cx={CENTER_X}
-              cy={CENTER_Y}
-              rx={getRingRadius(ring)}
-              ry={getRingRadius(ring) * RING_SQUASH}
-              fill="none"
-              stroke={COLORS.hairline}
-              strokeWidth={2}
-              strokeDasharray="3 6"
-            />
-          ))}
-
-          {/* CONNECTIONS */}
-          {graph.edges.map((edge) => {
-            const source = nodeMap.get(edge.source);
-            const target = nodeMap.get(edge.target);
+          {/* CONNECTIONS — weighted triples [source, target, weight] */}
+          {graph.edges.map(([sourceId, targetId, weight], edgeIndex) => {
+            const source = nodeMap.get(sourceId);
+            const target = nodeMap.get(targetId);
 
             if (!source || !target) {
               return null;
             }
 
-            const touchesCurrent =
-              source.relationship === "current" ||
-              target.relationship === "current";
+            const edgeKey = `${Math.min(sourceId, targetId)}-${Math.max(
+              sourceId,
+              targetId,
+            )}`;
 
-            const highlighted =
+            const onPath = activePathKeys.has(edgeKey);
+
+            const touchesActive =
               activeId !== null &&
-              (activeId === edge.source || activeId === edge.target);
+              (activeId === sourceId || activeId === targetId);
 
-            const dimmed = activeId !== null && !highlighted;
+            const dimmed = activeId !== null && !onPath && !touchesActive;
 
-            // Ink for the edges that matter, hairline for the rest.
-            const stroke =
-              highlighted || touchesCurrent ? COLORS.ink : COLORS.hairline;
+            const touchesDot =
+              dotIdSet.has(sourceId) || dotIdSet.has(targetId);
+
+            // The similarity route (shortest weighted path from the
+            // origin to the active node) draws in thick ink; every
+            // other edge scales thickness and opacity with its weight
+            // so stronger relations read as stronger lines;
+            // suggestion-dot edges stay thin and faint.
+            const stroke = onPath
+              ? COLORS.ink
+              : touchesActive
+                ? COLORS.ink
+                : COLORS.hairline;
+
+            const width = onPath
+              ? OUTLINE
+              : touchesActive
+                ? 2 + weight * 2
+                : touchesDot
+                  ? 1
+                  : 1 + weight * 1.5;
 
             return (
               <line
-                key={`${edge.source}-${edge.target}`}
+                key={`${sourceId}-${targetId}`}
+                className="graph-edge-in"
+                style={{
+                  animationDelay: `${Math.min(edgeIndex, 60) * 30}ms`,
+                  transition: "opacity 100ms",
+                }}
                 x1={source.x}
                 y1={source.y}
                 x2={target.x}
                 y2={target.y}
                 stroke={stroke}
-                strokeWidth={highlighted ? OUTLINE : touchesCurrent ? 2 : 1.5}
+                strokeWidth={width}
                 strokeLinecap="butt"
-                opacity={dimmed ? 0.25 : 1}
-                style={{ transition: "opacity 100ms" }}
+                opacity={
+                  dimmed
+                    ? 0.2
+                    : onPath
+                      ? 1
+                      : touchesDot
+                        ? 0.5
+                        : 0.55 + weight * 0.45
+                }
               />
             );
           })}
@@ -406,16 +529,21 @@ export default function ConnectedPapersGraph({
             const isCurrent = node.relationship === "current";
             const isActive = activeId === node.id;
             const isSelected = selectedNodeId === node.id;
+
+            const onPath =
+              activeId != null &&
+              !isActive &&
+              !isCurrent &&
+              Array.from(activePathKeys).some((key) => {
+                const [a, b] = key.split("-").map(Number);
+                return a === node.id || b === node.id;
+              });
+
             const dimmed =
               activeId !== null &&
               !isActive &&
               !isCurrent &&
-              // keep neighbours of the active node readable
-              !graph.edges.some(
-                (edge) =>
-                  (edge.source === activeId && edge.target === node.id) ||
-                  (edge.target === activeId && edge.source === node.id),
-              );
+              !onPath;
 
             const radius = getNodeRadius(
               node,
@@ -423,11 +551,12 @@ export default function ConnectedPapersGraph({
               similarityRange.max,
             );
 
-            // Flat fills only: ink = compared paper, orange = active, white = idle.
+            // Flat fills only: ink = compared paper, orange = active / on
+            // the similarity path, white = idle.
             const fill = isCurrent
               ? COLORS.ink
-              : isActive || isSelected
-                ? COLORS.orange
+              : isActive || isSelected || onPath
+                ? accentColor
                 : COLORS.surface;
 
             // Slab only on the high-priority nodes (level-2 elevation).
@@ -436,6 +565,10 @@ export default function ConnectedPapersGraph({
             return (
               <g
                 key={node.id}
+                style={{
+                  animationDelay: `${Math.min(node.rank, 60) * 45}ms`,
+                  transition: "opacity 100ms",
+                }}
                 role="button"
                 tabIndex={0}
                 aria-label={
@@ -456,9 +589,8 @@ export default function ConnectedPapersGraph({
                 onMouseEnter={() => setHoveredNodeId(node.id)}
                 onFocus={() => setHoveredNodeId(node.id)}
                 onBlur={() => setHoveredNodeId(null)}
-                className="cursor-pointer outline-none"
+                className="graph-node-in cursor-pointer outline-none"
                 opacity={dimmed ? 0.4 : 1}
-                style={{ transition: "opacity 100ms" }}
               >
                 {/* offset slab: a second solid layer, same shape, no blur */}
                 {hasSlab && (
@@ -480,6 +612,7 @@ export default function ConnectedPapersGraph({
                   fill={fill}
                   stroke={COLORS.ink}
                   strokeWidth={OUTLINE}
+                  className={isCurrent ? "graph-current-pulse" : ""}
                 />
 
                 {isCurrent ? (
@@ -497,7 +630,11 @@ export default function ConnectedPapersGraph({
                     textAnchor="middle"
                     fontSize={14}
                     fontWeight={700}
-                    fill={COLORS.ink}
+                    fill={
+                      isActive || isSelected
+                        ? COLORS.onAccent
+                        : COLORS.ink
+                    }
                     pointerEvents="none"
                   >
                     {node.rank}
@@ -506,6 +643,26 @@ export default function ConnectedPapersGraph({
               </g>
             );
           })}
+
+          {/* SUGGESTION DOTS — smaller nodes hinting at further connections */}
+          {dotNodes.map((node, index) => (
+            <circle
+              key={`dot-${node.id}`}
+              className="graph-dot-in"
+              style={{
+                animationDelay: `${(topK + index) * 30}ms`,
+              }}
+              cx={node.x}
+              cy={node.y}
+              r={DOT_RADIUS}
+              fill={COLORS.surface}
+              stroke={COLORS.ink}
+              strokeWidth={2}
+              opacity={0.85}
+              pointerEvents="none"
+              aria-hidden="true"
+            />
+          ))}
         </svg>
 
         {/* LEGEND */}
@@ -529,12 +686,50 @@ export default function ConnectedPapersGraph({
           <span className="flex items-center gap-2">
             <span
               aria-hidden="true"
-              className="h-4 w-4 rounded-full border-[3px] border-gray-900 bg-[#FCA847]"
+              className="h-4 w-4 rounded-full border-[3px] border-gray-900 bg-accent"
             />
             Highlighted
           </span>
         </div>
       </div>
+
+      {/* SHARED GROUPS — the reference model's common_authors /
+          common_topics collections (topics stand in for its
+          bibliographic-coupling groups; this corpus has no
+          reference lists). */}
+      {(graph.common_topics.length > 0 || graph.common_authors.length > 0) && (
+        <div className="border-t-[3px] border-gray-900 bg-white px-4 py-3">
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-gray-600">
+            Shared across the graph
+          </p>
+
+          <div className="flex flex-wrap gap-1.5">
+            {graph.common_topics.slice(0, 6).map((group) => (
+              <span
+                key={`topic-${group.name}`}
+                title={`${group.edges_count} papers share this topic`}
+                className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-gray-900"
+              >
+                {group.name}
+                <span className="ml-1 text-gray-600">
+                  ×{group.edges_count}
+                </span>
+              </span>
+            ))}
+
+            {graph.common_authors.slice(0, 4).map((group) => (
+              <span
+                key={`author-${group.name}`}
+                title={`${group.edges_count} papers list this author`}
+                className="rounded border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 text-xs font-bold text-onAccent"
+              >
+                {group.name}
+                <span className="ml-1">×{group.edges_count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* CENTER PAPER */}
       {currentNode && (
@@ -570,7 +765,7 @@ export default function ConnectedPapersGraph({
                 onBlur={() => setHoveredNodeId(null)}
                 aria-pressed={isSelected}
                 className={`flex w-full items-start gap-3 px-4 py-3 text-left text-gray-900 transition-colors duration-100 motion-reduce:transition-none ${FOCUS_INSET} ${
-                  isActive ? "bg-[#FCA847]" : "bg-white"
+                  isActive ? "bg-accent" : "bg-white"
                 }`}
               >
                 {/* rank chip: circular indicator, ink when selected */}
@@ -604,7 +799,7 @@ export default function ConnectedPapersGraph({
 
                   {/* similarity bar: same construction as WeightBar */}
                   <span className="mt-2 flex items-center gap-3">
-                    <span className="h-3 flex-1 overflow-hidden rounded border-[3px] border-gray-900 bg-white">
+                    <span className="h-3 flex-1 overflow-hidden rounded border-[3px] border-gray-900 bg-field">
                       <span
                         className="block h-full bg-gray-900"
                         style={{
@@ -631,6 +826,13 @@ export default function ConnectedPapersGraph({
           Similarity is calculated using the selected recommendation pipeline
           against papers already stored in the repository.
         </p>
+
+        {dotNodes.length > 0 && (
+          <p className="mt-1.5 text-xs leading-normal text-gray-600">
+            The small dots suggest {dotNodes.length} further related papers
+            beyond the ranked list. Raise the link count to include them.
+          </p>
+        )}
       </div>
     </div>
   );

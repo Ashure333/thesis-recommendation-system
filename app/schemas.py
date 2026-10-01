@@ -87,3 +87,30 @@ class AttachPdfRequest(BaseModel):
     confirmed from a PdfCandidateOut."""
 
     url: str
+
+
+class IdentifierLookupRequest(BaseModel):
+    """Body for POST /api/papers/preview-identifier -- a pasted DOI,
+    arXiv id, or a link to either."""
+
+    identifier: str
+
+
+class MetadataImportRequest(BaseModel):
+    """Body for POST /api/papers/import-metadata -- create a paper
+    directly from reviewed metadata, with no source file (the save
+    step of the "Add by identifier" flow)."""
+
+    title: str
+    author: str | None = None
+    abstract: str | None = None
+    keywords: str | None = None
+    publication_year: int | None = None
+    doi: str | None = None
+    subject_category: str | None = None
+    document_type: str | None = None
+    citation_count: int | None = None
+    source_filename: str | None = None
+    # Optional explicit open-access PDF to attach at import time;
+    # when omitted, the background enrichment queue searches for one.
+    pdf_url: str | None = None
