@@ -553,6 +553,36 @@ export function comparePipelines(params: {
 }
 
 // ============================================================
+// WEB PIPELINE BATTLE — battle the pipelines over live
+// OpenAlex/Crossref/arXiv hits instead of the repository.
+
+export function webComparePipelines(params: {
+  q: string;
+  topK?: number;
+  sources?: string;
+  sort?: string;
+  peerReviewed?: boolean;
+  openAccess?: boolean;
+  customWeights?: { tfidf: number; sbert: number; metadata: number };
+}): Promise<CompareResponse> {
+  return fetch(`${API_URL}/api/recommendations/web-compare`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      q: params.q,
+      top_k: params.topK ?? 5,
+      sources: params.sources ?? "openalex,crossref,arxiv",
+      sort: params.sort ?? "relevance",
+      peer_reviewed: params.peerReviewed ?? true,
+      open_access: params.openAccess ?? false,
+      custom_weights: params.customWeights ?? null,
+    }),
+  }).then(handle<CompareResponse>);
+}
+
+// ============================================================
 // BATTLE HISTORY
 
 export interface BattleRun {

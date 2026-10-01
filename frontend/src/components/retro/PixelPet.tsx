@@ -9,6 +9,7 @@ import {
 import { HUNT_ITEMS } from "../../data/hunt";
 import { ACHIEVEMENTS } from "../../data/achievements";
 import { PET_FORMS, type PetVariant } from "../../data/petForms";
+import type { PetAnimState } from "./PetBlob";
 import { usePetForm } from "../../state/petForm";
 import PetBlob from "./PetBlob";
 import {
@@ -58,7 +59,7 @@ import { ArrowDown, BlockCursor, CloseX, Diamond, Star } from "./PixelIcons";
    treasures persist in paperrec_hunt_found.
    ============================================================ */
 
-const HOVER_DELAY_MS = 5_000;
+const HOVER_DELAY_MS = 2_500;
 const HOVER_COOLDOWN_MS = 3_000;
 const HOVER_GRACE_MS = 500;
 const TICK_MS = 100;
@@ -96,7 +97,7 @@ const DESTRUCTION_MS = 1_600;
 const PAPER_DROP_MIME = "application/x-research-paper";
 
 /* Double-click menu */
-const MENU_W = 256;
+const MENU_W = 320;
 
 /* Shown when the pet is clicked before any tip has been discovered. */
 const INTRO: Tip = {
@@ -183,7 +184,11 @@ export default function PixelPet() {
   const [open, setOpen] = useState(false);
   const [currentTip, setCurrentTip] = useState<Tip | null>(null);
 
-  const { form, setFormId } = usePetForm();
+  const { form, setFormId, chatUnlocked, setChatUnlocked } = usePetForm();
+
+  function toggleChatUnlocked() {
+    setChatUnlocked(!chatUnlocked);
+  }
 
   const [seen, setSeen] = useState<string[]>(readSeen);
 
@@ -195,6 +200,7 @@ export default function PixelPet() {
   }, [seen]);
 
   const [hop, setHop] = useState(false);
+  const [hovering, setHovering] = useState(false);
   const [transformForm, setTransformForm] = useState<PetVariant | null>(null);
   const transformTimerRef = useRef<number | null>(null);
   const transformIntervalRef = useRef<number | null>(null);
@@ -206,6 +212,24 @@ export default function PixelPet() {
   const { found, count, total, complete, reset } = useHunt();
   const { unlocked, updateProgress, bump, reset: resetAchievements } =
     useAchievements();
+
+  /* UNLOCKED = everything maxed out. The pet behaves as if the
+     hunt were complete and every tip and achievement were earned;
+     the player's real progress underneath is untouched. */
+  const effectiveComplete = chatUnlocked || complete;
+  const effectiveSeen = chatUnlocked ? CORE_TIP_IDS : seen;
+  const effectiveSeenSet = new Set(effectiveSeen);
+
+  /* Pet FORMS unlock on real progress only (every treasure found
+     or every tip hovered/revealed), or temporarily while the CHAT
+     unlock toggle is on. */
+  const formsUnlocked =
+    chatUnlocked || complete || seen.length >= TIPS.length;
+
+  /* Locked chat reverts the pet to the default form. */
+  const effectiveForm = formsUnlocked
+    ? form
+    : PET_FORMS[0];
 
   /* --------------------------------------------------------
      Pet menu state (opens on double-click)
@@ -220,9 +244,25 @@ export default function PixelPet() {
     event.preventDefault();
     setMenuPos({
       x: Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_W - 8)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight * 0.3)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 40)),
     });
   }
+
+  /* Keep the menu fully visible: after it renders, measure its real
+     (transformed) size and pull it back inside the viewport. */
+  useEffect(() => {
+    if (!menuPos) return;
+    const menu = menuRef.current;
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+    const clamped = {
+      x: Math.max(8, Math.min(menuPos.x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(menuPos.y, window.innerHeight - rect.height - 8)),
+    };
+    if (clamped.x !== menuPos.x || clamped.y !== menuPos.y) {
+      setMenuPos(clamped);
+    }
+  }, [menuPos]);
 
   function closeMenu() {
     setMenuPos(null);
@@ -278,6 +318,7 @@ export default function PixelPet() {
   }, [petPos]);
 
   const [dragging, setDragging] = useState(false);
+  const [dragDir, setDragDir] = useState<"left" | "right">("right");
   const dragActiveRef = useRef(false);
   const dragRef = useRef<{
     pointerId: number;
@@ -286,6 +327,7 @@ export default function PixelPet() {
     startRight: number;
     startBottom: number;
   } | null>(null);
+  const lastDragXRef = useRef<number | null>(null);
   const lastDragEndRef = useRef(0);
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -299,6 +341,7 @@ export default function PixelPet() {
       startBottom: petPos.bottom,
     };
     dragActiveRef.current = true;
+    lastDragXRef.current = event.clientX;
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -312,6 +355,15 @@ export default function PixelPet() {
     if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
 
     if (!dragging) setDragging(true);
+
+    /* Face the direction of the pointer so the running sprite
+       plays the left or right row of the atlas. */
+    const lastX = lastDragXRef.current;
+    if (lastX !== null) {
+      if (event.clientX > lastX + 2) setDragDir("right");
+      else if (event.clientX < lastX - 2) setDragDir("left");
+    }
+    lastDragXRef.current = event.clientX;
 
     setPetPos(
       clampPetPos({
@@ -360,6 +412,20 @@ export default function PixelPet() {
           ? current
           : clamped;
       });
+      /* Re-pull the open menu back into the viewport. */
+      setMenuPos((current) => {
+        if (!current) return current;
+        const menu = menuRef.current;
+        if (!menu) return current;
+        const rect = menu.getBoundingClientRect();
+        const clamped = {
+          x: Math.max(8, Math.min(current.x, window.innerWidth - rect.width - 8)),
+          y: Math.max(8, Math.min(current.y, window.innerHeight - rect.height - 8)),
+        };
+        return clamped.x === current.x && clamped.y === current.y
+          ? current
+          : clamped;
+      });
     }
 
     window.addEventListener("resize", handleResize);
@@ -390,7 +456,7 @@ export default function PixelPet() {
 
   const celebrate = useCallback(() => {
     setHop(true);
-    window.setTimeout(() => setHop(false), 500);
+    window.setTimeout(() => setHop(false), 600);
 
     const id = coinId.current++;
     setCoins((current) => [...current, id]);
@@ -400,9 +466,17 @@ export default function PixelPet() {
     );
   }, []);
 
-  /* While dragging, the pet hops along toward the pointer:
-     re-trigger the hop animation every hop cycle. */
-  const dragHopRef = useRef<number | null>(null);
+  /* While dragging, the pet plays the Petdex running animation
+     (handled via the sprite `state` prop). */
+  const animState: PetAnimState = hop
+    ? "jump"
+    : dragging
+      ? dragDir === "left"
+        ? "run-left"
+        : "run-right"
+      : hovering
+        ? "wave"
+        : "idle";
 
   /* Shapeshift through every form for a moment, then return to the
      selected form. Runs when the pet eats a paper. */
@@ -431,27 +505,6 @@ export default function PixelPet() {
       setTransformForm(null);
     }, 1_700);
   }, [form.variant]);
-  useEffect(() => {
-    if (dragging) {
-      setHop(true);
-      dragHopRef.current = window.setInterval(() => {
-        setHop(true);
-        window.setTimeout(() => setHop(false), 450);
-      }, 500);
-    } else {
-      if (dragHopRef.current !== null) {
-        window.clearInterval(dragHopRef.current);
-        dragHopRef.current = null;
-      }
-      setHop(false);
-    }
-    return () => {
-      if (dragHopRef.current !== null) {
-        window.clearInterval(dragHopRef.current);
-        dragHopRef.current = null;
-      }
-    };
-  }, [dragging]);
 
   /* --------------------------------------------------------
      Reveal a tip (from the hover engine)
@@ -752,8 +805,8 @@ export default function PixelPet() {
   }
 
   function nextDiscoveredTip(): Tip {
-    const discovered = TIPS.filter((tip) => seenSet.has(tip.id));
-    const hint = complete ? null : nextTreasureHint();
+    const discovered = TIPS.filter((tip) => effectiveSeenSet.has(tip.id));
+    const hint = effectiveComplete ? null : nextTreasureHint();
 
     const pool: Tip[] = [
       ...discovered,
@@ -851,7 +904,7 @@ export default function PixelPet() {
 
   const destructionTimerRef = useRef<number | null>(null);
 
-  const speechLines = getPetLines(count, total, complete, form.variant);
+  const speechLines = getPetLines(count, total, effectiveComplete, form.variant);
   const speechLine = speechLines[speechIndex % speechLines.length];
 
   /* The bubble speaks the hungry line while a paper hovers over
@@ -1051,9 +1104,9 @@ export default function PixelPet() {
           {done && (
             <p className="mt-2 flex items-center justify-between gap-2 text-right font-mono text-xs font-bold tracking-[0.2em] text-accent">
               <span>
-                {complete
+                {effectiveComplete
                   ? "HELP LIBRARY"
-                  : `FOUND ${seen.length}/${TIPS.length}`}
+                  : `FOUND ${effectiveSeen.length}/${TIPS.length}`}
               </span>
               <span className="animate-blink flex items-center gap-1.5">
                 <ArrowDown className="h-2.5 w-2.5" />
@@ -1062,8 +1115,10 @@ export default function PixelPet() {
             </p>
           )}
 
-          {/* Chat input — only after the hunt is complete */}
-          {complete && (
+          {/* Chat input — normally after the hunt is complete; the
+              menu's CHAT toggle (paperrec_pet_chat_unlocked)
+              opens it right away */}
+          {(effectiveComplete) && (
             <div className="mt-2 border-t-2 border-gray-700 pt-2">
               <div className="mb-1.5 flex flex-wrap gap-1">
                 {QUICK_QUESTIONS.map((question) => (
@@ -1222,7 +1277,9 @@ export default function PixelPet() {
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
-          className={`group relative flex h-16 w-16 touch-none select-none items-end justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gray-900 ${
+          onMouseEnter={() => setHovering(true)}
+          onMouseLeave={() => setHovering(false)}
+          className={`group relative flex h-20 w-20 touch-none select-none items-end justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gray-900 ${
             dragging ? "cursor-grabbing" : "cursor-grab"
           }`}
         >
@@ -1245,9 +1302,11 @@ export default function PixelPet() {
 
           {/* body — hungry (paper dragged over) opens wide; event
               animations (zap/eat/crumple/burn) play on the body */}
-          <div className={`pet-bob relative z-10 ${hop ? "pet-hop" : ""}`}>
+          <div
+            className={`pet-bob relative z-10 ${hop ? "pet-hop" : ""}`}
+          >
             <div className={petAnim ? `pet-anim-${petAnim}` : "pet-bounce"}>
-              <div
+<div
                 className={`flex h-12 w-12 items-center justify-center transition-transform duration-100 pixel-ease ${
                   petHungry
                     ? "scale-110 ring-2 ring-gray-900"
@@ -1258,8 +1317,9 @@ export default function PixelPet() {
               >
                 <PetBlob
                   variant={transformForm ?? form.variant}
-                  size={48}
+                  size={68}
                   hungry={petHungry}
+                  state={animState}
                   className="drop-shadow-[1px_2px_0_rgba(0,0,0,0.15)]"
                 />
               </div>
@@ -1276,8 +1336,8 @@ export default function PixelPet() {
         <div
           ref={menuRef}
           role="menu"
-          className="fixed z-50 w-64 select-none rounded border-[3px] border-gray-900 bg-white p-2 font-mono text-xs text-ink"
-          style={{ left: menuPos.x, top: menuPos.y }}
+          className="fixed z-50 w-80 select-none rounded border-[3px] border-gray-900 bg-white p-2 font-mono text-sm text-ink"
+          style={{ left: menuPos.x, top: menuPos.y, transform: "scale(0.75)", transformOrigin: "top left" }}
         >
           <p className="px-2 pb-1.5 font-bold tracking-[0.25em] text-accent">
             PET MENU
@@ -1299,14 +1359,18 @@ export default function PixelPet() {
             <p className="flex items-center justify-between font-bold tracking-[0.15em] text-muted">
               <span>ACHIEVEMENTS</span>
               <span className="text-accent">
-                {unlocked.length}/{ACHIEVEMENTS.length}
+                {chatUnlocked
+                  ? ACHIEVEMENTS.length
+                  : unlocked.length}
+                /{ACHIEVEMENTS.length}
               </span>
             </p>
           </div>
 
-          <div className="max-h-[40vh] overflow-y-auto py-1">
+          <div className="max-h-[45vh] overflow-y-auto py-1">
             {ACHIEVEMENTS.map((achievement) => {
-              const got = unlocked.includes(achievement.id);
+              const got =
+                chatUnlocked || unlocked.includes(achievement.id);
 
               return (
                 <div
@@ -1316,9 +1380,9 @@ export default function PixelPet() {
                   }`}
                 >
                   {got ? (
-                    <Star className="mt-0.5 h-3 w-3 shrink-0 text-accent" />
+                    <Star className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                   ) : (
-                    <Diamond className="mt-0.5 h-3 w-3 shrink-0 text-muted" />
+                    <Diamond className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
                   )}
                   <div className="min-w-0">
                     <p
@@ -1328,13 +1392,42 @@ export default function PixelPet() {
                     >
                       {achievement.name}
                     </p>
-                    <p className="mt-0.5 text-xs leading-3.5 text-muted">
+                    <p className="mt-0.5 text-sm leading-4 text-muted">
                       {achievement.description}
                     </p>
                   </div>
                 </div>
               );
             })}
+          </div>
+
+          <div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
+            <p className="mb-1 font-bold tracking-[0.15em] text-muted">
+              CHAT
+            </p>
+            <button
+              type="button"
+              role="menuitem"
+              aria-pressed={chatUnlocked}
+              onClick={toggleChatUnlocked}
+              title={
+                chatUnlocked
+                  ? "Help library opens without the hunt."
+                  : "Help library stays locked until all treasures are found."
+              }
+              className={`flex w-full items-center justify-between rounded border-2 border-gray-900 px-2 py-1.5 transition-colors pixel-ease ${
+                chatUnlocked
+                  ? "bg-accent text-onAccent"
+                  : "bg-surface text-ink hover:bg-accentSoft"
+              }`}
+            >
+              <span className="text-sm font-bold">
+                {chatUnlocked ? "UNLOCKED" : "LOCKED"}
+              </span>
+              <span className="font-mono text-xs tracking-[0.15em]">
+                {chatUnlocked ? "FREE ACCESS" : "HUNT ONLY"}
+              </span>
+            </button>
           </div>
 
           <div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
@@ -1348,7 +1441,7 @@ export default function PixelPet() {
                   type="button"
                   role="menuitem"
                   onClick={() => dock(corner)}
-                  className="rounded border-2 border-gray-900 bg-surface px-1 py-1 text-center font-mono text-xs font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+                  className="rounded border-2 border-gray-900 bg-surface px-1 py-1 text-center font-mono text-sm font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
                 >
                   {corner.toUpperCase()}
                 </button>
@@ -1356,30 +1449,46 @@ export default function PixelPet() {
             </div>
           </div>
 
-          <div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
+<div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
             <p className="mb-1 flex items-center justify-between font-bold tracking-[0.15em] text-muted">
               <span>FORM</span>
-              <span className="text-accent">{form.name}</span>
+              {formsUnlocked ? (
+                <span className="text-accent">{effectiveForm.name}</span>
+              ) : (
+                <span className="text-muted">LOCKED</span>
+              )}
             </p>
-            <div className="grid grid-cols-5 gap-1">
-              {PET_FORMS.map((candidate) => (
-                <button
-                  key={candidate.id}
-                  type="button"
-                  role="menuitem"
-                  title={candidate.blurb}
-                  aria-pressed={form.id === candidate.id}
-                  onClick={() => setFormId(candidate.id)}
-                  className={`flex h-10 items-center justify-center rounded border-2 border-gray-900 transition-colors pixel-ease ${
-                    form.id === candidate.id
-                      ? "bg-accentSoft"
-                      : "bg-surface hover:bg-accentSoft"
-                  }`}
-                >
-                  <PetBlob variant={candidate.variant} size={26} />
-                </button>
-              ))}
-            </div>
+
+            {formsUnlocked ? (
+              <div className="grid grid-cols-5 gap-1">
+                {PET_FORMS.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    role="menuitem"
+                    title={candidate.blurb}
+                    aria-pressed={form.id === candidate.id}
+                    onClick={() => setFormId(candidate.id)}
+                    className={`flex h-10 items-center justify-center rounded border-2 border-gray-900 transition-colors pixel-ease ${
+                      form.id === candidate.id
+                        ? "bg-accentSoft"
+                        : "bg-surface hover:bg-accentSoft"
+                    }`}
+                  >
+                    <PetBlob variant={candidate.variant} size={30} />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded border-2 border-gray-900 bg-canvas px-2 py-2 text-center">
+                <p className="font-mono text-xs font-bold tracking-[0.15em] text-muted">
+                  FIND ALL 6 TREASURES OR HOVER EVERY TIP
+                </p>
+                <p className="mt-1 font-mono text-sm text-muted">
+                  Tips hovered: {seen.length}/{TIPS.length}
+                </p>
+              </div>
+            )}
           </div>
 
           <button

@@ -123,17 +123,17 @@ const OTHER_PAGES = [
 ] as const;
 
 const FORMS = [
-  ["original", "Original", "The classic slime blob, theme-accented", "Code-rendered blob"],
-  ["rimuru", "Rimuru", "Blue-haired sword-bearing slime hero", "Petdex Rimuru sheet"],
-  ["veldora", "Glaucira", "Mythical blue dragon, aurora-tinted", "Petdex Glaucira dragon sheet"],
-  ["benimaru", "Crimson Blossom", "Chibi floral spirit with a crimson bloom", "Petdex crimson-blossom sheet"],
-  ["shion", "Sion", "Soft violet steadiness, calm as moonlight", "Petdex sioning sheet"],
-  ["ranga", "Wangcai", "Calm fluffy cat with blue eyes", "Petdex Wangcai cat sheet"],
-  ["shuna", "Yinyue Fox", "Silver-moon fox with a curled tail", "Petdex yinyue fox sheet"],
-  ["gobta", "Kabi", "Sleepy, apple-munching bundle of naps", "Petdex Kabi sheet"],
-  ["ciel", "Ciel", "Calm hooded girl, red eyes, white cloak", "Petdex Ciel sheet"],
-  ["diablo", "Gojo", "White-haired sorcerer, blindfolded", "Petdex Gojo sheet"],
-  ["milim", "Mashiro Rima", "Blonde idol of the stage, always in balance", "Petdex Mashiro Rima sheet"],
+  ["original", "Original", "The pet's first face: a theme-accent slime blob, before the Petdex companions arrived.", "Code-rendered blob"],
+  ["rimuru", "Rimuru", "TenSura's Rimuru Tempest — a salaryman reborn as a slime who devoured his way to demon-lordhood.", "Petdex Rimuru sheet"],
+  ["veldora", "Glaucira", "Stands in for Veldora, the Storm Dragon sealed inside Rimuru — and later his rowdiest friend.", "Petdex Glaucira dragon sheet"],
+  ["benimaru", "Crimson Blossom", "Stands in for Benimaru, the kijin general of Tempest — crimson flames, twin horns, blooming loyalty.", "Petdex crimson-blossom sheet"],
+  ["shion", "Sion", "Stands in for Shion, the demon secretary of Tempest — violet hair, a single horn, a gentle face.", "Petdex sioning sheet"],
+  ["ranga", "Wangcai", "Stands in for Ranga, the Tempest Wolf — Rimuru's first named summon, white fur and blue eyes.", "Petdex Wangcai cat sheet"],
+  ["shuna", "Yinyue Fox", "Stands in for Shuna, the gentle priestess of Tempest — pink hair, fox ears, a healing heart.", "Petdex yinyue fox sheet"],
+  ["gobta", "Kabi", "Stands in for Gobta, Tempest's goblin lieutenant — apple habit borrowed from Snorlax (卡比兽).", "Petdex Kabi sheet"],
+  ["ciel", "Ciel", "TenSura's Ciel — the personified Great Sage, Rimuru's ultimate intelligence skill.", "Petdex Ciel sheet"],
+  ["diablo", "Gojo", "Jujutsu Kaisen's Gojo Satoru — the strongest sorcerer: blindfolded, limitless, Ryoiki Tenkai.", "Petdex Gojo sheet"],
+  ["milim", "Mashiro Rima", "Stands in for Milim Nava, the Destroyer — a dragon-girl demon lord who'd rather play; now she performs.", "Petdex Mashiro Rima sheet"],
 ] as const;
 
 const GALLERY = [
@@ -253,7 +253,7 @@ export default function Walkthrough() {
               </p>
               <p className="text-sm leading-6 text-ink">
                 Tip: hover any tab (or any labeled control) and hold the
-                pointer still. The pixel pet dwells for five seconds and
+                pointer still. The pixel pet dwells for 2.5 seconds and
                 then explains what that element does.
               </p>
             </WikiSub>
@@ -466,11 +466,11 @@ export default function Walkthrough() {
 
             <WikiSub id="forms" title="The ten forms">
               <WikiTable
-                headers={["Form", "Character", "Palette"]}
-                rows={FORMS.map(([id, name, character, palette]) => [
+                headers={["Form", "Lore", "Source"]}
+                rows={FORMS.map(([id, name, lore, source]) => [
                   <Chip key={id}>{name}</Chip>,
-                  character,
-                  palette,
+                  lore,
+                  source,
                 ])}
               />
             </WikiSub>
@@ -491,7 +491,7 @@ export default function Walkthrough() {
               rows={[
                 [
                   "Hover (main way)",
-                  "Hold the pointer on any element labeled with a tip; the pet dwells for 5 seconds (progress ring + percent chip) and reveals the tip. A 3-second cooldown rests the pet between reveals.",
+                  "Hold the pointer on any element labeled with a tip; the pet dwells for 2.5 seconds (progress ring + percent chip) and reveals the tip. A 3-second cooldown rests the pet between reveals.",
                 ],
                 [
                   "Click",

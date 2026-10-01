@@ -113,18 +113,19 @@ The pet is a clipper-style companion that explains the interface, runs a scaveng
 
 ### The ten forms
 
-| Form | Character | Palette |
+| Form | Lore | Source |
 | --- | --- | --- |
-| Rimuru | Blue-haired sword-bearing slime hero | Petdex Rimuru sheet |
-| Glaucira | Mythical blue dragon, aurora-tinted | Petdex Glaucira dragon sheet |
-| Crimson Blossom | Chibi floral spirit with a crimson bloom | Petdex crimson-blossom sheet |
-| Sion | Soft violet steadiness, calm as moonlight | Petdex sioning sheet |
-| Wangcai | Calm fluffy cat with blue eyes | Petdex Wangcai cat sheet |
-| Yinyue Fox | Silver-moon fox with a curled tail | Petdex yinyue fox sheet |
-| Kabi | Sleepy, apple-munching bundle of naps | Petdex Kabi sheet |
-| Ciel | Calm hooded girl, red eyes, white cloak | Petdex Ciel sheet |
-| Gojo | White-haired sorcerer, blindfolded | Petdex Gojo sheet |
-| Mashiro Rima | Blonde idol of the stage, always in balance | Petdex Mashiro Rima sheet |
+| Original | The pet's first face: a theme-accent slime blob, before the Petdex companions arrived. | Code-rendered blob |
+| Rimuru | TenSura's Rimuru Tempest — a salaryman reborn as a slime who devoured his way to demon-lordhood. | Petdex Rimuru sheet |
+| Glaucira | Stands in for Veldora, the Storm Dragon sealed inside Rimuru — and later his rowdiest friend. | Petdex Glaucira dragon sheet |
+| Crimson Blossom | Stands in for Benimaru, the kijin general of Tempest — crimson flames, twin horns, blooming loyalty. | Petdex crimson-blossom sheet |
+| Sion | Stands in for Shion, the demon secretary of Tempest — violet hair, a single horn, a gentle face. | Petdex sioning sheet |
+| Wangcai | Stands in for Ranga, the Tempest Wolf — Rimuru's first named summon, white fur and blue eyes. | Petdex Wangcai cat sheet |
+| Yinyue Fox | Stands in for Shuna, the gentle priestess of Tempest — pink hair, fox ears, a healing heart. | Petdex yinyue fox sheet |
+| Kabi | Stands in for Gobta, Tempest's goblin lieutenant — apple habit borrowed from Snorlax (卡比兽). | Petdex Kabi sheet |
+| Ciel | TenSura's Ciel — the personified Great Sage, Rimuru's ultimate intelligence skill. | Petdex Ciel sheet |
+| Gojo | Jujutsu Kaisen's Gojo Satoru — the strongest sorcerer: blindfolded, limitless, Ryoiki Tenkai. | Petdex Gojo sheet |
+| Mashiro Rima | Stands in for Milim Nava, the Destroyer — a dragon-girl demon lord who'd rather play; now she performs. | Petdex Mashiro Rima sheet |
 
 Every form plays its own real Petdex sprite sheet — a curated pet from the public gallery, renamed to fit the roster: Glaucira the blue dragon, Wangcai the calm cat, Yinyue Fox, Kabi the sleepy napper, Gojo the blindfolded sorcerer, Mashiro Rima the stage idol, and more. Sheets are 8×9 atlases of 192×208 frames; the idle animation loops the first six frames, and the canvas renders at native resolution with hard pixels. All forms still follow the theme and animate with the same bob, bounce, and reaction keyframes. The chosen form is remembered per browser (localStorage); old selections fall back to Rimuru.
 

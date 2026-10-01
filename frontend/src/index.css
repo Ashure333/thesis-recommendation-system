@@ -295,7 +295,7 @@ h1, h2, h3 {
   84% { transform: scaleY(1); }
 }
 
-/* Bouncy pop-in for floating UI (scroll-follow popup). */
+/* --- bouncy pop-in for floating UI (scroll-follow popup). --- */
 .animate-pop-in { animation: retro-pop-in 0.4s steps(6, end) both; }
 @keyframes retro-pop-in {
   0% { opacity: 0; transform: translateY(14px) scale(0.9); }

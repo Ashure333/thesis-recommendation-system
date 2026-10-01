@@ -11,6 +11,7 @@ import requests
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -80,6 +81,7 @@ from app.services.recommendation.compare_service import (
     CompareRequest,
     CompareResponse,
     compare_pipelines,
+    compare_web_results,
 )
 
 from app.services.pdf_finder import (
@@ -2248,6 +2250,107 @@ def compare_recommendation_pipelines(
         raise HTTPException(
             status_code=500,
             detail="Pipeline comparison failed.",
+        ) from error
+
+
+# ============================================================
+# PIPELINE COMPARISON OVER THE WEB ("WEB BATTLE")
+# ============================================================
+
+class WebCompareRequest(BaseModel):
+    """Battle the pipelines over live web search hits instead of the
+    repository. Same shape as CompareRequest, minus seed_paper_id —
+    a web battle always runs on a query."""
+
+    q: str
+    top_k: int = 5
+    sources: str = "openalex,crossref,arxiv"
+    sort: str = "relevance"
+    peer_reviewed: bool = True
+    open_access: bool = False
+    custom_weights: dict[str, float] | None = None
+
+
+@app.post(
+    "/api/recommendations/web-compare",
+    response_model=CompareResponse,
+)
+def web_compare_recommendation_pipelines(
+    request: WebCompareRequest,
+):
+    """
+    Fetch live hits from the open scholarly web (OpenAlex, Crossref,
+    arXiv), vectorize them on the fly with the same stored TF-IDF
+    vectorizer and S-BERT model, and battle the six pipelines (plus
+    an optional custom recipe) over those external candidates. The
+    response is a standard CompareResponse, so the Arena and Lab
+    render it exactly like a repository battle. Web battles are
+    exploratory and never recorded to the battle history.
+    """
+
+    query = (request.q or "").strip()
+
+    if not query:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a search query.",
+        )
+
+    if request.sort not in WEB_SEARCH_SORTS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"sort must be one of: {', '.join(WEB_SEARCH_SORTS)}."
+            ),
+        )
+
+    requested_sources = tuple(
+        source.strip()
+        for source in request.sources.split(",")
+        if source.strip() in ("openalex", "crossref", "arxiv")
+    )
+
+    try:
+        hits = search_web(
+            query,
+            year_min=None,
+            year_max=None,
+            peer_reviewed=request.peer_reviewed,
+            open_access_only=request.open_access,
+            sources=requested_sources,
+            sort=request.sort,
+            limit=max(10, min(request.top_k * 3, 30)),
+        )
+
+    except WebSearchError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="The web search services could not be reached.",
+        ) from error
+
+    try:
+        result = compare_web_results(
+            query=query,
+            hits=hits,
+            top_k=request.top_k,
+            custom_weights=request.custom_weights,
+        )
+        return result
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+
+    except Exception as error:
+        print()
+        print("WEB PIPELINE COMPARISON FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Web pipeline comparison failed.",
         ) from error
 
 

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   comparePipelines,
-  CompareResponse,
+  webComparePipelines,
+  type CompareResponse,
 } from "../../api";
 import { pipelineConfigs } from "../../data/pipelineConfigs";
 import PixelProgress from "../../components/retro/PixelProgress";
@@ -79,6 +80,15 @@ export default function Lab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /* Web mode: battle the pipelines over live OpenAlex/Crossref/
+     arXiv hits instead of the repository. */
+  const [webMode, setWebMode] = useState(false);
+  const [webSources, setWebSources] = useState(
+    "openalex,crossref,arxiv",
+  );
+  const [webSort, setWebSort] = useState("relevance");
+  const [openAccess, setOpenAccess] = useState(false);
+
   const [runs, setRuns] = useState<LabRun[]>(readBattles);
 
   const total = dials.tfidf + dials.sbert + dials.metadata;
@@ -139,16 +149,27 @@ export default function Lab() {
     const startedAt = Date.now();
 
     try {
-      const data = await comparePipelines({
-        query: query.trim(),
-        topK,
-        customWeights: {
-          tfidf: normalized.tfidf,
-          sbert: normalized.sbert,
-          metadata: normalized.metadata,
-        },
-        recordBattle: false,
-      });
+      const customWeights = {
+        tfidf: normalized.tfidf,
+        sbert: normalized.sbert,
+        metadata: normalized.metadata,
+      };
+
+      const data = webMode
+        ? await webComparePipelines({
+            q: query.trim(),
+            topK,
+            sources: webSources || "openalex,crossref,arxiv",
+            sort: webSort,
+            openAccess,
+            customWeights,
+          })
+        : await comparePipelines({
+            query: query.trim(),
+            topK,
+            customWeights,
+            recordBattle: false,
+          });
 
       const elapsed = Date.now() - startedAt;
       if (elapsed < 2400) {
@@ -326,6 +347,32 @@ export default function Lab() {
         {/* ================= BATTLE SIM ================= */}
         <section className="flex flex-col gap-4">
           <div className="rounded border-[3px] border-gray-900 bg-white p-4">
+            {/* Repository / Web scope switcher */}
+            <div className="mb-3 flex items-center gap-2">
+              {(["repository", "web"] as const).map((scope) => (
+                <button
+                  key={scope}
+                  type="button"
+                  onClick={() => setWebMode(scope === "web")}
+                  aria-pressed={webMode === (scope === "web")}
+                  className={`rounded border-2 border-gray-900 px-2.5 py-1 text-[11px] font-bold tracking-[0.15em] uppercase transition-colors ${
+                    webMode === (scope === "web")
+                      ? "bg-accent text-onAccent"
+                      : "bg-white text-ink hover:bg-field"
+                  }`}
+                >
+                  {scope === "repository" ? "Repository" : "Web"}
+                </button>
+              ))}
+
+              {webMode && (
+                <span className="ml-auto text-[10px] leading-4 text-muted">
+                  Web battles run the pipelines against live
+                  OpenAlex / Crossref / arXiv hits.
+                </span>
+              )}
+            </div>
+
             <label className="filter-label" htmlFor="lab-query">
               Query
             </label>
@@ -340,6 +387,72 @@ export default function Lab() {
               placeholder="e.g. neural network text similarity"
               className="ui-input text-base"
             />
+
+            {webMode && (
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[10px] font-bold tracking-[0.15em] text-muted uppercase">
+                    Sources
+                  </span>
+
+                  {(["openalex", "crossref", "arxiv"] as const).map(
+                    (source) => (
+                      <label
+                        key={source}
+                        className="flex cursor-pointer items-center gap-1 text-xs font-medium text-ink"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={webSources.includes(source)}
+                          onChange={() =>
+                            setWebSources((current) =>
+                              current.includes(source)
+                                ? current
+                                    .split(",")
+                                    .filter((item) => item !== source)
+                                    .join(",")
+                                : [current, source]
+                                    .filter(Boolean)
+                                    .join(",")
+                            )
+                          }
+                          className="accent-gold"
+                        />
+                        {source === "openalex"
+                          ? "OpenAlex"
+                          : source === "crossref"
+                            ? "Crossref"
+                            : "arXiv"}
+                      </label>
+                    ),
+                  )}
+                </div>
+
+                <label className="flex items-center gap-1 text-xs font-medium text-ink">
+                  <input
+                    type="checkbox"
+                    checked={openAccess}
+                    onChange={(e) => setOpenAccess(e.target.checked)}
+                    className="accent-gold"
+                  />
+                  Open access only
+                </label>
+
+                <label className="flex items-center gap-1 text-xs font-medium text-ink">
+                  <span className="text-[10px] font-bold tracking-[0.15em] text-muted uppercase">
+                    Sort
+                  </span>
+                  <select
+                    value={webSort}
+                    onChange={(e) => setWebSort(e.target.value)}
+                    className="rounded border-[2px] border-gray-900 bg-field px-2 py-1 text-xs font-medium text-ink focus:outline-none"
+                  >
+                    <option value="relevance">Relevance</option>
+                    <option value="year">Newest first</option>
+                  </select>
+                </label>
+              </div>
+            )}
 
             <div className="mt-3 flex items-end justify-between gap-3">
               <label className="filter-label" htmlFor="lab-topk">

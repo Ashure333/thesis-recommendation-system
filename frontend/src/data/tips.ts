@@ -5,7 +5,7 @@
 
      <section data-tips="repo-filters"> …
 
-   A tip fires when the user hovers its element for 10 seconds.
+   A tip fires when the user hovers its element for 2.5 seconds.
    Seen tips are persisted in localStorage by the Tamagotchi
    component (key: paperrec_tips_seen).
    ============================================================ */
@@ -417,7 +417,7 @@ export const EXTRA_TIPS: DeepTip[] = [
       "unlock",
     ],
     body:
-      "I started as a tip guide: hover anything for five seconds and " +
+      "I started as a tip guide: hover anything for 2.5 seconds and " +
       "I explain it, or click me to replay what you've found. Find " +
       "all six hidden treasures and I become a full help library; " +
       "the deep tips unlock and you can ask me questions directly.",

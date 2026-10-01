@@ -123,6 +123,7 @@ REQUEST_TIMEOUT = 10  # seconds
 MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB safety cap
 MAX_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 1.5
+MAX_429_BACKOFF_SECONDS = 8
 
 # ---------------------------------------------------------------------
 # Result cache
@@ -244,7 +245,12 @@ def _get_with_retry(
 
         if response.status_code == 429 and attempt <= MAX_RETRIES:
             retry_after = response.headers.get("Retry-After")
-            delay = float(retry_after) if retry_after else RETRY_BACKOFF_SECONDS * attempt
+            # Cap the polite wait: honoring a long Retry-After
+            # would stall the request for minutes.
+            delay = min(
+                float(retry_after) if retry_after else RETRY_BACKOFF_SECONDS * attempt,
+                MAX_429_BACKOFF_SECONDS,
+            )
             logger.debug(
                 "[%s] rate-limited (429), retrying in %.1fs (attempt %d)",
                 source, delay, attempt,

@@ -4,6 +4,7 @@ import { History, Trophy } from "lucide-react";
 
 import {
   comparePipelines,
+  webComparePipelines,
   getBattleHistory,
   BattleRun,
   CompareResponse,
@@ -105,6 +106,15 @@ export default function Evaluation() {
   >([]);
   const [recordsTab, setRecordsTab] = useState<"tally" | "history">("tally");
 
+  /* Web mode: battle the pipelines over live OpenAlex/Crossref/arXiv
+     hits instead of the repository. */
+  const [webMode, setWebMode] = useState(false);
+  const [webSources, setWebSources] = useState(
+    "openalex,crossref,arxiv",
+  );
+  const [webSort, setWebSort] = useState("relevance");
+  const [openAccess, setOpenAccess] = useState(false);
+
   const HISTORY_PAGE_SIZE = 20;
 
   async function loadHistory(page: number = historyPage) {
@@ -159,10 +169,18 @@ export default function Evaluation() {
     const startedAt = Date.now();
 
     try {
-      const data = await comparePipelines({
-        query: queryText.trim(),
-        topK,
-      });
+      const data = webMode
+        ? await webComparePipelines({
+            q: queryText.trim(),
+            topK,
+            sources: webSources || "openalex,crossref,arxiv",
+            sort: webSort,
+            openAccess,
+          })
+        : await comparePipelines({
+            query: queryText.trim(),
+            topK,
+          });
 
       const elapsed = Date.now() - startedAt;
       if (elapsed < MIN_BATTLE_MS) {
@@ -172,7 +190,10 @@ export default function Evaluation() {
       }
 
       setBattle(data);
-      void loadHistory();
+      // Web battles never touch the tally/history.
+      if (!webMode) {
+        void loadHistory();
+      }
     } catch (err) {
       setBattle(null);
       setError(
@@ -306,6 +327,33 @@ export default function Evaluation() {
           ====================================================== */}
 
       <section className="surface mb-7 p-5">
+        {/* Repository / Web scope switcher */}
+        <div className="mb-4 flex items-center gap-2">
+          {(["repository", "web"] as const).map((scope) => (
+            <button
+              key={scope}
+              type="button"
+              onClick={() => setWebMode(scope === "web")}
+              aria-pressed={webMode === (scope === "web")}
+              className={`rounded-md border px-3 py-1.5 text-xs font-bold tracking-widest uppercase transition-colors ${
+                webMode === (scope === "web")
+                  ? "border-gold bg-gold/10 text-ink"
+                  : "border-line bg-navy text-muted hover:text-ink"
+              }`}
+            >
+              {scope === "repository" ? "Repository" : "Web"}
+            </button>
+          ))}
+
+          {webMode && (
+            <span className="ml-auto text-[11px] leading-4 text-muted">
+              Web battles run the pipelines against live
+              OpenAlex / Crossref / arXiv hits — never recorded to
+              the tally.
+            </span>
+          )}
+        </div>
+
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
           <div className="min-w-0 flex-1">
             <label className="filter-label">
@@ -355,17 +403,87 @@ export default function Evaluation() {
           </Button>
         </div>
 
+        {webMode && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] font-bold tracking-widest text-muted uppercase">
+                Sources
+              </span>
+
+              {(["openalex", "crossref", "arxiv"] as const).map(
+                (source) => (
+                  <label
+                    key={source}
+                    className="flex cursor-pointer items-center gap-1.5 text-xs text-muted hover:text-ink"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={webSources.includes(source)}
+                      onChange={() =>
+                        setWebSources((current) =>
+                          current.includes(source)
+                            ? current
+                                .split(",")
+                                .filter((item) => item !== source)
+                                .join(",")
+                            : [current, source]
+                                .filter(Boolean)
+                                .join(",")
+                        )
+                      }
+                      className="accent-gold"
+                    />
+                    {source === "openalex"
+                      ? "OpenAlex"
+                      : source === "crossref"
+                        ? "Crossref"
+                        : "arXiv"}
+                  </label>
+                ),
+              )}
+            </div>
+
+            <label className="flex items-center gap-1.5 text-xs text-muted hover:text-ink">
+              <input
+                type="checkbox"
+                checked={openAccess}
+                onChange={(event) =>
+                  setOpenAccess(event.target.checked)
+                }
+                className="accent-gold"
+              />
+              Open access only
+            </label>
+
+            <label className="flex items-center gap-1.5 text-xs text-muted hover:text-ink">
+              <span className="font-bold tracking-widest uppercase">
+                Sort
+              </span>
+              <select
+                value={webSort}
+                onChange={(event) => setWebSort(event.target.value)}
+                className="rounded-md border border-line bg-navy px-2 py-1 text-xs text-ink focus:border-gold focus:outline-none"
+              >
+                <option value="relevance">Relevance</option>
+                <option value="year">Newest first</option>
+              </select>
+            </label>
+          </div>
+        )}
+
         <p className="mt-3 text-xs leading-5 text-muted">
-          Every pipeline receives the identical prepared query text
-          (Title + Abstract + Keywords normalization). Seed-paper
-          mode is available through{" "}
-          <Link
-            to="/recommendations"
-            className="font-bold text-ink underline hover:decoration-2"
-          >
-            Recommendations
-          </Link>
-          .
+          {webMode
+            ? "Hits are fetched live, then each pipeline vectorizes them on the fly with the same stored TF-IDF vectorizer and S-BERT model — the six configurations compete exactly like a repository battle."
+            : "Every pipeline receives the identical prepared query text (Title + Abstract + Keywords normalization). Seed-paper mode is available through "}
+          {!webMode && (
+            <Link
+              to="/recommendations"
+              className="font-bold text-ink underline hover:decoration-2"
+            >
+              Recommendations
+            </Link>
+          )}
+          {!webMode && " ."}
         </p>
       </section>
 

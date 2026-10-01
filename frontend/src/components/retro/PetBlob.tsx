@@ -9,11 +9,15 @@ import type { PetVariant } from "../../data/petForms";
    image-rendering: pixelated.
    ============================================================ */
 
+export type PetAnimState = "idle" | "wave" | "run" | "run-left" | "run-right" | "jump";
+
 interface PetBlobProps {
   variant: PetVariant;
   size: number;
   hungry?: boolean;
   className?: string;
+  /** Which Petdex atlas row to play (idle / wave / run / jump). */
+  state?: PetAnimState;
 }
 
 const FRAME_W = 192; // native Petdex frame width
@@ -21,6 +25,61 @@ const FRAME_H = 208; // native Petdex frame height
 const SPRITE_FRAMES = 6;
 const SPRITE_LOOP_MS = 1100;
 const INK = "#171923";
+
+/* Atlas row for each animation state (Petdex/Codex 8×9 layout). */
+const STATE_ROWS: Record<PetAnimState, number> = {
+  idle: 0,
+  run: 7, // "running"
+  "run-left": 2, // "running-left"
+  "run-right": 1, // "running-right"
+  wave: 3, // "waving"
+  jump: 4, // "jumping"
+};
+
+/* Sheets whose running-left/running-right rows are authored swapped
+   relative to the Codex convention (detected against Rimuru's sheet). */
+const SWAPPED_RUN: Record<string, boolean> = {
+  veldora: true,
+  shion: true,
+  shuna: true,
+  diablo: true,
+};
+
+/* Cached per-sheet frame counts (some rows have fewer than 8 frames). */
+const frameCountCache = new Map<string, number[]>();
+
+function rowFrameCounts(img: HTMLImageElement, src: string): number[] {
+  const cached = frameCountCache.get(src);
+  if (cached) return cached;
+
+  const strip = document.createElement("canvas");
+  strip.width = FRAME_W * 8;
+  strip.height = FRAME_H;
+  const sctx = strip.getContext("2d", { willReadFrequently: true });
+  const counts: number[] = [];
+  if (sctx) {
+    for (let row = 0; row < 9; row++) {
+      sctx.clearRect(0, 0, strip.width, strip.height);
+      sctx.drawImage(img, 0, row * FRAME_H, strip.width, FRAME_H, 0, 0, strip.width, FRAME_H);
+      const data = sctx.getImageData(0, 0, strip.width, FRAME_H).data;
+      let frames = 0;
+      for (let f = 0; f < 8; f++) {
+        let hasInk = false;
+        for (let y = 24; y < FRAME_H - 16 && !hasInk; y += 16) {
+          for (let x = f * FRAME_W + 24; x < f * FRAME_W + FRAME_W - 24 && !hasInk; x += 16) {
+            if (data[(y * strip.width + x) * 4 + 3] > 0) hasInk = true;
+          }
+        }
+        if (hasInk) frames = f + 1;
+      }
+      counts.push(Math.max(1, frames));
+    }
+  } else {
+    counts.push(...Array(9).fill(SPRITE_FRAMES));
+  }
+  frameCountCache.set(src, counts);
+  return counts;
+}
 
 /** Grow a uniform ink ring around the silhouette: *passes* dilation
  *  passes over the alpha channel. */
@@ -148,6 +207,7 @@ export default function PetBlob({
   size,
   hungry = false,
   className = "",
+  state = "idle",
 }: PetBlobProps) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -206,16 +266,33 @@ export default function PetBlob({
     const loop = (time: number) => {
       const img = imgRef.current;
       if (img) {
+        const counts = rowFrameCounts(img, SPRITE_SHEETS[variant]);
+        const swapped = SWAPPED_RUN[variant] ?? false;
+        let row = STATE_ROWS[state];
+        if (swapped && (state === "run-left" || state === "run-right")) {
+          row = state === "run-left" ? STATE_ROWS["run-right"] : STATE_ROWS["run-left"];
+        }
+        const frames = counts[row] ?? SPRITE_FRAMES;
         ctx.imageSmoothingEnabled = false;
         ctx.clearRect(0, 0, FRAME_W, FRAME_H);
-        const frame = Math.floor(time / (SPRITE_LOOP_MS / SPRITE_FRAMES)) % SPRITE_FRAMES;
-        ctx.drawImage(img, frame * FRAME_W, 0, FRAME_W, FRAME_H, 0, 0, FRAME_W, FRAME_H);
+        const frame = Math.floor(time / (SPRITE_LOOP_MS / frames)) % frames;
+        ctx.drawImage(
+          img,
+          frame * FRAME_W,
+          row * FRAME_H,
+          FRAME_W,
+          FRAME_H,
+          0,
+          0,
+          FRAME_W,
+          FRAME_H,
+        );
       }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [variant]);
+  }, [variant, state]);
 
   void hungry;
 
