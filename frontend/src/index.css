@@ -295,7 +295,7 @@ h1, h2, h3 {
   84% { transform: scaleY(1); }
 }
 
-/* Bouncy pop-in for floating UI (scroll-follow popup). */
+/* --- bouncy pop-in for floating UI (scroll-follow popup). --- */
 .animate-pop-in { animation: retro-pop-in 0.4s steps(6, end) both; }
 @keyframes retro-pop-in {
   0% { opacity: 0; transform: translateY(14px) scale(0.9); }
@@ -335,7 +335,8 @@ h1, h2, h3 {
 
 /* ============================================================
    PAPER DESTRUCTION FX — drag a library paper onto the pet and
-   it zaps / eats / crumples / burns the paper chip (random).
+   the current form disposes of it with its signature power
+   (the slime forms eat; everyone else zaps / crumples / burns).
    ============================================================ */
 
 .drop-fx-chip {
@@ -531,6 +532,18 @@ h1, h2, h3 {
   50% { transform: scale(1.12); }
 }
 
+/* Drag-delete boundary: translucent dashed ring that marches
+   around the pet while a paper hovers over it. */
+.pet-hungry-ring {
+  color: rgba(23, 25, 35, 0.45);
+  animation: pet-ring-spin 5s linear infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes pet-ring-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pixel-ease { transition: none !important; }
   .animate-blink,
@@ -555,6 +568,7 @@ h1, h2, h3 {
   .graph-node-in,
   .graph-dot-in,
   .graph-current-pulse,
+  .pet-hungry-ring,
   .animate-shine::after,
   .scan-sweep::before,
   .crt-overlay,

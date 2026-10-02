@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   listPapers,
@@ -233,9 +233,12 @@ export default function Repository() {
   const [selectedWeb, setSelectedWeb] = useState<WebSearchResult | null>(null);
   const [webLoading, setWebLoading] = useState(false);
   const [webSearched, setWebSearched] = useState(false);
+  // A newer web search cancels the one still in flight, so repeated
+  // clicks never leave a stale response to overwrite fresh results.
+  const webAbortRef = useRef<AbortController | null>(null);
   const [peerReviewed, setPeerReviewed] = useState(true);
   const [openAccessOnly, setOpenAccessOnly] = useState(false);
-  const [webSources, setWebSources] = useState("openalex,crossref");
+  const [webSources, setWebSources] = useState("openalex,crossref,arxiv");
   const [webSort, setWebSort] = useState<"relevance" | "citations" | "year">(
     "relevance",
   );
@@ -353,8 +356,9 @@ export default function Repository() {
   }, [searchMode, search, subject, category, documentType, minYear, maxYear, sortBy]);
 
   /* ------------------------------------------------------------
-     Web search uses legitimate APIs only (OpenAlex + Crossref),
-     peer-reviewed types by default, server-side filtering.
+     Web search uses legitimate APIs only (OpenAlex, Crossref,
+     arXiv), peer-reviewed types by default, server-side
+     filtering.
      ------------------------------------------------------------ */
 
   async function runWebSearch() {
@@ -368,6 +372,10 @@ export default function Repository() {
     setWebLoading(true);
     setError(null);
 
+    webAbortRef.current?.abort();
+    const controller = new AbortController();
+    webAbortRef.current = controller;
+
     try {
       const results = await searchWeb({
         q: query,
@@ -378,7 +386,10 @@ export default function Repository() {
         sources: webSources,
         sort: webSort,
         limit: 20,
+        signal: controller.signal,
       });
+
+      if (controller.signal.aborted) return;
 
       setWebResults(results);
       setSelectedWeb(null);
@@ -386,11 +397,13 @@ export default function Repository() {
       setWebImportStatus({});
       setWebRowErrors({});
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+
       setError(
         e instanceof Error ? e.message : "The web search failed.",
       );
     } finally {
-      setWebLoading(false);
+      if (!controller.signal.aborted) setWebLoading(false);
     }
   }
 
@@ -605,7 +618,7 @@ export default function Repository() {
           loading
             ? "Loading papers…"
             : searchMode === "web"
-              ? `Web search · legitimate sources (OpenAlex + Crossref) · ${
+              ? `Web search · legitimate sources (OpenAlex, Crossref, arXiv) · ${
                   webSearched
                     ? `${webResults.length} result${webResults.length === 1 ? "" : "s"}`
                     : "peer-reviewed by default"

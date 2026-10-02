@@ -123,6 +123,7 @@ REQUEST_TIMEOUT = 10  # seconds
 MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB safety cap
 MAX_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 1.5
+MAX_429_BACKOFF_SECONDS = 8
 
 # ---------------------------------------------------------------------
 # Result cache
@@ -222,29 +223,128 @@ class RejectedCandidate:
 # silently giving up)
 # ---------------------------------------------------------------------
 
+_SESSION_LOCAL = threading.local()
+
+# A polite User-Agent on every outbound request. Crossref's etiquette
+# asks for a contactable UA, and the others ignore it.
+_DEFAULT_UA = f"PaperRec/1.0 (mailto:{UNPAYWALL_CONTACT_EMAIL})"
+
+
+def _http() -> requests.Session:
+    """Per-thread keep-alive session.
+
+    ``requests.get`` builds a throwaway Session per call, so every
+    source paid a fresh TCP + TLS handshake on every query. Sessions
+    are not thread-safe, so each worker thread keeps its own and
+    reuses its pooled connection across calls.
+    """
+    session = getattr(_SESSION_LOCAL, "session", None)
+
+    if session is None:
+        session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=4,
+            pool_maxsize=8,
+            max_retries=0,  # retries are handled below, with backoff
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers["User-Agent"] = _DEFAULT_UA
+        _SESSION_LOCAL.session = session
+
+    return session
+
+
+# ---------------------------------------------------------------------
+# Source health
+#
+# _get_with_retry is the single choke point for every outbound call, so
+# it is also the natural place to notice that a source is unhealthy.
+# web_search reads this to decide whether a source is worth asking at
+# all (see its circuit breaker) instead of sleeping through a retry
+# ladder on every single query.
+# ---------------------------------------------------------------------
+
+_HEALTH_LOCK = threading.Lock()
+_SOURCE_HEALTH: dict[str, dict[str, int]] = {}
+
+
+def _record_health(source: str, status: int | None) -> None:
+    with _HEALTH_LOCK:
+        entry = _SOURCE_HEALTH.setdefault(
+            source, {"consecutive_429": 0, "consecutive_errors": 0}
+        )
+
+        if status == 429:
+            entry["consecutive_429"] += 1
+            entry["consecutive_errors"] = 0
+        elif status is None or not (200 <= status < 300):
+            entry["consecutive_errors"] += 1
+            entry["consecutive_429"] = 0
+        else:
+            entry["consecutive_429"] = 0
+            entry["consecutive_errors"] = 0
+
+
+def source_health(source: str) -> dict[str, int]:
+    """Snapshot of a source's recent failure counters."""
+    with _HEALTH_LOCK:
+        return dict(
+            _SOURCE_HEALTH.get(
+                source, {"consecutive_429": 0, "consecutive_errors": 0}
+            )
+        )
+
+
 def _get_with_retry(
     url: str,
     *,
     params: dict | None = None,
     headers: dict | None = None,
     source: str,
+    respect_429_backoff: bool = True,
 ) -> requests.Response | None:
+    """Fetch a URL with retries.
+
+    respect_429_backoff controls what happens on a 429. The default
+    (True) honors Retry-After with a capped sleep, which is the right
+    behavior for background PDF discovery where nothing is waiting.
+
+    Interactive callers pass False: there, a rate limit means "ask
+    again much later", not "block this response while you wait". Those
+    callers already avoid hammering via web_search's circuit breaker,
+    so waiting inside the request only adds latency.
+    """
     last_error: str | None = None
 
     for attempt in range(1, MAX_RETRIES + 2):  # e.g. 3 total attempts
         try:
-            response = requests.get(
+            response = _http().get(
                 url, params=params, headers=headers, timeout=REQUEST_TIMEOUT
             )
         except requests.RequestException as exc:
             last_error = f"network error: {exc}"
+            _record_health(source, None)
             logger.debug("[%s] attempt %d failed: %s", source, attempt, last_error)
             time.sleep(RETRY_BACKOFF_SECONDS * attempt)
             continue
 
         if response.status_code == 429 and attempt <= MAX_RETRIES:
+            _record_health(source, 429)
+
+            if not respect_429_backoff:
+                logger.debug(
+                    "[%s] rate-limited (429), not waiting", source
+                )
+                return response  # let the caller degrade gracefully
+
             retry_after = response.headers.get("Retry-After")
-            delay = float(retry_after) if retry_after else RETRY_BACKOFF_SECONDS * attempt
+            # Cap the polite wait: honoring a long Retry-After
+            # would stall the request for minutes.
+            delay = min(
+                float(retry_after) if retry_after else RETRY_BACKOFF_SECONDS * attempt,
+                MAX_429_BACKOFF_SECONDS,
+            )
             logger.debug(
                 "[%s] rate-limited (429), retrying in %.1fs (attempt %d)",
                 source, delay, attempt,
@@ -253,13 +353,16 @@ def _get_with_retry(
             continue
 
         if not response.ok:
+            _record_health(source, response.status_code)
             logger.debug(
                 "[%s] HTTP %d for %s", source, response.status_code, url
             )
             return response  # let the caller decide; still return it
 
+        _record_health(source, response.status_code)
         return response
 
+    _record_health(source, None)
     logger.debug("[%s] giving up after retries: %s", source, last_error)
     return None
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   getLibrary,
@@ -12,103 +12,114 @@ import MathText from "../../components/MathText";
 import PetFigure from "../../components/PetFigure";
 import { Button, EmptyState, PageHeader, PageShell } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
+import { crumpledBallDataURL } from "../../components/retro/CrumpledPaper";
 import { HUNT_ITEMS } from "../../data/hunt";
-import { usePetForm } from "../../state/petForm";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
+import { CITATION_FORMATS, downloadCitations } from "../../utils/exportCitations";
 
 /* ============================================================
-   PET DRAG IMAGE — the drag ghost for a library row.
-   Renders the currently selected pet form (accent blob with
-   ink outline and eyes) as the thing that follows the cursor,
-   instead of the default browser row snapshot.
+   PAPER DRAG GHOST — the drag ghost for a library row.
+   Every row is dragged as a crumpled paper ball (the pet's own
+   crumple graphic): the paper is about to be disposed of, so it
+   already looks the part. The ghost is a decoded <img> (data
+   URL) prepared in advance, since Chromium ignores raw canvases.
    ============================================================ */
 
-/* Corner radii (0..1 of the half size) per form variant. */
-const DRAG_RADII: Record<string, [number, number, number, number]> = {
-  original: [0.72, 0.72, 0.5, 0.5],
-  tall: [0.85, 0.85, 0.55, 0.55],
-  wide: [0.62, 0.62, 0.5, 0.5],
-  teardrop: [0.9, 0.9, 0.5, 0.5],
-  squash: [0.58, 0.58, 0.5, 0.5],
-  chunky: [0.5, 0.5, 0.5, 0.5],
-  sleepy: [0.72, 0.72, 0.5, 0.5],
-  happy: [0.72, 0.72, 0.5, 0.5],
-  grump: [0.72, 0.72, 0.5, 0.5],
-  spike: [0.9, 0.9, 0.5, 0.5],
-};
+/* Prepared <img> ghost, decoded before the drag starts. */
+let dragGhost: HTMLImageElement | null = null;
 
-function petDragImage(variant: string): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = 96;
-  canvas.height = 96;
+function prepareDragGhost(): HTMLImageElement {
+  if (dragGhost) return dragGhost;
+  const img = new Image();
+  img.src = crumpledBallDataURL(96);
+  void img.decode().catch(() => undefined);
+  dragGhost = img;
+  return img;
+}
 
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
-
-  const accent =
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--accent")
-      .trim() || "243 156 18";
-  const ink = "#2c3e50";
-
-  const size = 84;
-  const x = (96 - size) / 2;
-  const y = (96 - size) / 2 + 4;
-
-  // Ground shadow.
-  ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
-  ctx.beginPath();
-  ctx.ellipse(48, 84, 34, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Blob body, silhouette from the variant.
-  const [tl, tr, br, bl] = DRAG_RADII[variant] ?? DRAG_RADII.original;
-  const half = size / 2;
-  ctx.beginPath();
-  ctx.roundRect(
-    x,
-    y,
-    size,
-    size,
-    [tl * half, tr * half, br * half, bl * half],
-  );
-  ctx.fillStyle = `rgb(${accent})`;
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = ink;
-  ctx.stroke();
-
-  // Eyes.
-  const eyeY = y + size * 0.42;
-  const eyeR = 8;
-  for (const ex of [36, 60]) {
-    ctx.beginPath();
-    ctx.arc(ex, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = ink;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(ex + 1.5, eyeY - 1, 3, 0, Math.PI * 2);
-    ctx.fillStyle = ink;
-    ctx.fill();
+function petDragImage(): HTMLImageElement {
+  const img = prepareDragGhost();
+  /* Chromium only paints drag images that live in the document — a
+     bare offscreen img/canvas is silently ignored and the browser
+     falls back to its default icon. Pin it offscreen for the drag,
+     then drop it again. */
+  if (!img.isConnected) {
+    img.style.position = "fixed";
+    img.style.left = "-10000px";
+    img.style.top = "0";
+    img.style.width = "96px";
+    img.style.height = "96px";
+    img.style.pointerEvents = "none";
+    document.body.appendChild(img);
+    window.setTimeout(() => {
+      img.remove();
+    }, 1000);
   }
-
-  return canvas;
+  return img;
 }
 
 export default function MyLibrary() {
   const navigate = useNavigate();
-  const { form } = usePetForm();
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /* Prepare the crumpled-paper drag ghost ahead of time. */
+  useEffect(() => {
+    prepareDragGhost();
+  }, []);
+
   // PDF Viewer State
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+
+  /* --------------------------------------------------------
+     Batch export: tick rows, then download every selected
+     paper's citation as ONE file (BibTeX / RIS / EndNote /
+     RefMan).
+     -------------------------------------------------------- */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        exportRef.current &&
+        !exportRef.current.contains(event.target as Node)
+      ) {
+        setExportOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [exportOpen]);
+
+  /* Selection counts against the papers still in the list, so a
+     row the pet just ate never shows up as "selected". */
+  const selectedPapers = entries
+    .map((entry) => entry.paper)
+    .filter((paper) => selected.has(paper.id));
+  const selectedCount = selectedPapers.length;
+  const allSelected = entries.length > 0 && selectedCount === entries.length;
+
+  function togglePaper(paperId: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(paperId)) next.delete(paperId);
+      else next.add(paperId);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(
+      allSelected ? new Set() : new Set(entries.map((entry) => entry.paper.id)),
+    );
+  }
 
   async function load() {
     setLoading(true);
@@ -242,9 +253,81 @@ export default function MyLibrary() {
       ) : (
         <>
         <p className="mb-4 text-xs text-muted">
-          Tip: drag a saved paper onto the pixel pet. It will dispose of
-          it (zap, eat, crumple, or burn) and remove it from the library.
+          Tip: drag a saved paper onto the pixel pet. Each character
+          disposes of it in its own way — only the slime forms eat
+          papers; Gojo zaps them with Cursed Techniques, Glaucira
+          burns them with Storm Breath, Mashiro Rima punches them
+          flat — and the paper leaves your library.
         </p>
+
+        {/* Batch export toolbar: select rows, export one file. */}
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              className="h-4 w-4 cursor-pointer accent-gray-900"
+            />
+            Select all ({entries.length})
+          </label>
+
+          <span className="text-xs text-muted">
+            {selectedCount} selected
+          </span>
+
+          {selectedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-xs font-semibold text-ink underline hover:decoration-2"
+            >
+              Clear
+            </button>
+          )}
+
+          <div ref={exportRef} className="relative ml-auto">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={selectedCount === 0}
+              onClick={() => setExportOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              title={
+                selectedCount === 0
+                  ? "Tick the papers you want to export"
+                  : undefined
+              }
+            >
+              Export{selectedCount > 0 ? ` (${selectedCount})` : ""} ▾
+            </Button>
+
+            {exportOpen && (
+              <ul
+                role="menu"
+                aria-label="Batch export"
+                className="absolute right-0 top-full z-30 mt-1 w-60 overflow-hidden rounded border-[3px] border-gray-900 bg-white py-0.5"
+              >
+                {CITATION_FORMATS.map((format) => (
+                  <li key={format.id}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        downloadCitations(selectedPapers, format.id);
+                        setExportOpen(false);
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-sm font-medium text-gray-900 transition-colors pixel-ease hover:bg-accentSoft"
+                    >
+                      {format.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
 
         <section className="overflow-hidden rounded border-[3px] border-gray-900 bg-white" data-tips="library-shortlist">
           {entries.map(({ paper }) => {
@@ -267,9 +350,9 @@ export default function MyLibrary() {
                     JSON.stringify({ id: paper.id, title: paper.title }),
                   );
                   event.dataTransfer.effectAllowed = "move";
-                  // The drag ghost is the pet's current form.
+                  // The drag ghost is a crumpled paper ball for every row.
                   event.dataTransfer.setDragImage(
-                    petDragImage(form.variant),
+                    petDragImage(),
                     48,
                     48,
                   );
@@ -281,6 +364,14 @@ export default function MyLibrary() {
                   <div className="min-w-0">
                     {/* Metadata Header with Tags */}
                     <div className="mb-2 flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(paper.id)}
+                        onChange={() => togglePaper(paper.id)}
+                        aria-label={`Select ${paper.title} for batch export`}
+                        title="Select for batch export"
+                        className="h-4 w-4 shrink-0 cursor-pointer accent-gray-900"
+                      />
                       {subject ? (
                         <span
                           className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-ink"

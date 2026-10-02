@@ -2,9 +2,10 @@ import type { Paper } from "../api";
 
 /* ============================================================
    CITATION EXPORT — BibTeX, RIS, EndNote, and Reference
-   Manager (RefNotes) strings for a stored paper, plus a
-   download helper. The exported fields follow the record
-   the repository actually stores.
+   Manager (RefNotes) strings for a stored paper or a batch of
+   them (My Library's batch export), plus a download helper.
+   The exported fields follow the record the repository actually
+   stores.
    ============================================================ */
 
 export type CitationFormat = "bibtex" | "ris" | "endnote" | "refman";
@@ -196,6 +197,28 @@ export function paperToCitation(paper: Paper, format: CitationFormat): string {
   }
 }
 
+/** Several papers as one file's content — records separated by a
+ *  blank line, the layout every one of the four formats expects. */
+export function papersToCitation(
+  papers: Paper[],
+  format: CitationFormat,
+): string {
+  return papers.map((paper) => paperToCitation(paper, format)).join("\n");
+}
+
+function downloadText(text: string, filename: string, mime: string): void {
+  const blob = new Blob([text], { type: mime });
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Download a paper's citation in the chosen format. */
 export function downloadCitation(paper: Paper, format: CitationFormat): void {
   const meta = CITATION_FORMATS.find((item) => item.id === format);
@@ -208,16 +231,20 @@ export function downloadCitation(paper: Paper, format: CitationFormat): void {
       .replace(/^-+|-+$/g, "")
       .slice(0, 60) || `paper-${paper.id}`;
 
-  const blob = new Blob([paperToCitation(paper, format)], {
-    type: meta.mime,
-  });
+  downloadText(paperToCitation(paper, format), `${slug}.${meta.ext}`, meta.mime);
+}
 
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${slug}.${meta.ext}`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+/** Download a batch of papers' citations as ONE file. */
+export function downloadCitations(
+  papers: Paper[],
+  format: CitationFormat,
+  filename?: string,
+): void {
+  const meta = CITATION_FORMATS.find((item) => item.id === format);
+  if (!meta || papers.length === 0) return;
+
+  const name =
+    filename ?? `res-search-library-${papers.length}-papers.${meta.ext}`;
+
+  downloadText(papersToCitation(papers, format), name, meta.mime);
 }

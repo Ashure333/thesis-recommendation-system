@@ -253,6 +253,35 @@ def compare_pipelines(
         )
 
     # --------------------------------------------------------
+    # Consensus, pairwise agreement, and winner: shared assembly
+    # --------------------------------------------------------
+
+    return _assemble_comparison(
+        rank_maps=rank_maps,
+        battles=battles,
+        component_sets=component_sets,
+        query=query,
+        seed_paper_id=seed_paper_id,
+        top_k=top_k,
+    )
+
+
+def _assemble_comparison(
+    *,
+    rank_maps: dict[str, dict[int, int]],
+    battles: list[PipelineBattle],
+    component_sets: dict[str, frozenset[str]],
+    query: str | None,
+    seed_paper_id: int | None,
+    top_k: int,
+) -> CompareResponse:
+    """Assemble consensus ranking, pairwise agreement, and the
+    independence-weighted winner from per-pipeline rank maps.
+    Shared by the repository battles and the web battles."""
+
+    pipeline_order = list(rank_maps.keys())
+
+    # --------------------------------------------------------
     # Consensus: every paper any pipeline ranked, scored by
     # votes (how many pipelines included it) then avg rank.
     # --------------------------------------------------------
@@ -362,6 +391,188 @@ def compare_pipelines(
         consensus=consensus,
         pairwise=pairwise,
         winner=winner,
+    )
+
+
+def compare_web_results(
+    *,
+    query: str,
+    hits: list,
+    top_k: int,
+    custom_weights: dict[str, float] | None = None,
+) -> CompareResponse:
+    """Battle the pipelines over WEB hits instead of the repository.
+
+    Each hit is vectorized on the fly with the same stored TF-IDF
+    vectorizer and S-BERT model, so the six presets (plus an
+    optional custom recipe) rank the same external candidates. The
+    response shape matches the repository Arena exactly, so the
+    Arena and Lab UIs render it unchanged.
+    """
+
+    from app.models.models import Paper
+    from app.services.text_preparation import build_prepared_text
+    from app.services.recommendation.similarity import cosine_similarity
+    from app.services.recommendation import (
+        tfidf_pipeline,
+        sbert_pipeline,
+    )
+    from app.services.recommendation.metadata_pipeline import (
+        score_candidates as metadata_score_candidates,
+    )
+    from app.services.recommendation.pipeline_config import (
+        get_pipeline_weights,
+    )
+    from app.services.recommendation.search_service import (
+        min_max_normalize,
+    )
+
+    papers: list[Paper] = []
+
+    for index, hit in enumerate(hits):
+        paper = Paper(
+            # Negative ids mark these as web candidates, never
+            # colliding with repository paper ids in the UI.
+            id=-(index + 1),
+            title=hit.title,
+            abstract=hit.abstract,
+            keywords=None,
+            publication_year=hit.publication_year,
+        )
+        paper.prepared_text = build_prepared_text(
+            hit.title,
+            hit.abstract,
+            None,
+        )
+        papers.append(paper)
+
+    if not papers:
+        return CompareResponse(
+            query=query,
+            seed_paper_id=None,
+            top_k=top_k,
+            pipelines=[],
+            consensus=[],
+            pairwise=[],
+            winner=None,
+        )
+
+    prepared_query = build_prepared_text(query, None, None)
+
+    query_tfidf = tfidf_pipeline.vectorize_query_or_seed(prepared_query)
+    query_sbert = sbert_pipeline.embed_query_or_seed(prepared_query)
+
+    tfidf_raw: dict[int, float] = {}
+    sbert_raw: dict[int, float] = {}
+
+    hit_embeddings = sbert_pipeline.embed_texts(
+        [paper.prepared_text for paper in papers]
+    )
+
+    for paper, hit_embedding in zip(papers, hit_embeddings):
+        hit_tfidf = tfidf_pipeline.vectorize_query_or_seed(
+            paper.prepared_text
+        )
+        tfidf_raw[paper.id] = cosine_similarity(query_tfidf, hit_tfidf)
+
+        sbert_raw[paper.id] = cosine_similarity(
+            query_sbert,
+            hit_embedding,
+        )
+
+    meta_raw = metadata_score_candidates(
+        query=query,
+        seed_paper=None,
+        candidates=papers,
+    )
+
+    pipeline_order = list(PIPELINE_ORDER)
+
+    component_sets = dict(PIPELINE_COMPONENTS)
+
+    if custom_weights is not None:
+        pipeline_order.append("custom")
+        component_sets["custom"] = frozenset(
+            signal
+            for signal, weight in custom_weights.items()
+            if (weight or 0) > 0
+        )
+
+    def run_pipeline(weights: dict[str, float]) -> list[RankedPaper]:
+        norm_tfidf = (
+            min_max_normalize(tfidf_raw)
+            if weights.get("tfidf", 0) > 0
+            else {}
+        )
+        norm_sbert = (
+            min_max_normalize(sbert_raw)
+            if weights.get("sbert", 0) > 0
+            else {}
+        )
+
+        combined: dict[int, float] = {}
+
+        for paper in papers:
+            combined[paper.id] = (
+                weights.get("tfidf", 0)
+                * norm_tfidf.get(paper.id, 0.0)
+                + weights.get("sbert", 0)
+                * norm_sbert.get(paper.id, 0.0)
+                + weights.get("metadata", 0)
+                * meta_raw.get(paper.id, 0.0)
+            )
+
+        ranked_ids = [
+            paper_id
+            for paper_id in sorted(
+                combined,
+                key=combined.get,
+                reverse=True,
+            )
+            if combined[paper_id] > 0
+        ][:top_k]
+
+        return [
+            RankedPaper(
+                paper_id=paper_id,
+                title=next(
+                    (p.title for p in papers if p.id == paper_id),
+                    None,
+                ),
+                year=next(
+                    (p.publication_year for p in papers if p.id == paper_id),
+                    None,
+                ),
+                score=round(float(combined[paper_id]), 6),
+            )
+            for paper_id in ranked_ids
+        ]
+
+    rank_maps: dict[str, dict[int, int]] = {}
+    battles: list[PipelineBattle] = []
+
+    for pipeline in pipeline_order:
+        weights = (
+            custom_weights
+            if pipeline == "custom"
+            else get_pipeline_weights(pipeline)
+        )
+
+        results = run_pipeline(weights)
+
+        battles.append(PipelineBattle(id=pipeline, results=results))
+        rank_maps[pipeline] = {
+            result.paper_id: position
+            for position, result in enumerate(results, start=1)
+        }
+
+    return _assemble_comparison(
+        rank_maps=rank_maps,
+        battles=battles,
+        component_sets=component_sets,
+        query=query,
+        seed_paper_id=None,
+        top_k=top_k,
     )
 
 

@@ -1,6 +1,7 @@
 import {
   Chip,
   MathBlock,
+  WikiCite,
   WikiFooter,
   WikiHeader,
   WikiInfobox,
@@ -53,6 +54,7 @@ const OTHER_PAGES = [
   ["/evaluation", "Arena"],
   ["/walkthrough", "Walkthrough"],
   ["/faq", "FAQ"],
+  ["/changelog", "Changelog"],
 ] as const;
 
 const PIPELINE_ROWS = [
@@ -357,6 +359,16 @@ export default function MathWalkthrough() {
               much do pairs of voters agree, and which voter is the best
               summarizer of the others.
             </p>
+            <p className="text-sm leading-6 text-ink">
+              The voting system runs on two scopes with identical
+              mathematics: the stored repository, and live web hits from
+              OpenAlex, Crossref, and arXiv. Web candidates are vectorized
+              on the fly with the same stored TF-IDF vectorizer and S-BERT
+              model, so the same normalization, fusion, and
+              independence-weighted winner apply without retraining
+              anything.
+            </p>
+            <WikiCite ids={["web-battles"]} />
             <WikiSub id="consensus" title="Consensus ranking (a Borda-style count)">
               <p className="text-sm leading-6 text-ink">
                 Every paper any pipeline ranked collects votes (how many

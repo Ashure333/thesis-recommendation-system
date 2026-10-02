@@ -101,6 +101,24 @@ def embed_query_or_seed(prepared_text: str) -> list[float]:
     return embedding.tolist()
 
 
+def embed_texts(prepared_texts: list[str]) -> list[list[float]]:
+    """
+    Encodes many texts in ONE batched model pass (the web battle
+    vectorizes live hits this way — dozens of one-by-one encode
+    calls would otherwise dominate the request time).
+    """
+    if not prepared_texts:
+        return []
+
+    model = _get_model()
+    embeddings = model.encode(
+        prepared_texts,
+        show_progress_bar=False,
+        batch_size=32,
+    )
+    return [embedding.tolist() for embedding in embeddings]
+
+
 def score_candidates(query_vector: list[float], candidates: list[Paper]) -> dict[int, float]:
     """
     Returns {paper_id: raw_cosine_similarity} for every candidate,

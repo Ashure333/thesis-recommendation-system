@@ -83,6 +83,11 @@ const navItems = [
         },
       ]
     : []),
+  {
+    to: "/changelog",
+    label: "Changelog",
+    tip: "nav-changelog",
+  },
 ];
 
 

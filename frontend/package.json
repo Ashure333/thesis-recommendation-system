@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -b tsconfig.node.json --force",
+    "check": "npm run typecheck && npm run check:inline-scripts",
+    "check:inline-scripts": "node scripts/check-inline-scripts.mjs",
+    "build": "npm run check && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -41,11 +41,13 @@ import re
 import threading
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, asdict
 
 from app.services.pdf_finder import (
     _get_with_retry,
     _reconstruct_openalex_abstract,
+    source_health,
     UNPAYWALL_CONTACT_EMAIL,
 )
 from app.services.identifier_resolver import (
@@ -74,9 +76,93 @@ REQUEST_LIMIT_CAP = 30
 _ABSTRACT_MAX_CHARS = 4000
 
 CACHE_TTL_SECONDS = 10 * 60
-CACHE_MAX_ENTRIES = 64
+CACHE_MAX_ENTRIES = 256
 _CACHE_LOCK = threading.Lock()
 _CACHE: dict[tuple, tuple[float, list["WebSearchResult"]]] = {}
+
+# Identical queries that arrive while an identical query is already in
+# flight wait on its Event instead of opening a second set of upstream
+# requests. Search-as-you-type fires near-duplicate queries constantly,
+# and without this a burst of keystrokes multiplies the API load.
+_INFLIGHT: dict[tuple, threading.Event] = {}
+
+# One shared pool for the whole process: web_search is called from
+# FastAPI's threadpool and from the Arena/Lab request handlers, so
+# these threads are reused and connections stay warm.
+_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="websearch")
+
+# Hard ceiling on the fan-out. OpenAlex and Crossref normally answer in
+# well under 2s; past this the user is better served by the results in
+# hand than by waiting on a source that is not coming back.
+FANOUT_DEADLINE_SECONDS = 8.0
+
+# A follower waits this long for the leader before doing the work
+# itself, so a leader that dies can never wedge a caller forever.
+_INFLIGHT_WAIT_SECONDS = 30.0
+
+# ---------------------------------------------------------------------
+# Circuit breaker
+#
+# OpenAlex rate-limits unauthenticated bursts and answers 429 with
+# Retry-After. _get_with_retry honors that politely, which is right for
+# a one-off request and badly wrong for an interactive search: the
+# ladder sleeps up to MAX_429_BACKOFF_SECONDS twice, so a single
+# rate-limited source dragged a whole three-source response to ~16s
+# while Crossref and arXiv had already answered in under a second.
+#
+# Once a source rate-limits repeatedly, stop asking it for a while and
+# serve the sources that do work. The breaker is per-process and
+# intentionally blunt -- it exists to stop a hot source from taxing
+# every keystroke, not to model the limit precisely.
+# ---------------------------------------------------------------------
+
+# One 429 is enough. With respect_429_backoff=False an interactive
+# search gives up on the source immediately rather than sleeping, so
+# skipping it for a while IS the polite behavior -- and the cooldown is
+# far longer than the Retry-After any of these APIs asks for.
+BREAKER_TRIP_AFTER_429 = 1
+BREAKER_COOLDOWN_SECONDS = 90.0
+_BREAKER_OPEN_UNTIL: dict[str, float] = {}
+_BREAKER_LOCK = threading.Lock()
+
+# _get_with_retry records health under its own label, which the three
+# _search_* functions set to "<source>-search". That suffix keeps web
+# search's counters separate from pdf_finder's calls to the same
+# upstream APIs, so the breaker must look health up by the label rather
+# than by the bare source name.
+_SEARCH_LABELS = {
+    "openalex": "openalex-search",
+    "crossref": "crossref-search",
+    "arxiv": "arxiv-search",
+}
+
+
+def _breaker_open(source: str) -> bool:
+    with _BREAKER_LOCK:
+        until = _BREAKER_OPEN_UNTIL.get(source, 0.0)
+
+        if until <= time.monotonic():
+            _BREAKER_OPEN_UNTIL.pop(source, None)
+            return False
+
+        return True
+
+
+def _breaker_trip(source: str) -> None:
+    health = source_health(_SEARCH_LABELS.get(source, source))
+
+    if health.get("consecutive_429", 0) < BREAKER_TRIP_AFTER_429:
+        return
+
+    with _BREAKER_LOCK:
+        _BREAKER_OPEN_UNTIL[source] = (
+            time.monotonic() + BREAKER_COOLDOWN_SECONDS
+        )
+
+    logger.warning(
+        "[web_search] %s rate-limited repeatedly; skipping it for %.0fs",
+        source, BREAKER_COOLDOWN_SECONDS,
+    )
 
 
 class WebSearchError(Exception):
@@ -185,6 +271,7 @@ def _search_openalex(
         "https://api.openalex.org/works",
         params=params,
         source="openalex-search",
+        respect_429_backoff=False,
     )
 
     if response is None or not response.ok:
@@ -321,6 +408,7 @@ def _search_crossref(
             ),
         },
         source="crossref-search",
+        respect_429_backoff=False,
     )
 
     if response is None or not response.ok:
@@ -428,6 +516,7 @@ def _search_arxiv(
         _ARXIV_API,
         params=params,
         source="arxiv-search",
+        respect_429_backoff=False,
     )
 
     if response is None or not response.ok:
@@ -592,6 +681,67 @@ def _merge(
     return unique[:limit]
 
 
+def _fetch_source(
+    source: str,
+    query: str,
+    *,
+    year_min: int | None,
+    year_max: int | None,
+    peer_reviewed: bool,
+    open_access_only: bool,
+    sort: str,
+    limit: int,
+) -> list[WebSearchResult] | None:
+    """Run one source's query. Never raises -- a failure is None."""
+
+    if _breaker_open(source):
+        logger.debug("[web_search] %s breaker open, skipping", source)
+        return None
+
+    try:
+        if source == "openalex":
+            results = _search_openalex(
+                query,
+                year_min=year_min,
+                year_max=year_max,
+                peer_reviewed=peer_reviewed,
+                open_access_only=open_access_only,
+                sort=sort,
+                limit=limit,
+            )
+        elif source == "crossref":
+            results = _search_crossref(
+                query,
+                year_min=year_min,
+                year_max=year_max,
+                peer_reviewed=peer_reviewed,
+                sort=sort,
+                limit=limit,
+            )
+        else:
+            # arXiv is an explicit opt-in source: it runs even under the
+            # peer-reviewed default because choosing it is the user's
+            # signal that preprints are welcome.
+            results = _search_arxiv(
+                query,
+                year_min=year_min,
+                year_max=year_max,
+                sort=sort,
+                limit=limit,
+            )
+
+    except Exception as error:  # noqa: BLE001 - one bad source must
+        # not sink the other two; the caller only gives up when every
+        # source failed. Logged with a traceback so a bug here shows
+        # up as a crash rather than passing for "source is down".
+        logger.exception("[web_search] %s raised", source)
+        return None
+
+    _breaker_trip(source)
+
+    return results
+
+
 def search_web(
     query: str,
     *,
@@ -608,6 +758,9 @@ def search_web(
     peer-reviewed-by-default result list. Raises WebSearchError only
     when EVERY requested source failed (so a single flaky API still
     yields partial results).
+
+    Sources are fetched concurrently, so wall-clock time tracks the
+    slowest source rather than their sum.
     """
     query = (query or "").strip()
 
@@ -640,6 +793,9 @@ def search_web(
 
     now = time.monotonic()
 
+    event: threading.Event | None = None
+    leader_event: threading.Event | None = None
+
     with _CACHE_LOCK:
         entry = _CACHE.get(cache_key)
 
@@ -649,13 +805,33 @@ def search_web(
         if entry:
             _CACHE.pop(cache_key, None)
 
-    openalex_results: list[WebSearchResult] | None = None
-    crossref_results: list[WebSearchResult] | None = None
-    arxiv_results: list[WebSearchResult] | None = None
+        # Join an identical search already running, or become the one
+        # that runs it.
+        leader_event = _INFLIGHT.get(cache_key)
+        is_leader = leader_event is None
 
-    if "openalex" in requested:
-        openalex_results = _search_openalex(
+        if is_leader:
+            event = threading.Event()
+            _INFLIGHT[cache_key] = event
+
+    if not is_leader and leader_event is not None:
+        # Someone else is already paying for this query.
+        leader_event.wait(timeout=_INFLIGHT_WAIT_SECONDS)
+
+        with _CACHE_LOCK:
+            entry = _CACHE.get(cache_key)
+
+            if entry and entry[0] > time.monotonic():
+                return copy.deepcopy(entry[1])
+
+        # The leader finished without caching anything (every source
+        # failed). Fall through and try it ourselves rather than
+        # returning an error the caller did not cause.
+
+    try:
+        merged = _search_all_sources(
             query,
+            requested=requested,
             year_min=year_min,
             year_max=year_max,
             peer_reviewed=peer_reviewed,
@@ -664,42 +840,14 @@ def search_web(
             limit=limit,
         )
 
-    if "crossref" in requested:
-        crossref_results = _search_crossref(
-            query,
-            year_min=year_min,
-            year_max=year_max,
-            peer_reviewed=peer_reviewed,
-            sort=sort,
-            limit=limit,
-        )
+    except WebSearchError:
+        if is_leader:
+            with _CACHE_LOCK:
+                _INFLIGHT.pop(cache_key, None)
 
-    # arXiv is an explicit opt-in source: it runs even under the
-    # peer-reviewed default because choosing it is the user's signal
-    # that preprints are welcome.
-    if "arxiv" in requested:
-        arxiv_results = _search_arxiv(
-            query,
-            year_min=year_min,
-            year_max=year_max,
-            sort=sort,
-            limit=limit,
-        )
+            event.set()
 
-    if (
-        openalex_results is None
-        and crossref_results is None
-        and arxiv_results is None
-    ):
-        raise WebSearchError("Every web search source failed.")
-
-    merged = _merge(
-        openalex_results or [],
-        crossref_results or [],
-        arxiv_results or [],
-        sort,
-        limit,
-    )
+        raise
 
     with _CACHE_LOCK:
         if len(_CACHE) >= CACHE_MAX_ENTRIES:
@@ -718,5 +866,99 @@ def search_web(
             time.monotonic() + CACHE_TTL_SECONDS,
             copy.deepcopy(merged),
         )
+
+    if is_leader:
+        with _CACHE_LOCK:
+            _INFLIGHT.pop(cache_key, None)
+
+        event.set()
+
+    return merged
+
+
+def _search_all_sources(
+    query: str,
+    *,
+    requested: tuple[str, ...],
+    year_min: int | None,
+    year_max: int | None,
+    peer_reviewed: bool,
+    open_access_only: bool,
+    sort: str,
+    limit: int,
+) -> tuple[list[WebSearchResult], bool]:
+    """Fan every requested source out at once and merge the answers.
+
+    Raises WebSearchError when every source failed, which the caller
+    deliberately leaves uncached so the next attempt retries instead
+    of replaying the outage for the whole TTL.
+    """
+
+    futures = {
+        source: _EXECUTOR.submit(
+            _fetch_source,
+            source,
+            query,
+            year_min=year_min,
+            year_max=year_max,
+            peer_reviewed=peer_reviewed,
+            open_access_only=open_access_only,
+            sort=sort,
+            limit=limit,
+        )
+        for source in requested
+    }
+
+    # Wait up to the fan-out deadline, then take whatever answered.
+    # A straggler is left running on the pool (its result is simply
+    # dropped), so one wedged source cannot hold the whole response.
+    done, pending = wait(
+        futures.values(), timeout=FANOUT_DEADLINE_SECONDS
+    )
+
+    if pending:
+        logger.warning(
+            "[web_search] %d/%d sources missed the %.0fs deadline: %s",
+            len(pending), len(futures), FANOUT_DEADLINE_SECONDS,
+            ", ".join(
+                sorted(
+                    source
+                    for source, future in futures.items()
+                    if future in pending
+                )
+            ),
+        )
+
+    # Iterating `requested` (not `done`) keeps the merge deterministic:
+    # which source wins a duplicate no longer depends on which one
+    # happened to answer first.
+    collected: dict[str, list[WebSearchResult] | None] = {}
+
+    for source in requested:
+        future = futures[source]
+
+        if future in done:
+            collected[source] = future.result()
+        else:
+            collected[source] = None
+
+    openalex_results = collected.get("openalex")
+    crossref_results = collected.get("crossref")
+    arxiv_results = collected.get("arxiv")
+
+    if (
+        openalex_results is None
+        and crossref_results is None
+        and arxiv_results is None
+    ):
+        raise WebSearchError("Every web search source failed.")
+
+    merged = _merge(
+        openalex_results or [],
+        crossref_results or [],
+        arxiv_results or [],
+        sort,
+        limit,
+    )
 
     return merged

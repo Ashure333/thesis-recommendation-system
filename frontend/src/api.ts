@@ -278,6 +278,8 @@ export interface WebSearchParams {
   sources?: string;
   sort?: "relevance" | "citations" | "year";
   limit?: number;
+  /** Aborts the request when a newer search supersedes this one. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -297,9 +299,9 @@ export function searchWeb(
   query.set("sort", params.sort ?? "relevance");
   if (params.limit) query.set("limit", String(params.limit));
 
-  return fetch(`${API_URL}/api/search-web?${query.toString()}`).then(
-    handle<WebSearchResult[]>
-  );
+  return fetch(`${API_URL}/api/search-web?${query.toString()}`, {
+    signal: params.signal,
+  }).then(handle<WebSearchResult[]>);
 }
 
 export async function importBibtex(
@@ -548,6 +550,38 @@ export function comparePipelines(params: {
       top_k: params.topK ?? 10,
       custom_weights: params.customWeights ?? null,
       record_battle: params.recordBattle ?? true,
+    }),
+  }).then(handle<CompareResponse>);
+}
+
+// ============================================================
+// WEB PIPELINE BATTLE — battle the pipelines over live
+// OpenAlex/Crossref/arXiv hits instead of the repository.
+
+export function webComparePipelines(params: {
+  q: string;
+  topK?: number;
+  sources?: string;
+  sort?: string;
+  peerReviewed?: boolean;
+  openAccess?: boolean;
+  customWeights?: { tfidf: number; sbert: number; metadata: number };
+  signal?: AbortSignal;
+}): Promise<CompareResponse> {
+  return fetch(`${API_URL}/api/recommendations/web-compare`, {
+    method: "POST",
+    signal: params.signal,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      q: params.q,
+      top_k: params.topK ?? 5,
+      sources: params.sources ?? "openalex,crossref,arxiv",
+      sort: params.sort ?? "relevance",
+      peer_reviewed: params.peerReviewed ?? true,
+      open_access: params.openAccess ?? false,
+      custom_weights: params.customWeights ?? null,
     }),
   }).then(handle<CompareResponse>);
 }

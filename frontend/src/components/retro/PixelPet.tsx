@@ -9,12 +9,16 @@ import {
 import { HUNT_ITEMS } from "../../data/hunt";
 import { ACHIEVEMENTS } from "../../data/achievements";
 import { PET_FORMS, type PetVariant } from "../../data/petForms";
+import type { PetAnimState } from "./PetBlob";
 import { usePetForm } from "../../state/petForm";
 import PetBlob from "./PetBlob";
+import CrumpledPaper from "./CrumpledPaper";
 import {
   getPetLines,
   getDestructionLine,
+  getDropMode,
   getHungryLine,
+  type DropMode,
 } from "../../data/petlines";
 import { removeFromLibrary } from "../../api";
 import { answerQuestion } from "../../data/help";
@@ -58,7 +62,7 @@ import { ArrowDown, BlockCursor, CloseX, Diamond, Star } from "./PixelIcons";
    treasures persist in paperrec_hunt_found.
    ============================================================ */
 
-const HOVER_DELAY_MS = 5_000;
+const HOVER_DELAY_MS = 2_500;
 const HOVER_COOLDOWN_MS = 3_000;
 const HOVER_GRACE_MS = 500;
 const TICK_MS = 100;
@@ -67,6 +71,20 @@ const TIP_SPEED = 18;
 
 const SEEN_KEY = "paperrec_tips_seen";
 const PET_POS_KEY = "paperrec_pet_pos";
+const PET_SIZE_KEY = "paperrec_pet_size";
+
+/* Resizable pet: the native Petdex frame is 192×208, so the pet can
+   grow up to its original dimensions (208 CSS px tall). */
+const DEFAULT_PET_SIZE = 68;
+const MIN_PET_SIZE = 48;
+const MAX_PET_SIZE = 208;
+
+/* The sprite is drawn at `size` tall but the draggable box is a little
+   larger, so the pet is easy to grab and the bob animation has room.
+   Everything that needs the pet's footprint (viewport clamping, the
+   dock presets, the tooltip/bubble flips) must go through this
+   multiplier — never the bare sprite size. */
+const PET_BOX_RATIO = 1.2;
 
 /* Every core tip. Finding all treasures unlocks all of them. */
 const CORE_TIP_IDS = TIPS.map((tip) => tip.id);
@@ -76,7 +94,6 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /* Draggable pet: sizes used to clamp the pet inside the viewport
    and to flip the tooltip when it would leave the screen. */
-const PET_SIZE = 64;
 const PET_MARGIN = 20;
 const DRAG_THRESHOLD = 6;
 const TOOLTIP_W = 288;
@@ -88,15 +105,16 @@ const BUBBLE_W = 220;
 const BUBBLE_H = 44;
 const BUBBLE_GAP = 10;
 
-/* Ways the pet can dispose of a library paper dropped on it. */
-const DESTRUCTION_MODES = ["zap", "eat", "crumple", "burn"] as const;
+/* Ways the pet can dispose of a library paper dropped on it.
+   Which one it picks is the CURRENT FORM's call — only the slime
+   forms eat (see FORM_DROP_MODES in petlines.ts). */
 const DESTRUCTION_MS = 1_600;
 
 /* Custom drag payload set by the My Library rows. */
 const PAPER_DROP_MIME = "application/x-research-paper";
 
 /* Double-click menu */
-const MENU_W = 256;
+const MENU_W = 320;
 
 /* Shown when the pet is clicked before any tip has been discovered. */
 const INTRO: Tip = {
@@ -136,7 +154,14 @@ interface PetPos {
   bottom: number;
 }
 
-function readPetPos(): PetPos {
+/** The pet's on-screen footprint: the draggable box, not the sprite. */
+function petBox(size: number): number {
+  return size * PET_BOX_RATIO;
+}
+
+function readPetPos(size: number): PetPos {
+  const box = petBox(size);
+
   try {
     const raw = window.localStorage.getItem(PET_POS_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
@@ -148,16 +173,21 @@ function readPetPos(): PetPos {
       Number.isFinite(parsed.right) &&
       Number.isFinite(parsed.bottom)
     ) {
-      return clampPetPos({
-        right: Math.max(0, parsed.right),
-        bottom: Math.max(0, parsed.bottom),
-      });
+      /* Clamp against the pet's real footprint so a large pet loaded
+         from storage cannot start off-screen. */
+      return clampPetPos(
+        { right: Math.max(0, parsed.right), bottom: Math.max(0, parsed.bottom) },
+        box,
+      );
     }
   } catch {
     // best-effort
   }
 
-  return { right: PET_MARGIN, bottom: PET_MARGIN };
+  return {
+    right: Math.min(PET_MARGIN, Math.max(0, window.innerWidth - box)),
+    bottom: Math.min(PET_MARGIN, Math.max(0, window.innerHeight - box)),
+  };
 }
 
 function writePetPos(pos: PetPos) {
@@ -168,14 +198,36 @@ function writePetPos(pos: PetPos) {
   }
 }
 
-/** Keep the pet fully inside the viewport (right/bottom offsets). */
-function clampPetPos(pos: PetPos): PetPos {
+function readPetSize(): number {
+  try {
+    const raw = window.localStorage.getItem(PET_SIZE_KEY);
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+    if (Number.isFinite(parsed)) {
+      return Math.max(MIN_PET_SIZE, Math.min(MAX_PET_SIZE, parsed));
+    }
+  } catch {
+    // best-effort
+  }
+  return DEFAULT_PET_SIZE;
+}
+
+function writePetSize(size: number) {
+  try {
+    window.localStorage.setItem(PET_SIZE_KEY, String(size));
+  } catch {
+    // best-effort
+  }
+}
+
+/** Keep the pet fully inside the viewport (right/bottom offsets).
+ *  `box` is the pet's on-screen footprint (petBox), not the sprite size. */
+function clampPetPos(pos: PetPos, box: number): PetPos {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
   return {
-    right: Math.max(0, Math.min(pos.right, Math.max(0, vw - PET_SIZE))),
-    bottom: Math.max(0, Math.min(pos.bottom, Math.max(0, vh - PET_SIZE))),
+    right: Math.max(0, Math.min(pos.right, Math.max(0, vw - box))),
+    bottom: Math.max(0, Math.min(pos.bottom, Math.max(0, vh - box))),
   };
 }
 
@@ -183,7 +235,11 @@ export default function PixelPet() {
   const [open, setOpen] = useState(false);
   const [currentTip, setCurrentTip] = useState<Tip | null>(null);
 
-  const { form, setFormId } = usePetForm();
+  const { form, setFormId, chatUnlocked, setChatUnlocked } = usePetForm();
+
+  function toggleChatUnlocked() {
+    setChatUnlocked(!chatUnlocked);
+  }
 
   const [seen, setSeen] = useState<string[]>(readSeen);
 
@@ -195,6 +251,7 @@ export default function PixelPet() {
   }, [seen]);
 
   const [hop, setHop] = useState(false);
+  const [hovering, setHovering] = useState(false);
   const [transformForm, setTransformForm] = useState<PetVariant | null>(null);
   const transformTimerRef = useRef<number | null>(null);
   const transformIntervalRef = useRef<number | null>(null);
@@ -206,6 +263,24 @@ export default function PixelPet() {
   const { found, count, total, complete, reset } = useHunt();
   const { unlocked, updateProgress, bump, reset: resetAchievements } =
     useAchievements();
+
+  /* UNLOCKED = everything maxed out. The pet behaves as if the
+     hunt were complete and every tip and achievement were earned;
+     the player's real progress underneath is untouched. */
+  const effectiveComplete = chatUnlocked || complete;
+  const effectiveSeen = chatUnlocked ? CORE_TIP_IDS : seen;
+  const effectiveSeenSet = new Set(effectiveSeen);
+
+  /* Pet FORMS unlock on real progress only (every treasure found
+     or every tip hovered/revealed), or temporarily while the CHAT
+     unlock toggle is on. */
+  const formsUnlocked =
+    chatUnlocked || complete || seen.length >= TIPS.length;
+
+  /* Locked chat reverts the pet to the default form. */
+  const effectiveForm = formsUnlocked
+    ? form
+    : PET_FORMS[0];
 
   /* --------------------------------------------------------
      Pet menu state (opens on double-click)
@@ -220,13 +295,16 @@ export default function PixelPet() {
     event.preventDefault();
     setMenuPos({
       x: Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_W - 8)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight * 0.3)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 40)),
     });
   }
 
   function closeMenu() {
     setMenuPos(null);
   }
+
+  /* Keep the menu fully visible and clear of the pet — declared
+     further down, after petSize/petPos exist (see below). */
 
   /* --------------------------------------------------------
      Single click vs double click: a single click pets the pet
@@ -252,14 +330,20 @@ export default function PixelPet() {
   function dock(corner: "tl" | "tr" | "bl" | "br") {
     const leftSide = corner === "tl" || corner === "bl";
     const topSide = corner === "tl" || corner === "tr";
-    const pos = {
-      right: leftSide
-        ? Math.max(0, window.innerWidth - PET_SIZE - PET_MARGIN)
-        : PET_MARGIN,
-      bottom: topSide
-        ? Math.max(0, window.innerHeight - PET_SIZE - PET_MARGIN)
-        : PET_MARGIN,
-    };
+    /* Use the current footprint, not a fixed size, or a large pet
+       would dock with most of itself off-screen. */
+    const box = petBox(petSize);
+    const pos = clampPetPos(
+      {
+        right: leftSide
+          ? Math.max(0, window.innerWidth - box - PET_MARGIN)
+          : PET_MARGIN,
+        bottom: topSide
+          ? Math.max(0, window.innerHeight - box - PET_MARGIN)
+          : PET_MARGIN,
+      },
+      box,
+    );
     setPetPos(pos);
     writePetPos(pos);
     closeMenu();
@@ -270,14 +354,108 @@ export default function PixelPet() {
      viewport's right/bottom edges, clamped + persisted.
      -------------------------------------------------------- */
 
-  const [petPos, setPetPos] = useState<PetPos>(readPetPos);
+  const [petSize, setPetSize] = useState<number>(readPetSize);
+  /* The box is derived, so it must exist before the position is read:
+     the saved position has to be clamped against the real footprint. */
+  const petBoxSize = petBox(petSize);
+  const [petPos, setPetPos] = useState<PetPos>(() => readPetPos(petSize));
+
+  /* Keep the menu fully visible: after it renders, measure its real
+     (transformed) size and pull it back inside the viewport. Then
+     push it clear of the pet itself — the pet grows leftward/upward
+     from its right/bottom anchor, so without this the character
+     disappears behind its own menu as SIZE increases (it looked
+     like the sprite wasn't scaling at all). */
+  useEffect(() => {
+    if (!menuPos) return;
+    const menu = menuRef.current;
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+
+    let next = {
+      x: Math.max(8, Math.min(menuPos.x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(menuPos.y, window.innerHeight - rect.height - 8)),
+    };
+
+    /* Pet footprint in viewport space (right/bottom anchored). */
+    const box = petBox(petSize);
+    const petLeft = window.innerWidth - petPos.right - box;
+    const petTop = window.innerHeight - petPos.bottom - box;
+    const petRight = petLeft + box;
+    const petBottom = petTop + box;
+    const GAP = 8;
+
+    const overlaps =
+      rect.left < petRight &&
+      rect.right > petLeft &&
+      rect.top < petBottom &&
+      rect.bottom > petTop;
+
+    if (overlaps) {
+      /* Candidate escapes: slide the menu away from the pet along
+         whichever single axis needs the least movement and still
+         lands inside the viewport. */
+      const candidates = [
+        { x: next.x - (rect.right + GAP - petLeft), y: next.y },
+        { x: next.x + (petRight + GAP - rect.left), y: next.y },
+        { x: next.x, y: next.y - (rect.bottom + GAP - petTop) },
+        { x: next.x, y: next.y + (petBottom + GAP - rect.top) },
+      ].filter(
+        (c) =>
+          c.x >= 8 &&
+          c.x <= window.innerWidth - rect.width - 8 &&
+          c.y >= 8 &&
+          c.y <= window.innerHeight - rect.height - 8,
+      );
+
+      if (candidates.length > 0) {
+        candidates.sort(
+          (a, b) =>
+            Math.abs(a.x - menuPos.x) + Math.abs(a.y - menuPos.y) -
+            (Math.abs(b.x - menuPos.x) + Math.abs(b.y - menuPos.y)),
+        );
+        next = candidates[0];
+      } else {
+        /* No fully clear spot: take the smallest shift, clamped. */
+        const left = { x: Math.max(8, next.x - (rect.right + GAP - petLeft)), y: next.y };
+        const up = { x: next.x, y: Math.max(8, next.y - (rect.bottom + GAP - petTop)) };
+        next =
+          Math.abs(left.x - menuPos.x) <= Math.abs(up.y - menuPos.y) ? left : up;
+      }
+    }
+
+    if (next.x !== menuPos.x || next.y !== menuPos.y) {
+      setMenuPos(next);
+    }
+  }, [menuPos, petSize, petPos]);
+
+  function handlePetSizeChange(next: number) {
+    const clamped = Math.max(MIN_PET_SIZE, Math.min(MAX_PET_SIZE, next));
+    setPetSize(clamped);
+    writePetSize(clamped);
+    /* Re-clamp position so the (possibly larger) pet stays on-screen,
+       and persist it — otherwise the corrected position is lost on
+       reload and the pet starts off-screen again. */
+    setPetPos((current) => {
+      const next2 = clampPetPos(current, petBox(clamped));
+      writePetPos(next2);
+      return next2;
+    });
+  }
   const petPosRef = useRef(petPos);
 
   useEffect(() => {
     petPosRef.current = petPos;
   }, [petPos]);
 
+  const petSizeRef = useRef(petSize);
+
+  useEffect(() => {
+    petSizeRef.current = petSize;
+  }, [petSize]);
+
   const [dragging, setDragging] = useState(false);
+  const [dragDir, setDragDir] = useState<"left" | "right">("right");
   const dragActiveRef = useRef(false);
   const dragRef = useRef<{
     pointerId: number;
@@ -286,6 +464,7 @@ export default function PixelPet() {
     startRight: number;
     startBottom: number;
   } | null>(null);
+  const lastDragXRef = useRef<number | null>(null);
   const lastDragEndRef = useRef(0);
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -299,6 +478,7 @@ export default function PixelPet() {
       startBottom: petPos.bottom,
     };
     dragActiveRef.current = true;
+    lastDragXRef.current = event.clientX;
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -313,11 +493,20 @@ export default function PixelPet() {
 
     if (!dragging) setDragging(true);
 
+    /* Face the direction of the pointer so the running sprite
+       plays the left or right row of the atlas. */
+    const lastX = lastDragXRef.current;
+    if (lastX !== null) {
+      if (event.clientX > lastX + 2) setDragDir("right");
+      else if (event.clientX < lastX - 2) setDragDir("left");
+    }
+    lastDragXRef.current = event.clientX;
+
     setPetPos(
-      clampPetPos({
-        right: drag.startRight - dx,
-        bottom: drag.startBottom - dy,
-      }),
+      clampPetPos(
+        { right: drag.startRight - dx, bottom: drag.startBottom - dy },
+        petBoxSize,
+      ),
     );
   }
 
@@ -339,7 +528,11 @@ export default function PixelPet() {
       // Swallow the click that follows a drag.
       lastDragEndRef.current = performance.now();
       writePetPos(petPosRef.current);
-      bump("drags");
+      // While the CHAT unlock is on, progress is ephemeral: the
+      // drag counter stays put so locking restores it exactly.
+      if (!chatUnlocked) {
+        bump("drags");
+      }
     }
   }
 
@@ -354,9 +547,23 @@ export default function PixelPet() {
   useEffect(() => {
     function handleResize() {
       setPetPos((current) => {
-        const clamped = clampPetPos(current);
+        const clamped = clampPetPos(current, petBox(petSizeRef.current));
         return clamped.right === current.right &&
           clamped.bottom === current.bottom
+          ? current
+          : clamped;
+      });
+      /* Re-pull the open menu back into the viewport. */
+      setMenuPos((current) => {
+        if (!current) return current;
+        const menu = menuRef.current;
+        if (!menu) return current;
+        const rect = menu.getBoundingClientRect();
+        const clamped = {
+          x: Math.max(8, Math.min(current.x, window.innerWidth - rect.width - 8)),
+          y: Math.max(8, Math.min(current.y, window.innerHeight - rect.height - 8)),
+        };
+        return clamped.x === current.x && clamped.y === current.y
           ? current
           : clamped;
       });
@@ -390,7 +597,7 @@ export default function PixelPet() {
 
   const celebrate = useCallback(() => {
     setHop(true);
-    window.setTimeout(() => setHop(false), 500);
+    window.setTimeout(() => setHop(false), 600);
 
     const id = coinId.current++;
     setCoins((current) => [...current, id]);
@@ -400,9 +607,17 @@ export default function PixelPet() {
     );
   }, []);
 
-  /* While dragging, the pet hops along toward the pointer:
-     re-trigger the hop animation every hop cycle. */
-  const dragHopRef = useRef<number | null>(null);
+  /* While dragging, the pet plays the Petdex running animation
+     (handled via the sprite `state` prop). */
+  const animState: PetAnimState = hop
+    ? "jump"
+    : dragging
+      ? dragDir === "left"
+        ? "run-left"
+        : "run-right"
+      : hovering
+        ? "wave"
+        : "idle";
 
   /* Shapeshift through every form for a moment, then return to the
      selected form. Runs when the pet eats a paper. */
@@ -431,27 +646,6 @@ export default function PixelPet() {
       setTransformForm(null);
     }, 1_700);
   }, [form.variant]);
-  useEffect(() => {
-    if (dragging) {
-      setHop(true);
-      dragHopRef.current = window.setInterval(() => {
-        setHop(true);
-        window.setTimeout(() => setHop(false), 450);
-      }, 500);
-    } else {
-      if (dragHopRef.current !== null) {
-        window.clearInterval(dragHopRef.current);
-        dragHopRef.current = null;
-      }
-      setHop(false);
-    }
-    return () => {
-      if (dragHopRef.current !== null) {
-        window.clearInterval(dragHopRef.current);
-        dragHopRef.current = null;
-      }
-    };
-  }, [dragging]);
 
   /* --------------------------------------------------------
      Reveal a tip (from the hover engine)
@@ -461,6 +655,11 @@ export default function PixelPet() {
     (id: string) => {
       const tip = TIP_BY_ID[id];
       if (!tip) return;
+
+      // While the CHAT unlock is on every tip is already shown, so
+      // hovering must not write real progress — locking would
+      // otherwise leave the tips permanently discovered.
+      if (chatUnlocked) return;
 
       setCurrentTip(tip);
       setOpen(true);
@@ -478,7 +677,7 @@ export default function PixelPet() {
 
       celebrate();
     },
-    [celebrate, updateProgress],
+    [celebrate, chatUnlocked, updateProgress],
   );
 
   /* --------------------------------------------------------
@@ -648,6 +847,14 @@ export default function PixelPet() {
       const id = (event as CustomEvent).detail?.id;
       const item = HUNT_ITEMS.find((candidate) => candidate.id === id);
 
+      // While the CHAT unlock is on the hunt is already complete
+      // and every treasure effectively found — collecting during a
+      // free-access session must not write real progress.
+      if (chatUnlocked) {
+        celebrate();
+        return;
+      }
+
       celebrate();
 
       if (!complete) {
@@ -679,7 +886,7 @@ export default function PixelPet() {
 
     window.addEventListener(HUNT_FOUND_EVENT, handleFound);
     return () => window.removeEventListener(HUNT_FOUND_EVENT, handleFound);
-  }, [celebrate, count, total, complete, updateProgress, unlockAllTips]);
+  }, [celebrate, chatUnlocked, count, total, complete, updateProgress, unlockAllTips]);
 
   /* --------------------------------------------------------
      Achievement unlocked: celebrate + announce
@@ -752,8 +959,8 @@ export default function PixelPet() {
   }
 
   function nextDiscoveredTip(): Tip {
-    const discovered = TIPS.filter((tip) => seenSet.has(tip.id));
-    const hint = complete ? null : nextTreasureHint();
+    const discovered = TIPS.filter((tip) => effectiveSeenSet.has(tip.id));
+    const hint = effectiveComplete ? null : nextTreasureHint();
 
     const pool: Tip[] = [
       ...discovered,
@@ -778,7 +985,11 @@ export default function PixelPet() {
     }
 
     celebrate();
-    bump("clicks");
+    // Ephemeral while unlocked: clicking during a free-access
+    // session must not advance the real click counter.
+    if (!chatUnlocked) {
+      bump("clicks");
+    }
 
     if (!open) {
       setCurrentTip(currentTip ?? nextDiscoveredTip());
@@ -811,7 +1022,11 @@ export default function PixelPet() {
     });
     setOpen(true);
     setQuery("");
-    bump("asks");
+    // Ephemeral while unlocked: asks during a free-access session
+    // do not advance the real ask counter.
+    if (!chatUnlocked) {
+      bump("asks");
+    }
   }
 
   function handleReset() {
@@ -835,12 +1050,13 @@ export default function PixelPet() {
 
   /* --------------------------------------------------------
      Paper drops: a library paper dragged onto the pet gets
-     destroyed (zap / eat / crumple / burn, at random) and is
-     deleted from the library. Pure visual flair.
+     destroyed with the current form's signature power — the
+     slime forms eat it, the others zap / crumple / burn it —
+     and is deleted from the library. Pure visual flair.
      -------------------------------------------------------- */
 
   const [dropFx, setDropFx] = useState<{
-    mode: (typeof DESTRUCTION_MODES)[number];
+    mode: DropMode;
     title: string;
   } | null>(null);
   const [petHungry, setPetHungry] = useState(false);
@@ -851,19 +1067,19 @@ export default function PixelPet() {
 
   const destructionTimerRef = useRef<number | null>(null);
 
-  const speechLines = getPetLines(count, total, complete, form.variant);
+  const speechLines = getPetLines(count, total, effectiveComplete, form.variant);
   const speechLine = speechLines[speechIndex % speechLines.length];
 
   /* The bubble speaks the hungry line while a paper hovers over
      the pet, the destruction line while one is being disposed
      of or the pet reacts to an action, and the cycling line
-     otherwise. */
+     otherwise. All three speak as the CURRENT form. */
   const activeSpeech = petHungry
-    ? getHungryLine()
+    ? getHungryLine(effectiveForm.variant)
     : dropFx
-      ? getDestructionLine(dropFx.mode)
+      ? getDestructionLine(dropFx.mode, effectiveForm.variant)
       : petAnim
-        ? getDestructionLine(petAnim)
+        ? getDestructionLine(petAnim, effectiveForm.variant)
         : speechLine;
 
   useEffect(() => {
@@ -902,11 +1118,23 @@ export default function PixelPet() {
     }
     if (!paper || typeof paper.id !== "number") return;
 
-    const mode =
-      DESTRUCTION_MODES[Math.floor(Math.random() * DESTRUCTION_MODES.length)];
+    /* The current form picks how to dispose of the paper: only
+       the slime forms eat it; every other character answers
+       with its signature power (Gojo zaps, Glaucira burns…). */
+    const mode = getDropMode(effectiveForm.variant);
 
     setDropFx({ mode, title: paper.title ?? `Paper #${paper.id}` });
     celebrate();
+
+    /* The body plays the power too, so the character visibly
+       casts rather than only the paper chip reacting. */
+    if (petAnimTimerRef.current !== null) {
+      window.clearTimeout(petAnimTimerRef.current);
+    }
+    setPetAnim(mode);
+    petAnimTimerRef.current = window.setTimeout(() => {
+      setPetAnim(null);
+    }, 1_000);
 
     /* Eating a paper makes the pet shapeshift through the forms,
        then return to the selected form (Rimuru-style transformation). */
@@ -986,12 +1214,13 @@ export default function PixelPet() {
        the pet (tail flips to point up).
      -------------------------------------------------------- */
 
-  const flipX =
-    open && petPos.right > window.innerWidth - TOOLTIP_W;
+  /* Both bubbles measure against the pet's real footprint, so a 208px
+     pet flips them the same way a 48px pet does. */
+  const flipX = open && petPos.right > window.innerWidth - TOOLTIP_W;
   const flipY =
     open &&
     petPos.bottom >
-      window.innerHeight - PET_SIZE - TOOLTIP_GAP - TOOLTIP_H;
+      window.innerHeight - petBoxSize - TOOLTIP_GAP - TOOLTIP_H;
 
   /* Speech bubble flips the same way, against its own size:
      - speechFlipX: not enough room to the left of the pet ->
@@ -1001,7 +1230,7 @@ export default function PixelPet() {
   const speechFlipX = petPos.right > window.innerWidth - BUBBLE_W;
   const speechFlipY =
     petPos.bottom >
-    window.innerHeight - PET_SIZE - BUBBLE_GAP - BUBBLE_H;
+    window.innerHeight - petBoxSize - BUBBLE_GAP - BUBBLE_H;
 
   /* ============================================================
      RENDER
@@ -1015,7 +1244,12 @@ export default function PixelPet() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="relative h-16 w-16">
+      {/* Anchor box tracks the pet's real footprint, so the tooltip,
+          speech bubble and FX stay pinned to the pet at any size. */}
+      <div
+        className="relative"
+        style={{ width: petBoxSize, height: petBoxSize }}
+      >
         {/* ----------------------------------------------------
             RPG-style tooltip box
             ---------------------------------------------------- */}
@@ -1051,9 +1285,9 @@ export default function PixelPet() {
           {done && (
             <p className="mt-2 flex items-center justify-between gap-2 text-right font-mono text-xs font-bold tracking-[0.2em] text-accent">
               <span>
-                {complete
+                {effectiveComplete
                   ? "HELP LIBRARY"
-                  : `FOUND ${seen.length}/${TIPS.length}`}
+                  : `FOUND ${effectiveSeen.length}/${TIPS.length}`}
               </span>
               <span className="animate-blink flex items-center gap-1.5">
                 <ArrowDown className="h-2.5 w-2.5" />
@@ -1062,8 +1296,10 @@ export default function PixelPet() {
             </p>
           )}
 
-          {/* Chat input — only after the hunt is complete */}
-          {complete && (
+          {/* Chat input — normally after the hunt is complete; the
+              menu's CHAT toggle (paperrec_pet_chat_unlocked)
+              opens it right away */}
+          {(effectiveComplete) && (
             <div className="mt-2 border-t-2 border-gray-700 pt-2">
               <div className="mb-1.5 flex flex-wrap gap-1">
                 {QUICK_QUESTIONS.map((question) => (
@@ -1164,11 +1400,15 @@ export default function PixelPet() {
 
         {dropFx && (
           <div className="pointer-events-none absolute -top-10 left-1/2 z-30 -translate-x-1/2">
-            <span
-              className={`drop-fx-chip drop-fx-${dropFx.mode} block max-w-[200px] truncate rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-xs font-bold text-ink`}
-            >
-              {dropFx.title}
-            </span>
+            {dropFx.mode === "crumple" ? (
+              <CrumpledPaper className="drop-fx-chip drop-fx-crumple block" />
+            ) : (
+              <span
+                className={`drop-fx-chip drop-fx-${dropFx.mode} block max-w-[200px] truncate rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-xs font-bold text-ink`}
+              >
+                {dropFx.title}
+              </span>
+            )}
           </div>
         )}
 
@@ -1181,7 +1421,10 @@ export default function PixelPet() {
             <svg
               aria-hidden="true"
               viewBox="0 0 100 100"
-              className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-[88px] w-[88px] -translate-x-1/2 -translate-y-1/2 -rotate-90"
+              /* Scales with the pet so the charge ring always
+                 circumscribes it. */
+              style={{ width: petBoxSize * 1.1, height: petBoxSize * 1.1 }}
+              className="pointer-events-none absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 -rotate-90"
             >
               <circle
                 cx="50"
@@ -1222,9 +1465,12 @@ export default function PixelPet() {
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
-          className={`group relative flex h-16 w-16 touch-none select-none items-end justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gray-900 ${
+          onMouseEnter={() => setHovering(true)}
+          onMouseLeave={() => setHovering(false)}
+          className={`group relative flex touch-none select-none items-end justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gray-900 ${
             dragging ? "cursor-grabbing" : "cursor-grab"
           }`}
+          style={{ width: petBoxSize, height: petBoxSize }}
         >
           {/* coins popped on petting / discovery */}
           {coins.map((id) => (
@@ -1237,29 +1483,65 @@ export default function PixelPet() {
             </span>
           ))}
 
-          {/* shadow */}
+          {/* shadow — scales with the pet */}
           <span
             aria-hidden="true"
-            className="pet-shadow absolute bottom-1 h-3 w-10 rounded-full bg-gray-900/25"
+            className="pet-shadow absolute bottom-1 rounded-full bg-gray-900/25"
+            style={{
+              height: Math.max(6, petSize * 0.0625),
+              width: Math.max(20, petSize * 0.83),
+            }}
           />
 
-          {/* body — hungry (paper dragged over) opens wide; event
-              animations (zap/eat/crumple/burn) play on the body */}
-          <div className={`pet-bob relative z-10 ${hop ? "pet-hop" : ""}`}>
+          {/* body — hungry (paper dragged over) opens wide; the
+              power animations (zap/eat/crumple/burn) play on the
+              body for thrown papers and app events alike */}
+          <div
+            className={`pet-bob relative z-10 ${hop ? "pet-hop" : ""}`}
+          >
             <div className={petAnim ? `pet-anim-${petAnim}` : "pet-bounce"}>
+{/* Sized to the sprite's own 192×208 ratio so the hungry ring
+                hugs the pet at every size. */}
               <div
-                className={`flex h-12 w-12 items-center justify-center transition-transform duration-100 pixel-ease ${
+                className={`flex items-center justify-center transition-transform duration-100 pixel-ease ${
                   petHungry
-                    ? "scale-110 ring-2 ring-gray-900"
+                    ? "scale-110"
                     : dragging
                       ? ""
                       : "group-hover:scale-110 group-focus-visible:scale-110"
                 }`}
+                style={{
+                  width: petSize * (192 / 208),
+                  height: petSize,
+                }}
               >
+                {/* Drag-delete boundary: translucent dashed ring
+                    marching around the pet while a paper hovers
+                    over it */}
+                {petHungry && (
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 100 100"
+                    className="pet-hungry-ring pointer-events-none absolute -inset-1.5 h-auto w-auto"
+                  >
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="47"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeDasharray="12 9"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                )}
+
                 <PetBlob
-                  variant={transformForm ?? form.variant}
-                  size={48}
+                  variant={transformForm ?? effectiveForm.variant}
+                  size={petSize}
                   hungry={petHungry}
+                  state={animState}
                   className="drop-shadow-[1px_2px_0_rgba(0,0,0,0.15)]"
                 />
               </div>
@@ -1276,8 +1558,8 @@ export default function PixelPet() {
         <div
           ref={menuRef}
           role="menu"
-          className="fixed z-50 w-64 select-none rounded border-[3px] border-gray-900 bg-white p-2 font-mono text-xs text-ink"
-          style={{ left: menuPos.x, top: menuPos.y }}
+          className="fixed z-50 w-80 select-none rounded border-[3px] border-gray-900 bg-white p-2 font-mono text-sm text-ink"
+          style={{ left: menuPos.x, top: menuPos.y, transform: "scale(0.75)", transformOrigin: "top left" }}
         >
           <p className="px-2 pb-1.5 font-bold tracking-[0.25em] text-accent">
             PET MENU
@@ -1299,14 +1581,18 @@ export default function PixelPet() {
             <p className="flex items-center justify-between font-bold tracking-[0.15em] text-muted">
               <span>ACHIEVEMENTS</span>
               <span className="text-accent">
-                {unlocked.length}/{ACHIEVEMENTS.length}
+                {chatUnlocked
+                  ? ACHIEVEMENTS.length
+                  : unlocked.length}
+                /{ACHIEVEMENTS.length}
               </span>
             </p>
           </div>
 
-          <div className="max-h-[40vh] overflow-y-auto py-1">
+          <div className="max-h-[45vh] overflow-y-auto py-1">
             {ACHIEVEMENTS.map((achievement) => {
-              const got = unlocked.includes(achievement.id);
+              const got =
+                chatUnlocked || unlocked.includes(achievement.id);
 
               return (
                 <div
@@ -1316,9 +1602,9 @@ export default function PixelPet() {
                   }`}
                 >
                   {got ? (
-                    <Star className="mt-0.5 h-3 w-3 shrink-0 text-accent" />
+                    <Star className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                   ) : (
-                    <Diamond className="mt-0.5 h-3 w-3 shrink-0 text-muted" />
+                    <Diamond className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
                   )}
                   <div className="min-w-0">
                     <p
@@ -1328,13 +1614,42 @@ export default function PixelPet() {
                     >
                       {achievement.name}
                     </p>
-                    <p className="mt-0.5 text-xs leading-3.5 text-muted">
+                    <p className="mt-0.5 text-sm leading-4 text-muted">
                       {achievement.description}
                     </p>
                   </div>
                 </div>
               );
             })}
+          </div>
+
+          <div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
+            <p className="mb-1 font-bold tracking-[0.15em] text-muted">
+              CHAT
+            </p>
+            <button
+              type="button"
+              role="menuitem"
+              aria-pressed={chatUnlocked}
+              onClick={toggleChatUnlocked}
+              title={
+                chatUnlocked
+                  ? "Help library opens without the hunt."
+                  : "Help library stays locked until all treasures are found."
+              }
+              className={`flex w-full items-center justify-between rounded border-2 border-gray-900 px-2 py-1.5 transition-colors pixel-ease ${
+                chatUnlocked
+                  ? "bg-accent text-onAccent"
+                  : "bg-surface text-ink hover:bg-accentSoft"
+              }`}
+            >
+              <span className="text-sm font-bold">
+                {chatUnlocked ? "UNLOCKED" : "LOCKED"}
+              </span>
+              <span className="font-mono text-xs tracking-[0.15em]">
+                {chatUnlocked ? "FREE ACCESS" : "HUNT ONLY"}
+              </span>
+            </button>
           </div>
 
           <div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
@@ -1348,7 +1663,7 @@ export default function PixelPet() {
                   type="button"
                   role="menuitem"
                   onClick={() => dock(corner)}
-                  className="rounded border-2 border-gray-900 bg-surface px-1 py-1 text-center font-mono text-xs font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+                  className="rounded border-2 border-gray-900 bg-surface px-1 py-1 text-center font-mono text-sm font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
                 >
                   {corner.toUpperCase()}
                 </button>
@@ -1356,30 +1671,72 @@ export default function PixelPet() {
             </div>
           </div>
 
+<div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
+            <p className="mb-1 flex items-center justify-between font-bold tracking-[0.15em] text-muted">
+              <span>SIZE</span>
+              <span className="text-accent">{petSize}px</span>
+            </p>
+            <input
+              type="range"
+              min={MIN_PET_SIZE}
+              max={MAX_PET_SIZE}
+              step={4}
+              value={petSize}
+              onChange={(event) =>
+                handlePetSizeChange(Number.parseInt(event.target.value, 10))
+              }
+              aria-label="Pet size"
+              className="w-full accent-gray-900"
+            />
+            <p className="mt-0.5 text-center font-mono text-xs text-muted">
+              {petSize === MAX_PET_SIZE
+                ? "NATIVE 192×208"
+                : petSize >= DEFAULT_PET_SIZE
+                  ? `${Math.round(petSize * (192 / 208))}×${petSize}`
+                  : "UP TO ORIGINAL DIMENSIONS"}
+            </p>
+          </div>
+
           <div className="mt-1 border-t-2 border-gray-200 px-2 pt-1.5">
             <p className="mb-1 flex items-center justify-between font-bold tracking-[0.15em] text-muted">
               <span>FORM</span>
-              <span className="text-accent">{form.name}</span>
+              {formsUnlocked ? (
+                <span className="text-accent">{effectiveForm.name}</span>
+              ) : (
+                <span className="text-muted">LOCKED</span>
+              )}
             </p>
-            <div className="grid grid-cols-5 gap-1">
-              {PET_FORMS.map((candidate) => (
-                <button
-                  key={candidate.id}
-                  type="button"
-                  role="menuitem"
-                  title={candidate.blurb}
-                  aria-pressed={form.id === candidate.id}
-                  onClick={() => setFormId(candidate.id)}
-                  className={`flex h-10 items-center justify-center rounded border-2 border-gray-900 transition-colors pixel-ease ${
-                    form.id === candidate.id
-                      ? "bg-accentSoft"
-                      : "bg-surface hover:bg-accentSoft"
-                  }`}
-                >
-                  <PetBlob variant={candidate.variant} size={26} />
-                </button>
-              ))}
-            </div>
+
+            {formsUnlocked ? (
+              <div className="grid grid-cols-5 gap-1">
+                {PET_FORMS.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    role="menuitem"
+                    title={candidate.blurb}
+                    aria-pressed={form.id === candidate.id}
+                    onClick={() => setFormId(candidate.id)}
+                    className={`flex h-10 items-center justify-center rounded border-2 border-gray-900 transition-colors pixel-ease ${
+                      form.id === candidate.id
+                        ? "bg-accentSoft"
+                        : "bg-surface hover:bg-accentSoft"
+                    }`}
+                  >
+                    <PetBlob variant={candidate.variant} size={30} />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded border-2 border-gray-900 bg-canvas px-2 py-2 text-center">
+                <p className="font-mono text-xs font-bold tracking-[0.15em] text-muted">
+                  FIND ALL 6 TREASURES OR HOVER EVERY TIP
+                </p>
+                <p className="mt-1 font-mono text-sm text-muted">
+                  Tips hovered: {seen.length}/{TIPS.length}
+                </p>
+              </div>
+            )}
           </div>
 
           <button

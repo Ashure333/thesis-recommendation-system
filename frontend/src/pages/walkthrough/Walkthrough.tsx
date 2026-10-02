@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CloseX } from "../../components/retro/PixelIcons";
 import {
   Chip,
+  WikiCite,
   WikiFooter,
   WikiHeader,
   WikiInfobox,
@@ -41,7 +42,7 @@ const TREASURES = [
 const ACHIEVEMENTS = [
   ["first-tip", "First Contact", "Discover your first tip"],
   ["tip-collector", "Tip Collector", "Discover 5 tips"],
-  ["tip-master", "Tip Master", "Discover every tip (23/23)"],
+  ["tip-master", "Tip Master", "Discover every tip (26/26)"],
   ["first-treasure", "Treasure Hunter", "Collect your first treasure"],
   ["treasure-hunter", "Treasure Hoarder", "Collect 3 treasures"],
   ["hunt-complete", "Hunt Complete", "Collect all 6 treasures"],
@@ -65,8 +66,10 @@ const ENDPOINTS = [
   ["GET", "/api/recommendations", "Get ranked recommendations"],
   ["GET", "/api/recommendations/trace", "Real-time math trace of one search"],
   ["POST", "/api/recommendations/compare", "Arena battle: all six pipelines at once"],
+  ["POST", "/api/recommendations/web-compare", "Web battle: all six pipelines over live web hits"],
   ["GET", "/api/recommendations/status", "Check if the index is stale"],
   ["POST", "/api/recommendations/rebuild", "Rebuild vectors and embeddings"],
+  ["GET", "/api/search-web", "Search OpenAlex, Crossref, and arXiv"],
   ["GET", "/api/evaluation/battles", "Battle history for the Arena tally"],
   ["GET", "/api/library", "The personal library"],
   ["POST", "/api/library/{id}", "Save a paper"],
@@ -92,7 +95,7 @@ const INFOBOX_ROWS: [string, string][] = [
   ["Tech", "FastAPI · SQLAlchemy · SQLite · scikit-learn · sentence-transformers · React · TypeScript · Vite · Tailwind"],
   ["Models", "TF-IDF (scikit-learn) · S-BERT (all-MiniLM-L6-v2)"],
   ["Pipelines", "6 fixed configurations + 1 custom dial"],
-  ["Pages", "Recommendations · Repository · Upload · My Library · Arena · FAQ"],
+  ["Pages", "Recommendations · Repository · Upload · My Library · Arena · Lab · Walkthrough · Engine · FAQ · Changelog"],
   ["Extra", "Pixel pet · scavenger hunt · achievements · research assistant"],
   ["Status", "Local research prototype"],
 ];
@@ -120,20 +123,21 @@ const OTHER_PAGES = [
   ["/evaluation", "Arena"],
   ["/walkthrough-engine", "Engine"],
   ["/faq", "FAQ"],
+  ["/changelog", "Changelog"],
 ] as const;
 
 const FORMS = [
-  ["original", "Original", "The classic slime blob, theme-accented", "Code-rendered blob"],
-  ["rimuru", "Rimuru", "Blue-haired sword-bearing slime hero", "Petdex Rimuru sheet"],
-  ["veldora", "Glaucira", "Mythical blue dragon, aurora-tinted", "Petdex Glaucira dragon sheet"],
-  ["benimaru", "Crimson Blossom", "Chibi floral spirit with a crimson bloom", "Petdex crimson-blossom sheet"],
-  ["shion", "Sion", "Soft violet steadiness, calm as moonlight", "Petdex sioning sheet"],
-  ["ranga", "Wangcai", "Calm fluffy cat with blue eyes", "Petdex Wangcai cat sheet"],
-  ["shuna", "Yinyue Fox", "Silver-moon fox with a curled tail", "Petdex yinyue fox sheet"],
-  ["gobta", "Kabi", "Sleepy, apple-munching bundle of naps", "Petdex Kabi sheet"],
-  ["ciel", "Ciel", "Calm hooded girl, red eyes, white cloak", "Petdex Ciel sheet"],
-  ["diablo", "Gojo", "White-haired sorcerer, blindfolded", "Petdex Gojo sheet"],
-  ["milim", "Mashiro Rima", "Blonde idol of the stage, always in balance", "Petdex Mashiro Rima sheet"],
+  ["original", "Original", "The pet's first face: a theme-accent slime blob, before the Petdex companions arrived.", "Code-rendered blob"],
+  ["rimuru", "Rimuru", "TenSura's Rimuru Tempest — a salaryman reborn as a slime who devoured his way to demon-lordhood.", "Petdex Rimuru sheet"],
+  ["veldora", "Glaucira", "Stands in for Veldora, the Storm Dragon sealed inside Rimuru — and later his rowdiest friend.", "Petdex Glaucira dragon sheet"],
+  ["benimaru", "Crimson Blossom", "Stands in for Benimaru, the kijin general of Tempest — crimson flames, twin horns, blooming loyalty.", "Petdex crimson-blossom sheet"],
+  ["shion", "Sion", "Stands in for Shion, the demon secretary of Tempest — violet hair, a single horn, a gentle face.", "Petdex sioning sheet"],
+  ["ranga", "Wangcai", "Stands in for Ranga, the Tempest Wolf — Rimuru's first named summon, white fur and blue eyes.", "Petdex Wangcai cat sheet"],
+  ["shuna", "Yinyue Fox", "Stands in for Shuna, the gentle priestess of Tempest — pink hair, fox ears, a healing heart.", "Petdex yinyue fox sheet"],
+  ["gobta", "Kabi", "Stands in for Gobta, Tempest's goblin lieutenant — apple habit borrowed from Snorlax (卡比兽).", "Petdex Kabi sheet"],
+  ["ciel", "Ciel", "TenSura's Ciel — the personified Great Sage, Rimuru's ultimate intelligence skill.", "Petdex Ciel sheet"],
+  ["diablo", "Gojo", "Jujutsu Kaisen's Gojo Satoru — the strongest sorcerer: blindfolded, limitless, Ryoiki Tenkai.", "Petdex Gojo sheet"],
+  ["milim", "Mashiro Rima", "Stands in for Milim Nava, the Destroyer — a dragon-girl demon lord who'd rather play; now she performs.", "Petdex Mashiro Rima sheet"],
 ] as const;
 
 const GALLERY = [
@@ -253,7 +257,7 @@ export default function Walkthrough() {
               </p>
               <p className="text-sm leading-6 text-ink">
                 Tip: hover any tab (or any labeled control) and hold the
-                pointer still. The pixel pet dwells for five seconds and
+                pointer still. The pixel pet dwells for 2.5 seconds and
                 then explains what that element does.
               </p>
             </WikiSub>
@@ -334,6 +338,10 @@ export default function Walkthrough() {
                   "A stats panel summarizes the stored corpus.",
                 ],
                 [
+                  "Web mode",
+                  "Toggle from stored papers to live search: OpenAlex, Crossref, and arXiv with a source selector, peer-reviewed and open-access filters, and relevance/citations/year sorting. Hits can be inspected in the same details pane and imported into the repository.",
+                ],
+                [
                   "Paper actions",
                   "View the attached PDF in a modal, edit metadata, search for an open-access PDF online, or delete the record.",
                 ],
@@ -343,6 +351,7 @@ export default function Walkthrough() {
                 ],
               ]}
             />
+            <WikiCite ids={["arxiv-source"]} />
           </WikiSection>
 
           <WikiSection id="upload" title="Walkthrough: Upload">
@@ -441,8 +450,13 @@ export default function Walkthrough() {
                   "Battle records",
                   "A win tally over time, the current champion, and streaks; every run is logged to the battle history.",
                 ],
+                [
+                  "Repository / Web scope",
+                  "Switches the candidate pool between the repository and live web hits (OpenAlex, Crossref, arXiv — with per-source and open-access toggles). Web battles vectorize every hit on the fly with the stored TF-IDF vectorizer and S-BERT model; they are exploratory and never recorded to the tally.",
+                ],
               ]}
             />
+            <WikiCite ids={["web-battles", "battle-records"]} />
           </WikiSection>
 
           <WikiSection id="pet" title="The pixel pet & scavenger hunt">
@@ -454,9 +468,12 @@ export default function Walkthrough() {
             </p>
             <p className="text-sm leading-6 text-ink">
               The pet is a self-aware slime in the spirit of Rimuru Tempest:
-              playful and gluttonous, it "predates" on library papers
-              dragged onto it, leans on its inner Great Sage to analyze
-              recommendations, and names everything it likes. It speaks a
+              playful and gluttonous, as a slime it answers dragged-onto
+              papers with its ultimate skills — Beelzebub, Gluttony,
+              Imaginary Space — while every other form disposes of them with
+              a power from its own role. It leans
+              on its inner Great Sage to analyze recommendations, and names
+              everything it likes. It speaks a
               second voice — Japanese lines always shown with their
               translation — and each form talks in character: Gojo casts
               Ryoiki Tenkai, Kabi asks for apples, Ciel reports
@@ -464,13 +481,13 @@ export default function Walkthrough() {
               signature lines.
             </p>
 
-            <WikiSub id="forms" title="The ten forms">
+            <WikiSub id="forms" title="The eleven forms">
               <WikiTable
-                headers={["Form", "Character", "Palette"]}
-                rows={FORMS.map(([id, name, character, palette]) => [
+                headers={["Form", "Lore", "Source"]}
+                rows={FORMS.map(([id, name, lore, source]) => [
                   <Chip key={id}>{name}</Chip>,
-                  character,
-                  palette,
+                  lore,
+                  source,
                 ])}
               />
             </WikiSub>
@@ -485,13 +502,16 @@ export default function Walkthrough() {
               pixels. All forms still follow the theme and animate with the
               same bob, bounce, and reaction keyframes. The chosen form is
               remembered per browser; old selections fall back to Rimuru.
+              While the CHAT toggle is locked, the pet and logo revert to
+              the Original form automatically.
             </p>
+            <WikiCite ids={["petdex-sprites", "locked-ephemeral"]} />
             <WikiTable
               headers={["Interaction", "What happens"]}
               rows={[
                 [
                   "Hover (main way)",
-                  "Hold the pointer on any element labeled with a tip; the pet dwells for 5 seconds (progress ring + percent chip) and reveals the tip. A 3-second cooldown rests the pet between reveals.",
+                  "Hold the pointer on any element labeled with a tip; the pet dwells for 2.5 seconds (progress ring + percent chip) and reveals the tip. A 3-second cooldown rests the pet between reveals.",
                 ],
                 [
                   "Click",
@@ -506,11 +526,20 @@ export default function Walkthrough() {
                   "Moves the pet anywhere in the viewport; the tooltip flips sides to stay on screen.",
                 ],
                 [
+                  "Drag a paper over the pet",
+                  "A translucent, dashed ring marches around the pet — the delete boundary — and the pet readies its power. Dropping destroys the paper with the form's signature move: only the slime forms eat it, Gojo zaps it with Cursed Techniques, Glaucira burns it with Storm Breath, Mashiro Rima punches it flat — and the paper leaves the library.",
+                ],
+                [
+                  "Menu CHAT toggle",
+                  "UNLOCKED opens the help library early with everything maxed — but the session is ephemeral: tips, clicks, asks, and treasures collected during free access never write real progress, and locking again restores the exact pre-unlock state.",
+                ],
+                [
                   "Chat (after the hunt)",
                   "The pet becomes a help library: quick questions and a free-text ask field answered from the tip catalogue.",
                 ],
               ]}
             />
+            <WikiCite ids={["drag-delete-ring", "per-form-disposal", "hover-dwell", "locked-ephemeral"]} />
 
             <WikiSub id="treasures" title="The six treasures">
               <WikiTable
@@ -524,7 +553,7 @@ export default function Walkthrough() {
             </WikiSub>
             <p className="text-sm leading-6 text-ink">
               Finding all six unlocks the pet's full capabilities: every
-              tip becomes discovered (the counter reads 23/23), the deep
+              tip becomes discovered (the counter reads 26/26), the deep
               tips join the click cycle, and the chat library opens.
             </p>
 
@@ -658,10 +687,13 @@ export default function Walkthrough() {
                 BibTeX citations straight into the Upload page.
               </li>
               <li>
-                The pet is a Rimuru-inspired slime: it "predates" on
-                library papers (eat mode is Predator, zap mode is Black
-                Flame), and its Great Sage persona, Ciel, is one of the ten
-                forms it can shift into.
+                The pet is a Rimuru-inspired slime: in its slime forms it
+                gobbles library papers with its ultimate skills (eat mode
+                shouts Gluttony or Beelzebub), but the other nine forms
+                never eat — each disposes of a thrown paper with a power
+                from its role (Gojo's Cursed Techniques, Glaucira's Storm
+                Breath, Mashiro Rima's punch). Its Great Sage persona,
+                Ciel, is one of the forms it can shift into.
               </li>
             </ul>
           </WikiSection>
