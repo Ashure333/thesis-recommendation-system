@@ -38,6 +38,53 @@ from app.services.pdf_finder import title_similarity
 # different survey papers on the same topic).
 TITLE_DUPLICATE_THRESHOLD = 0.85
 
+# Titles shorter than this carry too little signal for a fuzzy match
+# to mean anything: garbled extraction titles such as "]OC.htam[" and
+# "]AN.htam[" differ by two characters yet score well above the
+# threshold, and merging those would destroy distinct records. Exact
+# normalized equality still counts at any length.
+MIN_DUPLICATE_TITLE_LENGTH = 12
+
+
+def _normalized_title(title: str | None) -> str | None:
+    """Whitespace-collapsed, casefolded title (None when blank)."""
+    if not title:
+        return None
+
+    collapsed = " ".join(str(title).split())
+
+    return collapsed.casefold() or None
+
+
+def titles_are_duplicates(
+    title_a: str | None,
+    title_b: str | None,
+) -> bool:
+    """
+    True when two titles are safe to treat as the same work.
+
+    Exact normalized equality always counts. Fuzzy matching only
+    applies when both titles are at least MIN_DUPLICATE_TITLE_LENGTH
+    characters long, so short or garbled extraction titles cannot
+    produce false duplicate matches.
+    """
+    first = _normalized_title(title_a)
+    second = _normalized_title(title_b)
+
+    if first is None or second is None:
+        return False
+
+    if first == second:
+        return True
+
+    if (
+        len(first) < MIN_DUPLICATE_TITLE_LENGTH
+        or len(second) < MIN_DUPLICATE_TITLE_LENGTH
+    ):
+        return False
+
+    return title_similarity(first, second) >= TITLE_DUPLICATE_THRESHOLD
+
 
 class DuplicatePaperError(Exception):
     """
@@ -105,7 +152,15 @@ def find_duplicate_paper(
         best_score = 0.0
 
         for candidate in existing_with_title:
+            if not titles_are_duplicates(title, candidate.title):
+                continue
+
             score = title_similarity(title, candidate.title)
+
+            if _normalized_title(title) == _normalized_title(
+                candidate.title
+            ):
+                score = 1.0
 
             if score > best_score:
                 best_score = score
@@ -115,3 +170,104 @@ def find_duplicate_paper(
             return best_match
 
     return None
+
+
+def find_duplicate_groups(db: Session) -> list[list[Paper]]:
+    """
+    Group every Paper in the repository that looks like the same work.
+
+    The pre-insert check above only ever compares a *new* paper against
+    what is already stored. This helper is the offline counterpart for
+    duplicates that already slipped in: it builds an undirected graph
+    where two papers are connected when either
+
+        1. their normalized DOIs are identical (an exact identifier
+           match), or
+        2. both titles are present and title_similarity() reaches
+           TITLE_DUPLICATE_THRESHOLD.
+
+    and returns the connected components (union-find). Transitivity
+    matters: if A matches B by DOI and B matches C by title, all three
+    land in one group even though A and C may share neither signal.
+
+    Only components with 2+ papers are returned. Each group is sorted
+    by paper id, and groups are ordered by their smallest paper id, so
+    callers and tests see a deterministic result regardless of the
+    database's row order.
+
+    Cost is O(n^2) in title comparisons, which is fine for a manual
+    cleanup tool; this is not called on the upload path.
+    """
+
+    papers = db.query(Paper).order_by(Paper.id).all()
+
+    parent: dict[int, int] = {paper.id: paper.id for paper in papers}
+
+    def find(paper_id: int) -> int:
+        root = paper_id
+
+        while parent[root] != root:
+            root = parent[root]
+
+        # Path compression keeps repeated lookups cheap.
+        while parent[paper_id] != root:
+            parent[paper_id], paper_id = root, parent[paper_id]
+
+        return root
+
+    def union(left_id: int, right_id: int) -> None:
+        left_root = find(left_id)
+        right_root = find(right_id)
+
+        if left_root != right_root:
+            # Attach the larger root to the smaller one so component
+            # roots stay stable and deterministic.
+            high, low = max(left_root, right_root), min(
+                left_root, right_root
+            )
+            parent[high] = low
+
+    # Signal 1: exact normalized-DOI equality.
+    doi_owners: dict[str, int] = {}
+
+    for paper in papers:
+        normalized = _normalize_doi(paper.doi)
+
+        if not normalized:
+            continue
+
+        owner_id = doi_owners.get(normalized)
+
+        if owner_id is None:
+            doi_owners[normalized] = paper.id
+        else:
+            union(owner_id, paper.id)
+
+    # Signal 2: title similarity, only between non-null/non-blank
+    # titles (title_similarity itself would return 0.0 for those
+    # anyway, but skipping them avoids pointless comparisons).
+    titled = [
+        paper
+        for paper in papers
+        if paper.title and paper.title.strip()
+    ]
+
+    for index, left in enumerate(titled):
+        for right in titled[index + 1:]:
+            if titles_are_duplicates(left.title, right.title):
+                union(left.id, right.id)
+
+    components: dict[int, list[Paper]] = {}
+
+    for paper in papers:
+        components.setdefault(find(paper.id), []).append(paper)
+
+    groups = [
+        sorted(component, key=lambda paper: paper.id)
+        for component in components.values()
+        if len(component) >= 2
+    ]
+
+    groups.sort(key=lambda group: group[0].id)
+
+    return groups

@@ -4,7 +4,7 @@ import {
   webComparePipelines,
   type CompareResponse,
 } from "../../api";
-import { pipelineConfigs } from "../../data/pipelineConfigs";
+import { pipelineConfigs, adjustDialAllocation } from "../../data/pipelineConfigs";
 import PixelProgress from "../../components/retro/PixelProgress";
 import { PageHeader } from "../../components/ui";
 import { ArrowRight } from "../../components/retro/PixelIcons";
@@ -104,7 +104,7 @@ export default function Lab() {
     recipes.find((r) => r.name === recipeName)?.name ?? recipeName;
 
   function setDial(key: "tfidf" | "sbert" | "metadata", value: number) {
-    setDials((current) => ({ ...current, [key]: value }));
+    setDials((current) => adjustDialAllocation(current, key, value));
   }
 
   function saveRecipe() {

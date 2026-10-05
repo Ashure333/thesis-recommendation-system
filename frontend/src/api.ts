@@ -18,6 +18,10 @@ export interface Paper {
   extraction_method: string | null;
   stored_path: string | null;
   created_at: string;
+  /** Present only for BM25-ranked repository searches. */
+  snippet?: string | null;
+  /** Near-duplicate records hidden from a relevance result list. */
+  duplicate_count?: number;
 }
 
 export interface RepositoryStats {
@@ -31,9 +35,22 @@ export interface LibraryEntry {
   saved_at: string;
 }
 
+/** The weighted contributions behind a recommendation score. */
+export interface SearchResultComponents {
+  tfidf: number;
+  sbert: number;
+  metadata: number;
+}
+
 export interface SearchResult {
   paper: Paper;
   score: number;
+  /**
+   * Weighted per-component contributions behind `score`; the three
+   * values sum to `score` (within rounding). Absent/null for
+   * responses that do not compute a breakdown.
+   */
+  components?: SearchResultComponents | null;
 }
 
 export interface PdfCandidate {
@@ -403,6 +420,14 @@ export interface RecommendationParams {
   query?: string;
   seedPaperId?: number;
   topK?: number;
+  /** Optional 1-based page over the bounded top-K result list. */
+  page?: number;
+  /** Optional page size; the API keeps the response as SearchResult[]. */
+  pageSize?: number;
+  /** Optional MMR diversification (0 = max diversity, 1 = off). */
+  mmrLambda?: number;
+  /** Candidate pool the MMR reranker considers (1..100). */
+  mmrPool?: number;
   /** Dial allocation for pipeline="custom" (0..100 per signal). */
   weights?: DialWeights;
 }
@@ -430,6 +455,22 @@ export function getRecommendations(
       "top_k",
       String(params.topK)
     );
+  }
+
+  if (params.page !== undefined) {
+    search.set("page", String(params.page));
+  }
+
+  if (params.pageSize !== undefined) {
+    search.set("page_size", String(params.pageSize));
+  }
+
+  if (params.mmrLambda !== undefined) {
+    search.set("mmr_lambda", String(params.mmrLambda));
+  }
+
+  if (params.mmrPool !== undefined) {
+    search.set("mmr_pool", String(params.mmrPool));
   }
 
   if (params.weights) {

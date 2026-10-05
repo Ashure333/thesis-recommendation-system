@@ -56,7 +56,7 @@ Bhagavatula et al. (2018) propose a content-based method that embeds a query doc
 
 ##### Hybrid Fusion of Heterogeneous Representations
 
-Polignano et al. (2021) present the most direct empirical precedent for the study's fusion question. Their hybrid framework generates graph embeddings and contextualized word representations separately, then learns a fused representation that improves over either signal alone (Polignano et al., 2021). The present study differs from theirs in design and purpose: the fusion weights here are fixed and transparent rather than learned, and the comparison covers a full family of two-signal and three-signal configurations, not a single fused model against its components.
+Polignano et al. (2021) present the most direct empirical precedent for the study's fusion question. Their hybrid framework generates graph embeddings and contextualized word representations separately, then learns a fused representation that improves over either signal alone (Polignano et al., 2021). The present study differs from theirs in design and purpose: the deployed pipelines use fixed, transparent fusion weights rather than a learned model, with a deterministic offline learner provided as a research instrument, and the comparison covers a full family of two-signal and three-signal configurations, not a single fused model against its components.
 
 ##### Offline Evaluation of Recommenders
 

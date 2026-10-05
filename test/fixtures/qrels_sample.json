@@ -1,0 +1,22 @@
+{
+  "queries": [
+    {
+      "kind": "seed",
+      "seed_paper_id": 4,
+      "relevance": {
+        "5": 2,
+        "6": 1,
+        "11": 1
+      }
+    },
+    {
+      "kind": "text",
+      "query": "chromatic number of the plane",
+      "relevance": {
+        "4": 2,
+        "5": 1,
+        "12": 1
+      }
+    }
+  ]
+}

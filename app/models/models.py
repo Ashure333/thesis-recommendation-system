@@ -377,3 +377,97 @@ class BattleRun(Base):
             f"winner={self.winner_pipeline_id!r} "
             f"created_at={self.created_at}>"
         )
+
+
+class PaperCitation(Base):
+    """One external citation relation of a local Paper (P2-A).
+
+    Rows come from OpenAlex and power bibliographic coupling
+    (shared references) and co-citation (shared citers) in the
+    similar-papers graph.
+
+    direction:
+        "cites"    -> external_work_id is a work this paper cites
+                      (OpenAlex referenced_works)
+        "cited_by" -> external_work_id is a work that cites this
+                      paper (OpenAlex cited_by_api_url results)
+
+    matched_paper_id is set when the external work's DOI resolves
+    to a local Paper, so two local papers can couple through
+    different OpenAlex ids for the same work.
+    """
+
+    __tablename__ = "paper_citations"
+
+    __table_args__ = (
+        # One row per (paper, direction, external work); refresh
+        # deletes + reinserts a direction, and this constraint keeps
+        # a hand-written duplicate from slipping in.
+        UniqueConstraint(
+            "paper_id",
+            "direction",
+            "external_work_id",
+            name="uq_paper_citation_direction_work",
+        ),
+    )
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    paper_id = Column(
+        Integer,
+        ForeignKey("papers.id"),
+        nullable=False,
+        index=True,
+    )
+
+    direction = Column(
+        String(16),
+        nullable=False,
+    )
+    # "cites" | "cited_by"
+
+    external_work_id = Column(
+        String(64),
+        nullable=False,
+    )
+    # Normalized OpenAlex work id, e.g. "W2741809807".
+
+    external_doi = Column(
+        String(255),
+        nullable=True,
+    )
+    # Only the cited_by payload usually carries DOIs; OpenAlex
+    # referenced_works are bare ids, so "cites" rows often have
+    # external_doi=None.
+
+    matched_paper_id = Column(
+        Integer,
+        ForeignKey("papers.id"),
+        nullable=True,
+        index=True,
+    )
+    # Local Paper whose DOI equals external_doi, if any.
+
+    source = Column(
+        String(32),
+        default="openalex",
+        nullable=False,
+    )
+
+    fetched_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    def __repr__(self):
+        return (
+            f"<PaperCitation id={self.id} "
+            f"paper_id={self.paper_id} "
+            f"direction={self.direction!r} "
+            f"work={self.external_work_id!r}>"
+        )

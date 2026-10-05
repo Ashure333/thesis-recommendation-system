@@ -139,6 +139,88 @@ export const DEFAULT_DIAL_ALLOCATION: DialAllocation = {
   metadata: 20,
 };
 
+const OTHER_DIALS: Record<keyof DialAllocation, [keyof DialAllocation, keyof DialAllocation]> = {
+  tfidf: ["sbert", "metadata"],
+  sbert: ["tfidf", "metadata"],
+  metadata: ["tfidf", "sbert"],
+};
+
+/**
+ * Move one dial and rebalance the other two so the three positions
+ * always sum to 100. The remainder is split in proportion to the
+ * other dials' current positions (equal split when both are 0), and
+ * integer rounding drift is absorbed by the larger of the two, so
+ * the dial positions, the displayed percentages, and the weights the
+ * backend receives are the same numbers.
+ */
+export function adjustDialAllocation(
+  allocation: DialAllocation,
+  key: keyof DialAllocation,
+  next: number,
+): DialAllocation {
+  const value = Math.max(0, Math.min(100, Math.round(next)));
+  const [firstKey, secondKey] = OTHER_DIALS[key];
+  const remaining = 100 - value;
+
+  const first = allocation[firstKey];
+  const second = allocation[secondKey];
+  const othersTotal = first + second;
+
+  let nextFirst: number;
+  let nextSecond: number;
+
+  if (othersTotal <= 0) {
+    nextFirst = Math.ceil(remaining / 2);
+    nextSecond = remaining - nextFirst;
+  } else {
+    nextFirst = Math.round((first / othersTotal) * remaining);
+    nextSecond = Math.round((second / othersTotal) * remaining);
+
+    const drift = remaining - (nextFirst + nextSecond);
+
+    if (drift !== 0) {
+      if (nextFirst >= nextSecond) {
+        nextFirst = Math.max(0, nextFirst + drift);
+      } else {
+        nextSecond = Math.max(0, nextSecond + drift);
+      }
+    }
+  }
+
+  return {
+    ...allocation,
+    [key]: value,
+    [firstKey]: nextFirst,
+    [secondKey]: nextSecond,
+  };
+}
+
+/**
+ * Snap an arbitrary allocation (e.g. one restored from localStorage
+ * written before the dials were linked) to integer positions that
+ * sum to 100. Falls back to an equal split when everything is 0.
+ */
+export function normalizeDialPositions(
+  allocation: DialAllocation,
+): DialAllocation {
+  const total =
+    allocation.tfidf + allocation.sbert + allocation.metadata;
+
+  if (total <= 0) {
+    return { tfidf: 33, sbert: 33, metadata: 34 };
+  }
+
+  const tfidf = Math.round((allocation.tfidf / total) * 100);
+  const sbert = Math.round((allocation.sbert / total) * 100);
+  const metadata = 100 - tfidf - sbert;
+
+  return {
+    tfidf,
+    sbert,
+    metadata: metadata < 0 ? 0 : metadata,
+  };
+}
+
 /**
  * Shares that sum to 100 (one decimal). Mirrors the backend's
  * pipeline_config.build_custom_weights — same formula, display

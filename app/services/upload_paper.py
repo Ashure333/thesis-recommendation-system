@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.database import SessionLocal
 from app.models.models import Paper
@@ -22,6 +23,10 @@ from app.services.pdf_finder import (
 from app.services.metadata_enrichment import (
     enrich_paper_metadata,
     is_title_corrupted,
+)
+from app.services.duplicate_detection import (
+    DuplicatePaperError,
+    find_duplicate_paper,
 )
 
 
@@ -257,7 +262,19 @@ def upload_paper(
     metadata = metadata or {}
 
     # ---------------------------------------------------------
-    # STEP 2 — Create Paper
+    # STEP 2 — Reject an existing paper before creating a new row
+    # ---------------------------------------------------------
+    duplicate = find_duplicate_paper(
+        db,
+        title=metadata.get("title"),
+        doi=metadata.get("doi"),
+    )
+
+    if duplicate is not None:
+        raise DuplicatePaperError(duplicate)
+
+    # ---------------------------------------------------------
+    # STEP 3 — Create Paper
     # ---------------------------------------------------------
 
     paper = Paper(
@@ -479,6 +496,17 @@ def enrich_saved_paper(paper_id: int) -> bool:
                     changed = True
 
         return changed
+
+    except StaleDataError:
+        # The paper was deleted while this background job was writing to
+        # it (concurrent DELETE from the UI). Nothing left to enrich --
+        # swallow it instead of logging a scary traceback.
+        db.rollback()
+        print(
+            f"INFO: Paper id={paper_id} was deleted during enrichment; "
+            "discarding background changes."
+        )
+        return False
 
     except Exception:
         db.rollback()

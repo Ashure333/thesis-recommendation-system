@@ -37,6 +37,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sqlalchemy.orm import Session
 
 from app.models.models import Paper
+from app.services.recommendation import vector_index
 from app.services.recommendation.similarity import cosine_similarity
 
 # Resolved relative to this file's own folder, mirroring the pattern
@@ -122,7 +123,29 @@ def score_candidates(query_vector: list[float], candidates: list[Paper]) -> dict
     and full-hybrid configurations need min_max_normalize() applied one
     level up (see app/services/recommendation/similarity.py) before
     combining this with the other components' scores.
+
+    Fast path (P1-B): when the precomputed NumPy matrix built by the
+    rebuild covers every candidate id that has a stored vector, the
+    cosines are one normalized matrix-vector product. Any gap -- no
+    index, stale index, dimension drift -- makes vector_index return
+    None and falls through to the unchanged legacy loop below, which
+    returns the identical scores.
     """
+    vectorized_ids = [
+        int(paper.id)
+        for paper in candidates
+        if paper.tfidf_vector
+    ]
+
+    fast_scores = vector_index.score_candidates(
+        kind=vector_index.TFIDF,
+        query_vector=query_vector,
+        paper_ids=vectorized_ids,
+    )
+
+    if fast_scores is not None:
+        return fast_scores
+
     scores = {}
     for paper in candidates:
         if not paper.tfidf_vector:

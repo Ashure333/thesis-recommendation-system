@@ -1,8 +1,10 @@
-% references.bib — all references cited across Chapter I, Chapter II, Chapter III
+% references.bib — all references cited across Chapter I, Chapter II, Chapter III,
+% and Appendix B
 % of "A Design and Comparative Evaluation of Hybrid Content-Based Recommendation
 % Pipelines Integrating TF-IDF, SBERT, and Metadata Fusion"
 % Generated 2026-10-01 from thesis-paper/chapters/*.md
-% Count: 21 entries (matches Chapter II's reported n = 21)
+% Count: 25 entries (21 chapter sources, matching Chapter II's reported n = 21,
+% plus 4 appendix-only additions cited in Appendix B)
 %
 % Verification notes:
 % 1. bai2019scientific — Crossref confirms authors Bai, X., Wang, M., Lee, I.,
@@ -254,4 +256,56 @@
   number  = {1},
   note    = {Philippine E-Journals record; the only verified Philippine study in the corpus, a library thesis-citation system},
   url     = {https://ejournals.ph/article.php?id=18808}
+}
+
+% --- Appendix B additions (verified via Crossref, 2026-10-05) ---
+% 8. carbonell1998use — DOI 10.1145/290941.291025 confirms Carbonell &
+%    Goldstein, SIGIR 1998, pages 335-336.
+% 9. kessler1963bibliographic — DOI 10.1002/asi.5090140103 confirms Kessler,
+%    American Documentation 14(1), 10-25.
+% 10. small1973cocitation — DOI 10.1002/asi.4630240406 confirms Small, JASIS
+%    24(4), 265-269.
+% 11. jarvelin2002cumulated — DOI 10.1145/582415.582418 confirms Järvelin &
+%    Kekäläinen, ACM TOIS 20(4), 422-446.
+
+@inproceedings{carbonell1998use,
+  author    = {Carbonell, Jaime and Goldstein, Jade},
+  title     = {The use of {MMR}, diversity-based reranking for reordering documents and producing summaries},
+  booktitle = {Proceedings of the 21st Annual International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  year      = {1998},
+  pages     = {335--336},
+  doi       = {10.1145/290941.291025}
+}
+
+@article{kessler1963bibliographic,
+  author  = {Kessler, M. M.},
+  title   = {Bibliographic coupling between scientific papers},
+  journal = {American Documentation},
+  year    = {1963},
+  volume  = {14},
+  number  = {1},
+  pages   = {10--25},
+  doi     = {10.1002/asi.5090140103}
+}
+
+@article{small1973cocitation,
+  author  = {Small, Henry},
+  title   = {Co-citation in the scientific literature: A new measure of the relationship between two documents},
+  journal = {Journal of the American Society for Information Science},
+  year    = {1973},
+  volume  = {24},
+  number  = {4},
+  pages   = {265--269},
+  doi     = {10.1002/asi.4630240406}
+}
+
+@article{jarvelin2002cumulated,
+  author  = {J{\"a}rvelin, Kalervo and Kek{\"a}l{\"a}inen, Jaana},
+  title   = {Cumulated gain-based evaluation of {IR} techniques},
+  journal = {ACM Transactions on Information Systems},
+  year    = {2002},
+  volume  = {20},
+  number  = {4},
+  pages   = {422--446},
+  doi     = {10.1145/582415.582418}
 }

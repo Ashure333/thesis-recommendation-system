@@ -161,3 +161,111 @@ verified against `app/services/recommendation/*.py`,
 `app/services/connected_graph.py`, and `frontend/src/data/pipelinemath.ts`.
 Cross-referenced from Chapter III (System Framework and Features). Compiled
 artifacts regenerated (27 pages).
+
+## Algorithm extensions documented (2026-10-05)
+
+Implemented post-proposal algorithm work was folded into the proposal in
+this pass (not a review item). Appendix B gains Sections B.9 through B.14:
+BM25/FTS5 ranked repository search, precomputed NumPy scoring matrices,
+MMR diversification, the offline fusion-weight learner, OpenAlex
+bibliographic coupling and co-citation, and the offline precision, recall,
+MRR, MAP, and NDCG metrics. Each section's formulas were checked against
+the implementing modules (`app/services/fts_search.py`,
+`app/services/recommendation/{vector_index,mmr,learned_weights}.py`,
+`app/services/citations.py`, `app/services/evaluation/metrics.py`) and
+cross-referenced from Chapter III. Appendix B also gained an APA 7
+reference list for its six cited sources.
+
+Chapter corrections in the same pass: Chapter III's feature matrix gained
+the new capabilities; the metadata query-type description and the
+similar-papers graph formula now match the code (free-text queries feed
+the title, abstract, and keywords signals; graph edges carry the 0.25
+citation bonus and report shared reference/citer groups); the tech-stack
+table lists SQLite FTS5 and unittest; and the testing paragraph describes
+the 133-test unittest suite. Chapter II's "fixed and transparent rather
+than learned" sentence now notes the offline learner, and Chapter I's two
+free-text metadata disclosures were corrected the same way.
+
+Data correction: paper 1's DOI (`10.7717/peerj-cs.2010/fig-3`) was a PeerJ
+figure DOI belonging to a different article (Crossref confirms the figure
+record's title); the unverifiable DOI was cleared, and the citation
+refresh now reports `no_doi` for that record.
+
+references.bib grew from 21 to 25 entries: four appendix-only additions
+(Carbonell & Goldstein, 1998; Kessler, 1963; Small, 1973; Järvelin &
+Kekäläinen, 2002), each DOI re-verified against Crossref on 2026-10-05.
+
+Verification: `python -m unittest discover -s test` ran 133 tests, OK
+(1 skip for a missing FTS5 build); Chapter I's word-count gauge is
+unchanged, Chapter II is within target, and Chapter III grew about 26
+words by the same gauge (roughly 3,007 by the review's counter, about 7
+over the 3,000 target). Known residual drift, pre-existing and not
+addressed in this pass: the corpus-size statements in Chapter I (lines 32
+and 102) and Chapter III (lines 221 and 248) still say 168 papers / 146
+valid while the live database holds 180 papers / 154 valid. Compiled
+artifacts regenerated from the Markdown sources with pandoc and
+LibreOffice (32 to 37 pages).
+
+## Dial synchronization and accuracy follow-up (2026-10-05)
+
+The custom-pipeline dials were made self-balancing in the frontend
+(`pipelineConfigs.adjustDialAllocation`): moving one dial rebalances the
+other two so the three positions always sum to 100, legacy allocations
+restored from localStorage are snapped to integer positions on load, and
+the Lab sliders use the same rule. The displayed percentages are now the
+same numbers the backend receives, instead of raw positions that were
+silently normalized and could disagree with the readout. The Repository
+similarity sort now forwards the dial allocation for the custom pipeline
+(previously the request was rejected with a 400 and the sort silently
+fell back). Backend `build_custom_weights` is unchanged and still
+normalizes and validates, so the API math is identical.
+
+Verified with a headless-browser check against the running frontend: a
+legacy stored 40/40/40 allocation loads as 33/33/34, two ArrowDown
+presses on TF-IDF produce 29/35/36, the readout matches the dial
+positions, and no console errors occur. Also re-verified that the custom
+allocation reproduces the matching presets exactly (40/40/20 equals
+tfidf_sbert_metadata; 50/50/0 equals tfidf_sbert).
+
+The same-day pass dropped the unverifiable Vitest/React Testing Library
+claim from the Chapter III tech-stack table and testing paragraph: the
+repository contains no frontend test files and `package.json` has no test
+script; frontend verification is the type checker plus the Vite
+production build (`npm run check` / `npm run build`). Compiled artifacts
+regenerated again after this correction.
+
+## Search result quality pass (2026-10-05)
+
+Repository search now defaults to BM25 relevance ranking in the UI
+(without a search term it still falls back to date order), snippets are
+highlighted, and near-duplicate records are collapsed out of relevance
+result lists. The collapse rule is exact normalized-title equality at any
+length, or title similarity at or above 0.85 when both titles are at
+least twelve characters; the same guard now protects ingest duplicate
+rejection and merge grouping because dry-run review caught garbled OCR
+titles (`]OC.htam[` vs `]AN.htam[`, different arXiv categories) being
+grouped as duplicates.
+
+The repository's duplicate records were merged: eight groups, 180 to 168
+papers, twelve duplicate rows removed, 391 colliding citation rows
+deduplicated, twelve orphaned stored files left on disk, backup kept at
+/tmp/backup_before_merge.db. Master selection prefers a stored PDF, a
+valid record, a non-preprint DOI (a published record beats an arXiv or
+Preprints.org twin), metadata completeness, citation count, then the
+smallest id. The recommendation index was rebuilt afterwards and the FTS
+index is trigger-synced (168 rows).
+
+Ranking tuning used a real qrels built from 27 inter-local citation
+links (18 seed queries via OpenAlex, cached under /tmp). Learned fusion
+weights are tfidf 0.1 / sbert 0.9 / metadata 0.0: +0.0603 NDCG@10 over
+the 0.4/0.4/0.2 baseline on the full set and +0.039 on a held-out half
+(0.4313 vs 0.3920). They are persisted to app/data/learned_weights.json;
+the deployed preset remains the documented 0.4/0.4/0.2 pending an
+explicit decision, because changing it rewrites the study's controlled
+configuration. MMR was measured on the same qrels: lambda 0.7 trades
+0.021 NDCG@10 for +0.045 diversity, so it remains opt-in. Per-result
+weighted component contributions now accompany each recommendation and
+are shown as a signal bar on the result cards; the three values sum to
+the reported score. Corpus counts in Chapter I (two places) and Chapter
+III (two places) were updated to 168 papers / 145 valid for
+recommendation.

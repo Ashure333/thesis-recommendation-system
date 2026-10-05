@@ -11,6 +11,7 @@ Rebuilds all data required by the recommendation system:
     5. Fits and stores the TF-IDF vectorizer.
     6. Stores TF-IDF vectors for valid papers.
     7. Generates S-BERT vectors for valid papers.
+    8. Builds the precomputed NumPy matrices used for fast scoring.
 
 Run from the project root:
 
@@ -80,8 +81,11 @@ from app.services.recommendation.tfidf_pipeline import (
 )
 
 from app.services.recommendation.sbert_pipeline import (
+    MODEL_NAME,
     encode_and_store_sbert_vectors,
 )
+
+from app.services.recommendation import vector_index
 
 
 # ---------------------------------------------------------------------
@@ -284,6 +288,8 @@ def rebuild_tfidf(db) -> None:
 
     vocabulary = vectorizer.get_feature_names_out()
 
+    matrix_built = vector_index.build_tfidf_index(db)
+
     print()
     print("TF-IDF rebuild complete.")
     print(f"Vocabulary size: {len(vocabulary)}")
@@ -292,6 +298,17 @@ def rebuild_tfidf(db) -> None:
         "Fitted vectorizer saved to "
         "app/data/tfidf_vectorizer.joblib"
     )
+
+    if matrix_built:
+        print(
+            "TF-IDF matrix saved to "
+            "app/data/recommendation_tfidf.npz"
+        )
+    else:
+        print(
+            "TF-IDF matrix skipped "
+            "(no usable stored vectors)."
+        )
 
 
 # ---------------------------------------------------------------------
@@ -310,10 +327,26 @@ def rebuild_sbert(db) -> None:
 
     encode_and_store_sbert_vectors(db)
 
+    matrix_built = vector_index.build_sbert_index(
+        db,
+        model=MODEL_NAME,
+    )
+
     print()
     print(
         "S-BERT vectors generated and stored in the database."
     )
+
+    if matrix_built:
+        print(
+            "S-BERT matrix saved to "
+            "app/data/recommendation_sbert.npz"
+        )
+    else:
+        print(
+            "S-BERT matrix skipped "
+            "(no usable stored vectors)."
+        )
 
 
 # ---------------------------------------------------------------------

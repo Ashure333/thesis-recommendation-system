@@ -7,6 +7,7 @@ import {
 
 import {
   DEFAULT_DIAL_ALLOCATION,
+  normalizeDialPositions,
   type DialAllocation,
 } from "../data/pipelineConfigs";
 
@@ -64,11 +65,11 @@ function readStoredWeights(): DialAllocation {
         typeof parsed.sbert === "number" &&
         typeof parsed.metadata === "number"
       ) {
-        return {
+        return normalizeDialPositions({
           tfidf: parsed.tfidf,
           sbert: parsed.sbert,
           metadata: parsed.metadata,
-        };
+        });
       }
     }
   } catch {

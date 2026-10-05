@@ -34,11 +34,14 @@ invalidate any vectors already stored).
 """
 
 import json
+import os
+import threading
 
 from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
 
 from app.models.models import Paper
+from app.services.recommendation import vector_index
 from app.services.recommendation.similarity import cosine_similarity
 
 MODEL_NAME = "all-MiniLM-L6-v2"
@@ -48,11 +51,63 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 # per process instead of reloading it on every call.
 _model: SentenceTransformer | None = None
 
+# _MODEL_LOCK guards the lazy load. Without it, N concurrent requests that
+# arrive before the first load finishes all see _model is None and each
+# loads its own copy (six "Loading weights" lines in the log), which is
+# slow, memory-hungry, and -- with torch on the Apple GPU -- capable of
+# taking the whole process down.
+_MODEL_LOCK = threading.Lock()
+
+# _ENCODE_LOCK serializes inference. torch's MPS backend is not safe for
+# concurrent use from several threads: a stress test with parallel
+# S-BERT queries crashed the server with SIGSEGV inside
+# at::native::mps::MetalShaderLibrary::exec_unary_kernel. CPU inference
+# would be re-entrant too, so the lock is held regardless of device --
+# encode() of this corpus is milliseconds, so the queue costs little.
+_ENCODE_LOCK = threading.Lock()
+
+
+def _model_cached_locally() -> bool:
+    """
+    True when the model snapshot is already in the local HF cache.
+
+    Used to load with local_files_only=True: it skips the Hub round-trip
+    entirely (HEAD requests + retry ladder) instead of burning ~25s on
+    network retries before falling back to the cache anyway.
+    """
+    try:
+        from huggingface_hub import constants as hf_constants
+
+        repo_dir = os.path.join(
+            hf_constants.HF_HUB_CACHE,
+            f"models--sentence-transformers--{MODEL_NAME.replace('/', '--')}",
+        )
+        snapshots = os.path.join(repo_dir, "snapshots")
+        if not os.path.isdir(snapshots):
+            return False
+        return any(
+            os.path.isfile(os.path.join(root, "config.json"))
+            for root, _dirs, files in os.walk(snapshots)
+            if "config.json" in files
+        )
+    except Exception:
+        return False
+
+
+def warm_up_model() -> None:
+    """Pre-load the model off the request path (startup hook / scripts)."""
+    _get_model()
+
 
 def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
-        _model = SentenceTransformer(MODEL_NAME)
+        with _MODEL_LOCK:
+            if _model is None:
+                _model = SentenceTransformer(
+                    MODEL_NAME,
+                    local_files_only=_model_cached_locally(),
+                )
     return _model
 
 
@@ -82,7 +137,8 @@ def encode_and_store_sbert_vectors(db: Session) -> None:
 
     model = _get_model()
     texts = [p.prepared_text for p in papers]
-    embeddings = model.encode(texts, show_progress_bar=False)
+    with _ENCODE_LOCK:
+        embeddings = model.encode(texts, show_progress_bar=False)
 
     for paper, embedding in zip(papers, embeddings):
         paper.sbert_vector = json.dumps(embedding.tolist())
@@ -97,7 +153,8 @@ def embed_query_or_seed(prepared_text: str) -> list[float]:
     candidate vectors, ready for cosine-similarity comparison.
     """
     model = _get_model()
-    embedding = model.encode([prepared_text], show_progress_bar=False)[0]
+    with _ENCODE_LOCK:
+        embedding = model.encode([prepared_text], show_progress_bar=False)[0]
     return embedding.tolist()
 
 
@@ -111,11 +168,12 @@ def embed_texts(prepared_texts: list[str]) -> list[list[float]]:
         return []
 
     model = _get_model()
-    embeddings = model.encode(
-        prepared_texts,
-        show_progress_bar=False,
-        batch_size=32,
-    )
+    with _ENCODE_LOCK:
+        embeddings = model.encode(
+            prepared_texts,
+            show_progress_bar=False,
+            batch_size=32,
+        )
     return [embedding.tolist() for embedding in embeddings]
 
 
@@ -128,7 +186,29 @@ def score_candidates(query_vector: list[float], candidates: list[Paper]) -> dict
     Raw (un-normalized) scores, same as tfidf_pipeline.score_candidates
     -- apply min_max_normalize() one level up before combining this with
     TF-IDF or Metadata in any of the four combined configurations.
+
+    Fast path (P1-B): when the precomputed NumPy matrix built by the
+    rebuild covers every candidate id that has a stored vector, the
+    cosines are one normalized matrix-vector product. Any gap -- no
+    index, stale index, dimension drift -- makes vector_index return
+    None and falls through to the unchanged legacy loop below, which
+    returns the identical scores.
     """
+    vectorized_ids = [
+        int(paper.id)
+        for paper in candidates
+        if paper.sbert_vector
+    ]
+
+    fast_scores = vector_index.score_candidates(
+        kind=vector_index.SBERT,
+        query_vector=query_vector,
+        paper_ids=vectorized_ids,
+    )
+
+    if fast_scores is not None:
+        return fast_scores
+
     scores = {}
     for paper in candidates:
         if not paper.sbert_vector:

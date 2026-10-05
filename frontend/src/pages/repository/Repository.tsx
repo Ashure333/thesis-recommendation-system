@@ -24,6 +24,8 @@ import LayoutOptions from "../../components/LayoutOptions";
 import StaggerIn from "../../components/retro/StaggerIn";
 import Pagination from "../../components/retro/Pagination";
 import WeightBar from "../../components/WeightBar";
+import PaneHandle, { usePaneWidth } from "../../components/ResizeHandle";
+import Highlight from "../../components/Highlight";
 import { Check, Star } from "../../components/retro/PixelIcons";
 import { Button, EmptyState, PageHeader, TextInput } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
@@ -49,6 +51,14 @@ function categoryOf(paper: Paper) {
 
 const SIGNAL_FIELDS = ["title", "abstract", "keywords", "publication_year"] as const;
 
+/* Resizable pane bounds (persisted per browser). */
+const REPO_LEFT_KEY = "paperrec_repo_pane_left";
+const REPO_LEFT_MIN = 220;
+const REPO_LEFT_MAX = 420;
+const REPO_RIGHT_KEY = "paperrec_repo_pane_right";
+const REPO_RIGHT_MIN = 300;
+const REPO_RIGHT_MAX = 560;
+
 type SearchMode = "repository" | "web";
 
 /** Stable identity for a web hit (dedupe across repeat searches). */
@@ -59,6 +69,21 @@ function webKey(result: WebSearchResult): string {
 export default function Repository() {
   const catalog = useCatalog();
   const { prefs } = useLayoutPrefs();
+
+  /* Resizable pane widths (persisted per browser). */
+  const [leftPaneW, resizeLeft] = usePaneWidth(
+    REPO_LEFT_KEY,
+    256,
+    REPO_LEFT_MIN,
+    REPO_LEFT_MAX,
+  );
+
+  const [rightPaneW, resizeRight] = usePaneWidth(
+    REPO_RIGHT_KEY,
+    384,
+    REPO_RIGHT_MIN,
+    REPO_RIGHT_MAX,
+  );
 
   // Backend-owned taxonomy: seed filters until the catalog loads,
   // then the live values (including any subjects/categories added
@@ -109,7 +134,7 @@ export default function Repository() {
 
   // null (not 0) means "no year filter" on the backend.
   const yearFilter = (year: number) => (year > 0 ? year : undefined);
-  const [sortBy, setSortBy] = useState("date_added");
+  const [sortBy, setSortBy] = useState("relevance");
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -193,7 +218,13 @@ export default function Repository() {
     getRecommendations({
       pipeline: pipelineId,
       seedPaperId: selectedPaper.id,
-      topK: 500,
+      // The API bounds recommendation requests at 100.
+      topK: 100,
+      // The custom pipeline needs the dial allocation; without it
+      // the API rejects the request and the sort silently dies.
+      ...(pipelineId === "custom"
+        ? { weights: customWeights }
+        : {}),
     })
       .then((results) => {
         if (cancelled) {
@@ -222,7 +253,7 @@ export default function Repository() {
     return () => {
       cancelled = true;
     };
-  }, [similarityMode, selectedPaper?.id, pipelineId]);
+  }, [similarityMode, selectedPaper?.id, pipelineId, customWeights]);
 
   // ------------------------------------------------------------
   // Web search (OpenAlex + Crossref) — toggled next to the
@@ -644,14 +675,22 @@ export default function Repository() {
         </div>
       )}
 
-      <div className="mt-6 flex min-h-0 flex-col gap-4 lg:h-[calc(100dvh-19rem)] lg:flex-row lg:min-h-[480px]">
+      <div
+        className="mt-6 flex min-h-0 flex-col gap-4 lg:h-[calc(100dvh-19rem)] lg:flex-row lg:min-h-[480px]"
+        style={
+          {
+            "--pane-left": `${leftPaneW}px`,
+            "--pane-right": `${rightPaneW}px`,
+          } as React.CSSProperties
+        }
+      >
         {/* ====================================================
             LEFT PANE — filters
             ==================================================== */}
 
         {prefs.sidebar && (
         <aside
-          className="shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white p-4 lg:w-64"
+          className="shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white p-4 lg:w-[var(--pane-left)]"
           data-tips="repo-filters"
         >
           <p className="mb-3 font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
@@ -882,6 +921,7 @@ export default function Repository() {
                   <option value="date_added">Date added</option>
                   <option value="title">Title</option>
                   <option value="publication_year">Publication year</option>
+                  <option value="relevance">Relevance</option>
                   <option value="similarity">
                     Similarity ({activePipelineConfig.codename})
                   </option>
@@ -958,6 +998,13 @@ export default function Repository() {
               : "Filters apply as you change them."}
           </p>
         </aside>
+        )}
+
+        {prefs.sidebar && (
+        <PaneHandle
+          label="Resize filters panel"
+          onResize={resizeLeft}
+        />
         )}
 
         {/* ====================================================
@@ -1271,6 +1318,27 @@ export default function Repository() {
                               {paperCategory}
                             </span>
                           )}
+                          {paper.snippet && (
+                            <span
+                              className="mt-0.5 block truncate text-xs italic text-muted"
+                              title={paper.snippet}
+                            >
+                              <Highlight
+                                text={paper.snippet}
+                                terms={search.trim().split(/\s+/)}
+                              />
+                            </span>
+                          )}
+                          {typeof paper.duplicate_count === "number" &&
+                            paper.duplicate_count > 0 && (
+                              <span
+                                className="mt-0.5 inline-flex items-center rounded border-[2px] border-gray-900 bg-canvas px-1 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-muted"
+                                title="Near-duplicate records hidden from this result list"
+                              >
+                                +{paper.duplicate_count} duplicate
+                                {paper.duplicate_count === 1 ? "" : "s"}
+                              </span>
+                            )}
                         </td>
                         <td className="max-w-[200px] truncate px-2 py-2.5 text-muted">
                           {paper.author ?? "Unknown author"}
@@ -1346,7 +1414,14 @@ export default function Repository() {
             ==================================================== */}
 
         {prefs.details && (
-        <aside className="w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-96">
+        <PaneHandle
+          label="Resize details panel"
+          onResize={resizeRight}
+        />
+        )}
+
+        {prefs.details && (
+        <aside className="w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
           {searchMode === "web" ? (
             /* ------------------------------------------------
                WEB RESULT DETAILS

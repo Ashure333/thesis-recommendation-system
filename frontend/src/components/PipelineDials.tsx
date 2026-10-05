@@ -3,17 +3,18 @@ import { useCallback, useRef } from "react";
 import WeightBar from "./WeightBar";
 import {
   DEFAULT_DIAL_ALLOCATION,
+  adjustDialAllocation,
   customPipelineConfig,
-  normalizeDialAllocation,
   type DialAllocation,
 } from "../data/pipelineConfigs";
 
 /* ============================================================
    PIPELINE ALLOCATION DIALS
    Three rotary dials — TF-IDF, S-BERT, Metadata — that set the
-   custom pipeline's allocation. Raw positions (0..100) are kept
-   as the user left them; the displayed shares (and everything
-   sent to the backend) are auto-normalized to 100%.
+   custom pipeline's allocation. The three positions always sum
+   to 100: turning one dial rebalances the other two, so the dial
+   angles, the displayed percentages, and the weights sent to the
+   backend are the same numbers.
 
    Dial interaction: drag around the knob (angle → value, the
    bottom gap between ±135° is the dead zone), arrow keys,
@@ -206,7 +207,7 @@ function RotaryDial({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onKeyDown={handleKeyDown}
-      className={`mx-auto block h-[84px] w-[84px] cursor-grab touch-none rounded-full active:cursor-grabbing ${def.arc} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900`}
+      className={`mx-auto block aspect-square w-full max-w-[84px] cursor-grab touch-none rounded-full active:cursor-grabbing ${def.arc} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900`}
     >
       <svg
         viewBox={`0 0 ${SIZE} ${SIZE}`}
@@ -273,11 +274,10 @@ export default function PipelineDials({
   value: DialAllocation;
   onChange: (next: DialAllocation) => void;
 }) {
-  const shares = normalizeDialAllocation(value);
   const previewConfig = customPipelineConfig(value);
 
   function setDial(key: keyof DialAllocation, next: number) {
-    onChange({ ...value, [key]: next });
+    onChange(adjustDialAllocation(value, key, next));
   }
 
   return (
@@ -296,18 +296,18 @@ export default function PipelineDials({
             <RotaryDial
               def={def}
               value={value[def.key]}
-              share={shares[def.key]}
+              share={value[def.key]}
               onChange={(next) => setDial(def.key, next)}
             />
 
-            <span className="text-xs font-bold text-ink">
+            <span className="max-w-full truncate text-xs font-bold text-ink">
               {def.label}
             </span>
 
-            <span className="text-xs text-muted">{def.hint}</span>
+            <span className="max-w-full truncate text-xs text-muted">{def.hint}</span>
 
             <span className="text-sm font-bold tabular-nums text-ink">
-              {shares[def.key].toFixed(1)}%
+              {value[def.key]}%
             </span>
           </div>
         ))}
@@ -319,7 +319,7 @@ export default function PipelineDials({
 
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="font-mono text-xs tracking-[0.1em] text-muted">
-          RAW {value.tfidf} / {value.sbert} / {value.metadata}
+          TOTAL 100%
         </span>
 
         <button

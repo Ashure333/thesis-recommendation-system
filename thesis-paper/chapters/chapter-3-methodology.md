@@ -32,7 +32,7 @@ Feature Matrix of the Re:Search Prototype
 | Recommendation validation | Mark a paper valid only if title, abstract, keywords, and year are present |
 | Prepared text | Build the normalized Title + Abstract + Keywords block |
 | PDF discovery and attach | Find and attach open-access PDFs (Unpaywall, Crossref, Semantic Scholar, arXiv, OpenAlex) |
-| Duplicate detection | Reject re-imports by exact DOI or title similarity at or above 0.85 |
+| Duplicate detection | Reject re-imports across PDF, BibTeX, Scholar, and identifier imports by exact DOI or title similarity at or above 0.85 |
 | TF-IDF pipeline | Lexical cosine similarity on TF-IDF vectors |
 | S-BERT pipeline | Semantic cosine similarity on sentence embeddings |
 | Metadata pipeline | Four-signal metadata score (title, abstract, keywords, year) |
@@ -44,6 +44,12 @@ Feature Matrix of the Re:Search Prototype
 | Personal library | Save papers for later reference |
 | PDF viewer | Read attached PDFs in the browser |
 | Recommendation-index rebuild | Recompute vectors and embeddings after repository changes |
+| Ranked repository search | BM25 full-text ranking over title, author, keywords, and abstract, with snippets |
+| Citation-based relatedness | Bibliographic coupling and co-citation cached from OpenAlex for graph edges and shared groups |
+| Diversified recommendations | Optional MMR reranking that spreads near-duplicate results apart |
+| Offline evaluation harness | Precision, recall, MRR, MAP, and NDCG over a relevance-judgment file |
+| Weight learning | Offline grid search over the fusion weights against an evaluation metric |
+| Matrix index | Precomputed NumPy matrices for TF-IDF and S-BERT scoring |
 
 The recommendation engine combines three components. The TF-IDF component follows Salton and Buckley's (1988) term-weighting scheme. Its vocabulary and smoothed inverse-document frequencies are fitted once over the repository at index build, and every paper is stored as an L2-normalized term-weight vector:
 
@@ -74,7 +80,7 @@ The metadata component scores four bibliographic signals at fixed equal weights 
 Metadata(d) = 0.25·sim(title) + 0.25·sim(abstract) + 0.25·sim(keywords) + 0.25·sim(year)
 ```
 
-The three text fields are compared by TF-IDF cosine similarity after normalization (lowercase, punctuation stripped), and the year similarity is sim(year) = 1 / (1 + |Δyear|). A missing field contributes 0 while the fixed 0.25 weights are preserved, so a paper with only one available field cannot receive an inflated score because the others are absent. Which signals are active depends on the search mode. Seed-paper searches supply all four signals from the seed's metadata. Free-text queries supply only the title slot, because abstract, keywords, and publication year are absent from the query, so those three terms contribute zero and the metadata component degenerates to title similarity. Metadata-inclusive pipelines therefore behave differently under the two search modes, and the Arena analysis stratifies results by query type.
+The three text fields are compared by TF-IDF cosine similarity after normalization (lowercase, punctuation stripped), and the year similarity is sim(year) = 1 / (1 + |Δyear|). A missing field contributes 0 while the fixed 0.25 weights are preserved, so a paper with only one available field cannot receive an inflated score. Which signals are active depends on the search mode. Seed-paper searches supply all four signals from the seed's metadata. Free-text queries compare the query text against each candidate's title, abstract, and keywords, while the year signal stays absent because a text query has no publication year, so the year term contributes zero. Metadata-inclusive pipelines therefore behave differently under the two search modes, and the Arena analysis stratifies results by query type.
 
 The six configurations fix the component weights in Table 2. A seventh "custom" pipeline lets the user set the three dials, which the backend normalizes so the weights sum to 1.
 
@@ -91,7 +97,7 @@ Pipeline Weight Configurations
 | sbert_metadata | 0.0 | 0.667 | 0.333 |
 | tfidf_sbert_metadata | 0.4 | 0.4 | 0.2 |
 
-Component scores are normalized independently before combination. TF-IDF and S-BERT raw scores are min-max normalized to [0, 1] (the degenerate all-equal case maps to 1.0), while metadata scores are already bounded in [0, 1] and pass through unchanged. The final score is
+Component scores are normalized independently before combination. TF-IDF and S-BERT raw scores are min-max normalized to [0, 1] (the degenerate all-equal case maps to 1.0), while metadata scores are already bounded and pass through unchanged. The final score is
 
 ```
 Final(d) = w_tfidf·norm_tfidf(d) + w_sbert·norm_sbert(d) + w_metadata·metadata(d)
@@ -109,7 +115,7 @@ S(d) = 0.400 · s'_tfidf(d) + 0.400 · s'_sbert(d) + 0.200 · s'_meta(d)
                                                                    TF-IDF + S-BERT + Metadata
 ```
 
-Components with zero weight are not computed at all. Results are ranked by Final(d) descending, with ties broken by newer publication year and then by title alphabetically; only papers with a score greater than 0 are returned, limited to top_k.
+Components with zero weight are not computed at all. Results are ranked by Final(d) descending, with ties broken by newer publication year and then by title alphabetically; only papers with positive scores are returned, limited to top_k.
 
 The similar-papers graph operationalizes recommendation for a single paper: the selected paper becomes the origin node and the top_k results of the active pipeline become its neighbors. Every pair of graph papers is joined by a blended edge weight that reuses the active pipeline's own components, so the graph cannot disagree with the pipeline that selected its nodes:
 
@@ -118,9 +124,10 @@ w(a,b) = w_tfidf · cos( v_tfidf(a), v_tfidf(b) )
        + w_sbert · cos( e_sbert(a), e_sbert(b) )
        + w_meta  · meta(a, b)
        + 0.15    · J( authors(a), authors(b) )
+       + 0.25    · sim_cit(a, b)
 ```
 
-where meta(a, b) is the four-signal metadata score defined above and J is the Jaccard similarity over the papers' author last names; the weight is clamped to [0, 1], and a missing stored vector contributes 0. Edges from the origin are always drawn; other pairs are drawn only at or above a minimum edge weight of 0.15. Dijkstra's algorithm then computes the shortest path from the origin to every node with hop cost (1 − w), so a node's distance and route summarize how directly the paper connects back to the selected paper. The graph also reports authors and topics shared by at least two graph papers as the local analogue of bibliographic coupling, since the repository stores no reference lists. Figure 1 shows the system architecture.
+where meta(a, b) is the four-signal metadata score defined above, J is the Jaccard similarity over the papers' author last names, and sim_cit(a, b) is the citation-relatedness score of the cached OpenAlex neighbourhood (Section B.13); the weight is clamped to [0, 1], and a missing stored vector contributes 0. Edges from the origin are always drawn; other pairs are drawn only at or above a minimum edge weight of 0.15. Dijkstra's algorithm then computes the shortest path from the origin to every node with hop cost (1 − w), so a node's distance summarizes how directly the paper connects back to the selected paper. The graph also reports authors, topics, and shared references or citers grouped across at least two graph papers, so bibliographic coupling and co-citation are computed directly rather than approximated by shared topics. Figure 1 shows the system architecture.
 
 Figure 1
 
@@ -180,23 +187,23 @@ The researchers implemented the prototype with the stack below, recorded here fo
 |---|---|
 | FastAPI + Uvicorn | REST API and local server |
 | SQLAlchemy 2 + SQLite | Persistence of papers and battle runs |
+| SQLite FTS5 | Ranked full-text repository search |
 | scikit-learn | TF-IDF vectorization |
 | sentence-transformers (all-MiniLM-L6-v2) | S-BERT embeddings |
-| joblib + NumPy | Persistence of vectors and vector math |
+| joblib + NumPy | Persistence of vectors, precomputed matrices, and vector math |
 | pdfplumber | PDF text extraction |
 | YAKE | Keyword generation |
 | requests | PDF discovery across external sources |
 | python-multipart | File upload handling |
 | React + TypeScript + Vite | Frontend application |
 | Tailwind CSS + lucide-react | Styling and icons |
-| Vitest + React Testing Library | Frontend component tests |
-| pytest | Backend tests |
+| unittest (standard library) | Backend tests |
 
-The backend persists the fitted TF-IDF vectorizer and the per-paper vectors with joblib. The master rebuild script (`python -m scripts.rebuild_recommendation`) runs classify, validate, prepared text, TF-IDF, then S-BERT in order; a stale-state file (`storage/recommendation_index_status.json`) plus the POST /api/recommendations/rebuild endpoint keep the index honest after imports change the corpus.
+The backend persists the fitted TF-IDF vectorizer and the per-paper vectors with joblib. The master rebuild script (`python -m scripts.rebuild_recommendation`) runs classify, validate, prepared text, TF-IDF, then S-BERT in order; a stale-state file (`storage/recommendation_index_status.json`) plus the POST /api/recommendations/rebuild endpoint keep the index honest after imports change the corpus. The extensions in Appendix B, Sections B.9 through B.14, follow the same rebuild-and-fallback pattern.
 
 #### Testing
 
-The researchers combined automated tests with a manual functional walkthrough. Backend pytest suites (`test/test_extraction.py` and `test/test_upload_flow.py`) cover metadata extraction and the upload flow, including duplicate rejection; frontend component tests with Vitest and React Testing Library cover the pages and the pipeline math, including dial normalization. The manual walkthrough runs the full loop: import a PDF and a BibTeX entry, confirm classification and validation, rebuild the index, search by query and by seed paper, and run an Arena battle. Every deviation observed during the walkthrough was recorded and corrected before the next iteration.
+The researchers combined automated tests with a manual functional walkthrough. Backend unittest suites (133 tests covering extraction, upload, duplicate detection, ranked search, vector scoring, citations, diversification, learned weights, and offline evaluation) exercise the engine end to end, and the frontend is verified with the TypeScript type checker and the Vite production build (`npm run check`). The manual walkthrough runs the full loop: import a PDF and a BibTeX entry, confirm classification and validation, rebuild the index, search by query and by seed paper, and run an Arena battle. Every deviation was recorded and corrected before the next iteration.
 
 ### System Evaluation
 
@@ -210,7 +217,7 @@ Every run with a winner is logged as a battle_runs row holding the query or seed
 
 #### Data Collection
 
-The researchers will collect data by running a planned Arena campaign of 36 runs: one free-text query and one seed paper drawn from each of the repository's six largest subject classifications (Machine Learning, Mathematical Analysis, Mathematical Modeling, Graph Theory, Linear Algebra, and Information Retrieval), each executed at top_k values of 5, 10, and 15, for 6 × 2 × 3 = 36 runs. The queries and seed papers will be selected by the researchers to represent each class's dominant topics, and the final selection will be recorded together with the corpus's subject-class composition before data collection begins; each run writes a battle_runs row automatically, and the researchers will export the battle history at the end of the campaign. The evaluation corpus is the repository itself, which holds 168 papers at the time of writing, 146 of them valid for recommendation. Runs logged during development walkthroughs exercised the instrument and are excluded from the reported results: the researchers will reset the battle history before the campaign, so the win tally, champion, and streaks reflect the formal runs only.
+The researchers will collect data by running a planned Arena campaign of 36 runs: one free-text query and one seed paper drawn from each of the repository's six largest subject classifications (Machine Learning, Mathematical Analysis, Mathematical Modeling, Graph Theory, Linear Algebra, and Information Retrieval), each executed at top_k values of 5, 10, and 15, for 6 × 2 × 3 = 36 runs. The queries and seed papers will be selected by the researchers to represent each class's dominant topics, and the final selection will be recorded together with the corpus's subject-class composition before data collection begins; each run writes a battle_runs row automatically, and the researchers will export the battle history at the end of the campaign. The evaluation corpus is the repository itself, which holds 168 papers at the time of writing, 145 of them valid for recommendation. Runs logged during development walkthroughs exercised the instrument and are excluded from the reported results: the researchers will reset the battle history before the campaign, so the win tally, champion, and streaks reflect the formal runs only.
 
 #### Data Processing and Analysis
 
@@ -237,7 +244,7 @@ The study uses a corpus of publicly available academic metadata and open-access 
 
 ### Limitations of the Method
 
-1. **Single corpus.** The evaluation runs on one local repository (168 papers, 146 valid for recommendation), so the results may not transfer to larger or differently sourced collections.
+1. **Single corpus.** The evaluation runs on one local repository (168 papers, 145 valid for recommendation), so the results may not transfer to larger or differently sourced collections.
 2. **Single semantic model.** All S-BERT scores rest on one embedding model (all-MiniLM-L6-v2); other models could rank the corpus differently.
 3. **System-internal agreement.** The Arena measures agreement among pipelines, not relevance against human judgments, so it cannot certify which pipeline best serves real users. Human evaluation is deferred to future work because the study's purpose is the controlled comparison of configurations on one corpus, not the certification of user-facing quality.
 4. **Heuristic extraction.** Metadata comes from pdfplumber text extraction without OCR, so scanned or poorly encoded PDFs degrade the corpus.

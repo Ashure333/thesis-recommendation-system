@@ -10,6 +10,7 @@ built later, only this function needs to change (to read the actual
 signed-in user instead of returning the same default one every time).
 """
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.models import User
@@ -33,6 +34,23 @@ def get_or_create_default_user(db: Session) -> User:
         password_hash="unused-single-user-mode",
     )
     db.add(user)
-    db.commit()
+
+    try:
+        db.commit()
+
+    except IntegrityError:
+        # Another request created the single local user between our
+        # SELECT and INSERT (first-run race). Drop our failed insert and
+        # use the row that won.
+        db.rollback()
+        user = (
+            db.query(User)
+            .filter(User.username == DEFAULT_USERNAME)
+            .first()
+        )
+
+        if user is None:
+            raise
+
     db.refresh(user)
     return user
