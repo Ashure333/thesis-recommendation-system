@@ -17,3 +17,10 @@ __pycache__/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+
+# generated at runtime / by rebuilds (regenerable; keep out of git)
+app/data/*.db-shm
+app/data/*.db-wal
+app/data/recommendation_*.npz
+app/data/recommendation_vectors.meta.json
+app/data/learned_weights.json

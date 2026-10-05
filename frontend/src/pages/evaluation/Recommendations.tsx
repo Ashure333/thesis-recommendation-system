@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import {
@@ -28,6 +28,8 @@ import { useLayoutPrefs } from "../../state/layoutPrefs";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 import PipelineMath from "../../components/PipelineMath";
 import ConnectedPapersGraph from "../../components/ConnectedPapersGraph";
+import PaneHandle, { usePaneWidth } from "../../components/ResizeHandle";
+import ScoreBreakdown from "../../components/ScoreBreakdown";
 
 import {
   Button,
@@ -44,79 +46,13 @@ import { HUNT_ITEMS } from "../../data/hunt";
    pane usable at any layout.
    ------------------------------------------------------------ */
 
-const LEFT_PANE_MIN = 200;
+const LEFT_PANE_MIN = 240;
 const LEFT_PANE_MAX = 400;
 const RIGHT_PANE_MIN = 260;
 const RIGHT_PANE_MAX = 520;
 
 const LEFT_PANE_KEY = "paperrec_pane_left";
 const RIGHT_PANE_KEY = "paperrec_pane_right";
-
-function readPaneWidth(
-  key: string,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  try {
-    const stored = window.localStorage.getItem(key);
-    if (stored !== null) {
-      const raw = Number(stored);
-      if (Number.isFinite(raw)) {
-        return Math.max(min, Math.min(max, raw));
-      }
-    }
-  } catch {
-    // best-effort
-  }
-  return fallback;
-}
-
-function PaneHandle({
-  label,
-  onResize,
-}: {
-  label: string;
-  onResize: (delta: number) => void;
-}) {
-  const startXRef = useRef<number | null>(null);
-  const lastDeltaRef = useRef(0);
-
-  function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) return;
-    startXRef.current = event.clientX;
-    lastDeltaRef.current = 0;
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (startXRef.current === null) return;
-    const delta = event.clientX - startXRef.current;
-    onResize(delta - lastDeltaRef.current);
-    lastDeltaRef.current = delta;
-  }
-
-  function handlePointerUp() {
-    startXRef.current = null;
-    lastDeltaRef.current = 0;
-  }
-
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={label}
-      title={label}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-      className="group hidden w-2 shrink-0 cursor-col-resize touch-none items-center justify-center lg:flex"
-    >
-      <span className="h-10 w-1 rounded-full bg-gray-300 transition-colors pixel-ease group-hover:bg-accent group-active:bg-accent" />
-    </div>
-  );
-}
 
 const IMPLEMENTED = new Set([
   "tfidf",
@@ -151,42 +87,19 @@ export default function Recommendations() {
     (location.state as NavState | null) ?? {};
 
   /* Resizable pane widths (persisted per browser). */
-  const [leftPaneW, setLeftPaneW] = useState(() =>
-    readPaneWidth(LEFT_PANE_KEY, 288, LEFT_PANE_MIN, LEFT_PANE_MAX),
-  );
-  const [rightPaneW, setRightPaneW] = useState(() =>
-    readPaneWidth(RIGHT_PANE_KEY, 384, RIGHT_PANE_MIN, RIGHT_PANE_MAX),
+  const [leftPaneW, resizeLeft] = usePaneWidth(
+    LEFT_PANE_KEY,
+    288,
+    LEFT_PANE_MIN,
+    LEFT_PANE_MAX,
   );
 
-  function resizeLeft(delta: number) {
-    setLeftPaneW((current) => {
-      const next = Math.max(
-        LEFT_PANE_MIN,
-        Math.min(LEFT_PANE_MAX, current + delta),
-      );
-      try {
-        window.localStorage.setItem(LEFT_PANE_KEY, String(next));
-      } catch {
-        // best-effort
-      }
-      return next;
-    });
-  }
-
-  function resizeRight(delta: number) {
-    setRightPaneW((current) => {
-      const next = Math.max(
-        RIGHT_PANE_MIN,
-        Math.min(RIGHT_PANE_MAX, current + delta),
-      );
-      try {
-        window.localStorage.setItem(RIGHT_PANE_KEY, String(next));
-      } catch {
-        // best-effort
-      }
-      return next;
-    });
-  }
+  const [rightPaneW, resizeRight] = usePaneWidth(
+    RIGHT_PANE_KEY,
+    384,
+    RIGHT_PANE_MIN,
+    RIGHT_PANE_MAX,
+  );
 
   const {
     pipelineId: sharedPipeline,
@@ -230,6 +143,10 @@ export default function Recommendations() {
   );
 
   const [topK, setTopK] = useState(10);
+
+  // Opt-in MMR reranking: spreads near-duplicate papers apart while
+  // keeping the same scored result set.
+  const [diversify, setDiversify] = useState(false);
 
   const [results, setResults] =
     useState<SearchResult[]>([]);
@@ -333,6 +250,7 @@ export default function Recommendations() {
             ? seedPaperId
             : undefined,
         topK,
+        ...(diversify ? { mmrLambda: 0.7 } : {}),
         ...(pipeline === "custom"
           ? { weights: customWeights }
           : {}),
@@ -501,7 +419,7 @@ const MIN_LOAD_MS = 900;
                 role="tab"
                 aria-selected={mode === queryMode.id}
                 onClick={() => setMode(queryMode.id)}
-                className={`flex-1 rounded border-[3px] border-gray-900 px-2 py-1.5 text-sm font-semibold transition-colors pixel-ease ${
+                className={`flex-1 min-w-0 rounded border-[3px] border-gray-900 px-2 py-1.5 text-sm font-semibold transition-colors pixel-ease ${
                   mode === queryMode.id
                     ? "bg-accent text-onAccent"
                     : "bg-surface text-ink hover:bg-accentSoft"
@@ -586,6 +504,18 @@ const MIN_LOAD_MS = 900;
               <option value={10}>Top 10</option>
               <option value={20}>Top 20</option>
             </select>
+
+            <label className="mt-3 flex items-center gap-2 text-sm font-medium text-ink">
+              <input
+                type="checkbox"
+                checked={diversify}
+                onChange={(event) =>
+                  setDiversify(event.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              Diversify (MMR)
+            </label>
           </div>
 
           {/* Pipeline selector */}
@@ -815,6 +745,11 @@ const MIN_LOAD_MS = 900;
                             </p>
                           )}
 
+                          <ScoreBreakdown
+                            components={result.components}
+                            className="mt-3 max-w-sm"
+                          />
+
                           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
                             {paper.publication_year && (
                               <span>
@@ -930,6 +865,11 @@ const MIN_LOAD_MS = 900;
                   paperId={graphPaperId}
                   pipeline={pipeline}
                   topK={graphLinks}
+                  weights={
+                    pipeline === "custom"
+                      ? customWeights
+                      : undefined
+                  }
                 />
               </div>
             </div>
@@ -942,6 +882,12 @@ const MIN_LOAD_MS = 900;
       <div className="mt-4">
         <PipelineMath
           pipelineId={pipeline}
+          configOverride={activeConfig}
+          weights={
+            pipeline === "custom"
+              ? customWeights
+              : undefined
+          }
           inputs={{
             mode,
             query: queryText,

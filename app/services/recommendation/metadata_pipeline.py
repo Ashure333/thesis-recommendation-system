@@ -56,42 +56,54 @@ def _normalize_text(value: str | None) -> str:
     return value.strip()
 
 
-def _text_similarity(
+def _text_similarity_scores(
     query_value: str | None,
-    candidate_value: str | None,
-) -> float:
+    candidate_values: list[str | None],
+) -> list[float]:
     """
-    Calculate cosine similarity between two metadata text fields.
+    Calculate cosine similarity between one query field and candidate fields.
 
-    A missing or unusable field produces a similarity of 0.
+    The vectorizer is fit once on the query and the candidate corpus for this
+    signal. Missing or unusable fields produce a similarity of 0.
     """
 
     query_text = _normalize_text(query_value)
-    candidate_text = _normalize_text(candidate_value)
+    normalized_candidates = [
+        _normalize_text(value) for value in candidate_values
+    ]
 
-    if not query_text or not candidate_text:
-        return 0.0
+    if not query_text:
+        return [0.0] * len(candidate_values)
 
     vectorizer = TfidfVectorizer()
 
     try:
-        matrix = vectorizer.fit_transform(
-            [query_text, candidate_text]
-        )
+        corpus = [query_text] + [
+            value for value in normalized_candidates if value
+        ]
+        matrix = vectorizer.fit_transform(corpus)
     except ValueError:
-        return 0.0
+        return [0.0] * len(candidate_values)
 
     query_vector = matrix[0].toarray()[0].tolist()
-    candidate_vector = matrix[1].toarray()[0].tolist()
+    scores = []
+    for candidate_text in normalized_candidates:
+        if not candidate_text:
+            scores.append(0.0)
+            continue
 
-    score = cosine_similarity(
-        query_vector,
-        candidate_vector,
-    )
+        candidate_index = 1 + sum(
+            1 for previous in normalized_candidates[:len(scores)]
+            if previous
+        )
+        candidate_vector = matrix[candidate_index].toarray()[0].tolist()
+        score = cosine_similarity(query_vector, candidate_vector)
 
-    # Protect the component from floating-point values outside
-    # the expected 0-1 similarity range.
-    return max(0.0, min(1.0, float(score)))
+        # Protect the component from floating-point values outside
+        # the expected 0-1 similarity range.
+        scores.append(max(0.0, min(1.0, float(score))))
+
+    return scores
 
 
 def _publication_year_similarity(
@@ -128,8 +140,9 @@ def _get_query_metadata(
 
     Seed-paper recommendations use the seed paper's metadata.
 
-    Text queries only provide the query itself as the title/text
-    signal. Abstract, keywords, and publication year are unavailable.
+    Text queries provide one text signal that is compared against each
+    candidate text field. A free-text query has no defensible publication
+    year, so the year signal remains unavailable.
     """
 
     if seed_paper is not None:
@@ -142,8 +155,8 @@ def _get_query_metadata(
 
     return {
         "title": query,
-        "abstract": None,
-        "keywords": None,
+        "abstract": query,
+        "keywords": query,
         "publication_year": None,
     }
 
@@ -192,21 +205,25 @@ def score_candidates(
     scores: dict[int, float] = {}
     signal_scores: dict[int, dict] = {}
 
-    for paper in candidates:
-        title_score = _text_similarity(
-            query_metadata["title"],
-            paper.title,
-        )
+    title_scores = _text_similarity_scores(
+        query_metadata["title"],
+        [paper.title for paper in candidates],
+    )
+    abstract_scores = _text_similarity_scores(
+        query_metadata["abstract"],
+        [paper.abstract for paper in candidates],
+    )
+    keyword_scores = _text_similarity_scores(
+        query_metadata["keywords"],
+        [paper.keywords for paper in candidates],
+    )
 
-        abstract_score = _text_similarity(
-            query_metadata["abstract"],
-            paper.abstract,
-        )
-
-        keyword_score = _text_similarity(
-            query_metadata["keywords"],
-            paper.keywords,
-        )
+    for paper, title_score, abstract_score, keyword_score in zip(
+        candidates,
+        title_scores,
+        abstract_scores,
+        keyword_scores,
+    ):
 
         year_score = _publication_year_similarity(
             query_metadata["publication_year"],

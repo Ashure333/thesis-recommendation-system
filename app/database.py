@@ -8,7 +8,7 @@
 
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.models.models import Base
@@ -22,9 +22,52 @@ DATABASE_URL = f"sqlite:///{os.path.join(_DB_DIR, 'academic_repository.db')}"
 
 # check_same_thread=False is needed because frameworks like FastAPI/Flask
 # may handle a single SQLite connection across different threads.
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+#
+# Pool sizing: SQLAlchemy's defaults (5 + 10 overflow, 30s checkout timeout)
+# are far too small for this app. Every request holds a connection for its
+# whole lifetime, and recommendation requests can hold it for seconds while
+# vectorizing/scoring, so a modest burst of parallel clicks exhausted the
+# pool and every following request failed with a 30s QueuePool timeout
+# (observed as a wall of 500s during stress testing).
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={
+        "check_same_thread": False,
+        # pysqlite default is 5s; wait out a competing writer instead of
+        # raising "database is locked" the moment a write collides.
+        "timeout": 30,
+    },
+    pool_size=int(os.environ.get("DB_POOL_SIZE", "10")),
+    max_overflow=int(os.environ.get("DB_POOL_OVERFLOW", "30")),
+    pool_timeout=float(os.environ.get("DB_POOL_TIMEOUT", "30")),
+    pool_pre_ping=True,
+)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+@event.listens_for(engine, "connect")
+def _configure_sqlite(dbapi_connection, _connection_record):
+    """Per-connection pragmas for a read-heavy, concurrently-written SQLite DB."""
+    cursor = dbapi_connection.cursor()
+    try:
+        # WAL lets readers proceed while a writer commits -- without it a
+        # single in-flight write blocks every concurrent reader.
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cursor.close()
+
+
+# expire_on_commit=False keeps ORM objects usable after commit() so a
+# request can commit (releasing its connection back to the pool) before
+# doing expensive CPU/GPU work, instead of pinning a connection for the
+# whole request.
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False,
+    bind=engine,
+)
 
 
 def init_db() -> None:

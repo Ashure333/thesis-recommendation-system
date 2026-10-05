@@ -17,9 +17,17 @@ combined.
 
 Metadata scores are already bounded between 0 and 1 and therefore
 are not min-max normalized.
+
+An optional MMR (Maximal Marginal Relevance) step can diversify the
+final list -- see app/services/recommendation/mmr.py. It is opt-in via
+``mmr_lambda``: it only reorders the positive-score results and never
+changes their scores, and the default path (mmr_lambda=None) is
+untouched.
 """
 
 from __future__ import annotations
+
+import json
 
 from typing import Literal
 
@@ -29,9 +37,11 @@ from app.models.models import Paper
 
 from app.services.recommendation import (
     metadata_pipeline,
+    mmr,
     sbert_pipeline,
     tfidf_pipeline,
 )
+from app.services.recommendation.similarity import min_max_normalize
 
 from app.services.recommendation.pipeline_config import (
     PIPELINE_NAMES,
@@ -129,38 +139,6 @@ def _normalization_bounds(
             summary["count"] > 0
             and summary["min"] == summary["max"]
         ),
-    }
-
-
-def min_max_normalize(
-    scores: dict[int, float],
-) -> dict[int, float]:
-    """
-    Normalize scores to the range 0..1.
-
-    If every score is identical, return 1.0 for every item.
-    """
-
-    if not scores:
-        return {}
-
-    values = list(scores.values())
-
-    minimum = min(values)
-    maximum = max(values)
-
-    if maximum == minimum:
-        return {
-            paper_id: 1.0
-            for paper_id in scores
-        }
-
-    return {
-        paper_id: (
-            (score - minimum)
-            / (maximum - minimum)
-        )
-        for paper_id, score in scores.items()
     }
 
 
@@ -300,6 +278,77 @@ def _combine_scores(
     return combined_scores
 
 
+def _component_contributions(
+    *,
+    paper_ids: list[int],
+    tfidf_scores: dict[int, float],
+    sbert_scores: dict[int, float],
+    metadata_scores: dict[int, float],
+    weights: PipelineWeights,
+) -> dict[int, dict[str, float]]:
+    """
+    The weighted per-component contributions behind each returned
+    result's score:
+
+        components[i] = w_i * s'_i   (rounded to 6 decimals)
+
+    where s'_i is the min-max normalized TF-IDF / S-BERT score and the
+    metadata score enters already bounded in [0, 1]. A component whose
+    weight is 0 -- or which the candidate has no score for -- is 0.0.
+
+    Only the ids actually returned by search_papers() are processed,
+    so the scoring path pays nothing for the breakdown. The normalized
+    maps are recomputed here rather than shared with _combine_scores()
+    on purpose: the ranking score stays byte-identical to what the
+    combination computed, and normalization is a cheap pass over the
+    already-computed raw scores.
+    """
+
+    if not paper_ids:
+        return {}
+
+    normalized_tfidf = min_max_normalize(tfidf_scores)
+    normalized_sbert = min_max_normalize(sbert_scores)
+
+    contributions: dict[int, dict[str, float]] = {}
+
+    for paper_id in paper_ids:
+        contributions[paper_id] = {
+            "tfidf": round(
+                weights["tfidf"]
+                * normalized_tfidf.get(paper_id, 0.0),
+                6,
+            ),
+            "sbert": round(
+                weights["sbert"]
+                * normalized_sbert.get(paper_id, 0.0),
+                6,
+            ),
+            "metadata": round(
+                weights["metadata"]
+                * metadata_scores.get(paper_id, 0.0),
+                6,
+            ),
+        }
+
+    return contributions
+
+
+def _uninformative_similarity(
+    left_id: int,
+    right_id: int,
+) -> float:
+    """
+    MMR redundancy fallback when no candidate vector is available.
+
+    Without vectors there is no measured similarity to diversify on,
+    so every pair counts as (uninformatively) similar. The redundancy
+    term then becomes a constant and MMR keeps the relevance order.
+    """
+
+    return 1.0
+
+
 def search_papers(
     *,
     db: Session,
@@ -309,6 +358,8 @@ def search_papers(
     top_k: int = 10,
     trace: object | None = None,
     custom_weights: PipelineWeights | None = None,
+    mmr_lambda: float | None = None,
+    mmr_pool: int = 50,
 ) -> list[dict]:
     """
     Run one of the six configured recommendation pipelines — or the
@@ -318,6 +369,19 @@ def search_papers(
 
     Only results with a final combined score greater than 0
     are returned.
+
+    Each returned item also carries a ``components`` dict with the
+    three weighted contributions that produced its score
+    (w_tfidf * s'_tfidf, w_sbert * s'_sbert, w_meta * s_meta),
+    rounded to 6 decimals. The breakdown is computed for the returned
+    top-k items only and never changes the score or the ranking.
+
+    When ``mmr_lambda`` is set (0..1), the positive-score results are
+    reranked with Maximal Marginal Relevance over at most ``mmr_pool``
+    candidates before truncation. MMR changes the ORDER only; every
+    returned item keeps its original combined score. When
+    ``mmr_lambda`` is None (the default) the search is unchanged and
+    no candidate vector is parsed.
 
     When a trace recorder is provided (duck-typed: it only needs a
     record(event, message, data) method), every step of the
@@ -363,6 +427,22 @@ def search_papers(
     if top_k <= 0:
         raise ValueError(
             "top_k must be greater than 0."
+        )
+
+    # --------------------------------------------------------
+    # Validate opt-in MMR parameters
+    # --------------------------------------------------------
+
+    if mmr_lambda is not None and not (
+        0.0 <= mmr_lambda <= 1.0
+    ):
+        raise ValueError(
+            "mmr_lambda must be within [0, 1]."
+        )
+
+    if not 1 <= mmr_pool <= 100:
+        raise ValueError(
+            "mmr_pool must be between 1 and 100."
         )
 
     # --------------------------------------------------------
@@ -456,6 +536,18 @@ def search_papers(
     # (The effective pipeline weights — preset shares or the dial
     # allocation for "custom" — were resolved before the seed and
     # are used to gate which components run below.)
+
+    # --------------------------------------------------------
+    # Release the DB connection
+    #
+    # Every row this search needs (seed + candidates) is loaded and
+    # nothing below touches the session again. Ending the transaction
+    # here hands the pooled connection back while TF-IDF/S-BERT scoring
+    # runs, so concurrent queries queue on the encoder instead of
+    # pinning one connection each for the whole request.
+    # --------------------------------------------------------
+
+    db.commit()
 
     # --------------------------------------------------------
     # Component scores
@@ -653,14 +745,136 @@ def search_papers(
         )
 
     # --------------------------------------------------------
+    # MMR diversification (opt-in)
+    #
+    # Only reached when a lambda was supplied, so the default path
+    # above stays byte-identical: no vector parsing, no extra trace
+    # event. MMR reorders the positive-score ids; the combined scores
+    # themselves are never recomputed.
+    # --------------------------------------------------------
+
+    if mmr_lambda is not None:
+        positive_ids = [
+            paper_id
+            for paper_id in ranked_ids
+            if combined_scores[paper_id] > 0
+        ]
+
+        effective_pool = min(
+            mmr_pool,
+            len(positive_ids),
+        )
+
+        pool_ids = positive_ids[:effective_pool]
+
+        # Parse only what the pool actually needs, and only now that
+        # MMR has been requested.
+        sbert_vectors: dict[int, list[float]] = {}
+        tfidf_vectors: dict[int, list[float]] = {}
+
+        for paper_id in pool_ids:
+            paper = candidate_by_id[paper_id]
+
+            if paper.sbert_vector:
+                sbert_vectors[paper_id] = json.loads(
+                    paper.sbert_vector
+                )
+
+            if paper.tfidf_vector:
+                tfidf_vectors[paper_id] = json.loads(
+                    paper.tfidf_vector
+                )
+
+        # Redundancy signal preference: S-BERT (semantic) first, then
+        # TF-IDF (lexical). Fewer than two vectors cannot distinguish
+        # any pair, so the fallback treats every pair as similar and
+        # the order stays pure relevance.
+        if len(sbert_vectors) >= 2:
+            similarity = mmr.vector_similarity_getter(
+                sbert_vectors
+            )
+            similarity_source = "sbert"
+        elif len(tfidf_vectors) >= 2:
+            similarity = mmr.vector_similarity_getter(
+                tfidf_vectors
+            )
+            similarity_source = "tfidf"
+        else:
+            similarity = _uninformative_similarity
+            similarity_source = "none"
+
+        reranked_ids = (
+            mmr.select_mmr(
+                ranked_ids=positive_ids,
+                scores=combined_scores,
+                similarity=similarity,
+                lambda_=mmr_lambda,
+                pool_size=effective_pool,
+            )
+            if positive_ids
+            else []
+        )
+
+        if trace is not None:
+            trace.record(
+                "rerank.mmr",
+                "MMR diversification: trades relevance against "
+                "redundancy within the candidate pool (order "
+                "changes, scores do not).",
+                {
+                    "lambda": mmr_lambda,
+                    "pool": mmr_pool,
+                    "pool_used": effective_pool,
+                    "similarity_source": similarity_source,
+                    "before": positive_ids[:5],
+                    "after": reranked_ids[:5],
+                },
+            )
+
+        returned_ids = reranked_ids[:top_k]
+
+        component_contributions = _component_contributions(
+            paper_ids=returned_ids,
+            tfidf_scores=tfidf_scores,
+            sbert_scores=sbert_scores,
+            metadata_scores=metadata_scores,
+            weights=weights,
+        )
+
+        return [
+            {
+                "paper": candidate_by_id[paper_id],
+                "score": combined_scores[paper_id],
+                "components": (
+                    component_contributions[paper_id]
+                ),
+            }
+            for paper_id in returned_ids
+        ]
+
+    # --------------------------------------------------------
     # Return top K
     # --------------------------------------------------------
+
+    returned_ids = [
+        paper_id
+        for paper_id in ranked_ids
+        if combined_scores[paper_id] > 0
+    ][:top_k]
+
+    component_contributions = _component_contributions(
+        paper_ids=returned_ids,
+        tfidf_scores=tfidf_scores,
+        sbert_scores=sbert_scores,
+        metadata_scores=metadata_scores,
+        weights=weights,
+    )
 
     return [
         {
             "paper": candidate_by_id[paper_id],
             "score": combined_scores[paper_id],
+            "components": component_contributions[paper_id],
         }
-        for paper_id in ranked_ids
-        if combined_scores[paper_id] > 0
-    ][:top_k]
+        for paper_id in returned_ids
+    ]

@@ -1,21 +1,25 @@
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 import requests
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
-from app.database import init_db, get_session
+from app.database import engine, init_db, get_session
 from app.models.models import Paper, PersonalLibrary, BattleRun
 from app.services.catalog import (
     DEFAULT_CATEGORIES,
@@ -24,6 +28,8 @@ from app.services.catalog import (
     merge_defaults,
 )
 from app.repositories.queries import filter_papers
+
+from app.services.fts_search import ensure_fts_index
 
 from app.services.upload_paper import (
     upload_paper_from_pdf,
@@ -38,6 +44,7 @@ from app.services.duplicate_detection import (
     DuplicatePaperError,
     find_duplicate_paper,
 )
+from app.services.citations import refresh_paper_citations
 from app.services.attachment_lock import attachment_lock
 from app.services.enrichment_queue import (
     get_enrichment_status,
@@ -94,7 +101,7 @@ from app.schemas import (
     PaperUpdate,
     RepositoryStats,
     LibraryEntryOut,
-    SearchResultOut,
+    SearchResultOut as SearchResultOutBase,
     PdfCandidateOut,
     AttachPdfRequest,
     IdentifierLookupRequest,
@@ -191,6 +198,41 @@ app.add_middleware(
 def startup():
     init_db()
 
+    # P1-A: ranked repository search uses an FTS5 index. It is purely
+    # an optimization, so a failure here must never stop the app from
+    # booting -- search falls back to the legacy ILIKE path instead.
+    try:
+        if not ensure_fts_index(engine):
+            logging.getLogger(__name__).warning(
+                "SQLite build has no FTS5 support; repository search "
+                "will use the ILIKE fallback."
+            )
+    except Exception as error:
+        logging.getLogger(__name__).warning(
+            "FTS5 index setup failed; repository search will use the "
+            "ILIKE fallback: %s",
+            error,
+        )
+
+    # Pre-load the S-BERT model on a background thread so the first
+    # recommendation request doesn't pay the load cost (and so the load
+    # itself happens outside any request's DB session).
+    def _warm_up():
+        try:
+            from app.services.recommendation.sbert_pipeline import (
+                warm_up_model,
+            )
+
+            warm_up_model()
+        except Exception as error:
+            print(f"S-BERT model warm-up failed: {error}")
+
+    threading.Thread(
+        target=_warm_up,
+        name="sbert-warmup",
+        daemon=True,
+    ).start()
+
 
 # ============================================================
 # FILE HELPERS
@@ -245,13 +287,30 @@ def rebuild_recommendation_data():
             "Recommendation rebuild script not found."
         )
 
-    subprocess.run(
-        [
-            sys.executable,
-            str(script_path),
-        ],
-        check=True,
-    )
+    # stdout streams live to the server log (progress output stays
+    # visible); stderr goes to a temp file so a non-zero exit -- what
+    # used to surface as a featureless 500 -- carries the script's own
+    # traceback.
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as err_file:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+            ],
+            check=False,
+            stderr=err_file,
+            cwd=str(script_path.parent.parent),
+        )
+
+        if result.returncode != 0:
+            err_file.seek(0)
+            stderr_tail = err_file.read()[-2000:]
+            print(stderr_tail)
+
+            raise RuntimeError(
+                f"rebuild_recommendation.py exited with code "
+                f"{result.returncode}: {stderr_tail.strip()}"
+            )
 
 
 # ============================================================
@@ -269,9 +328,27 @@ def recommendation_status():
 # PAPERS
 # ============================================================
 
+class PaperListOut(PaperOut):
+    """
+    PaperOut plus the optional FTS relevance snippet and the count
+    of near-duplicate records collapsed out of a relevance result
+    list.
+
+    Only the repository list endpoint returns this model; the extra
+    fields are additive, so existing clients can ignore them.
+    """
+
+    snippet: str | None = Field(
+        default=None,
+        validation_alias="search_snippet",
+    )
+
+    duplicate_count: int = 0
+
+
 @app.get(
     "/api/papers",
-    response_model=list[PaperOut],
+    response_model=list[PaperListOut],
 )
 def list_papers(
     search: str | None = None,
@@ -779,6 +856,14 @@ def update_paper(
             paper,
             **update_data,
         )
+    except StaleDataError as error:
+        # The row vanished between the lookup and the UPDATE -- the
+        # paper was deleted by another request while this one edited it.
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        ) from error
+
     except Exception as error:
         print("PAPER METADATA UPDATE FAILED")
         print(error)
@@ -1801,7 +1886,18 @@ def save_to_library(
     )
 
     db.add(entry)
-    db.commit()
+
+    try:
+        db.commit()
+
+    except IntegrityError:
+        # Lost the check-then-insert race against a concurrent save of
+        # the same paper (double-click / two tabs): the UNIQUE constraint
+        # did its job, so report the same outcome as the pre-check.
+        db.rollback()
+        return {
+            "status": "already_saved"
+        }
 
     # Automatic keyword assignment: a freshly saved paper without
     # keywords gets them right away (local YAKE, best-effort).
@@ -1845,10 +1941,12 @@ def remove_from_library(
     )
 
     if not entry:
-        raise HTTPException(
-            status_code=404,
-            detail="Paper is not in the library.",
-        )
+        # Idempotent on purpose: a double-click (or a second tab) racing
+        # the first DELETE must not surface "Paper is not in the library"
+        # as an error after the paper was successfully removed.
+        return {
+            "status": "not_saved"
+        }
 
     db.delete(entry)
     db.commit()
@@ -1873,6 +1971,30 @@ IMPLEMENTED_PIPELINES = {
 
 # The dial-allocated pipeline: the six presets plus "custom".
 ALL_PIPELINE_IDS = IMPLEMENTED_PIPELINES | {"custom"}
+
+
+class SearchResultOut(SearchResultOutBase):
+    """
+    One ranked result from /api/recommendations, plus the weighted
+    per-component contributions that produced its score:
+
+        components = {
+            "tfidf": w_tfidf * s'_tfidf,
+            "sbert": w_sbert * s'_sbert,
+            "metadata": w_metadata * s_meta,
+        }
+
+    Additive and optional: producers that do not compute a breakdown
+    (e.g. the traced/compare paths) serialize ``components: null``,
+    and older clients can ignore the extra field entirely.
+    """
+
+    components: dict[str, float] | None = None
+
+# Keep recommendation work and response sizes bounded at the API boundary.
+# Pagination operates over this bounded ranked result set.
+MAX_RECOMMENDATION_TOP_K = 100
+DEFAULT_RECOMMENDATION_PAGE_SIZE = 20
 
 
 def _resolve_custom_weights(
@@ -1927,6 +2049,36 @@ def _resolve_custom_weights(
     return None
 
 
+def _resolve_custom_recipe(
+    custom_weights: dict[str, float] | None,
+) -> dict[str, float] | None:
+    """
+    Normalize a Lab recipe dict ({tfidf, sbert, metadata}, any
+    non-negative scale) the same way build_custom_weights does for
+    the query and trace endpoints. Returns None when no recipe was
+    supplied, and raises 400 for invalid values.
+    """
+
+    if custom_weights is None:
+        return None
+
+    try:
+        return build_custom_weights(
+            float(custom_weights.get("tfidf") or 0.0),
+            float(custom_weights.get("sbert") or 0.0),
+            float(custom_weights.get("metadata") or 0.0),
+        )
+
+    except (TypeError, ValueError) as error:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "custom_weights must be non-negative numbers with "
+                "at least one value greater than 0."
+            ),
+        ) from error
+
+
 @app.get(
     "/api/recommendations",
     response_model=list[SearchResultOut],
@@ -1936,11 +2088,24 @@ def get_recommendations(
     query: str | None = None,
     seed_paper_id: int | None = None,
     top_k: int = 10,
+    page: int | None = None,
+    page_size: int | None = None,
+    mmr_lambda: float | None = None,
+    mmr_pool: int = 50,
     w_tfidf: float | None = None,
     w_sbert: float | None = None,
     w_metadata: float | None = None,
     db: Session = Depends(get_session),
 ):
+    """Return ranked recommendations, optionally paged.
+
+    ``top_k`` is limited to 100. Existing callers that omit ``page`` and
+    ``page_size`` receive the same bare list response as before. When either
+    pagination parameter is supplied, the response remains a list and contains
+    the requested page of that bounded top-K result set. ``page`` is 1-based;
+    a missing page defaults to 1 and a missing page size defaults to 20.
+    """
+
     # --------------------------------------------------------
     # Validate pipeline
     # --------------------------------------------------------
@@ -1989,10 +2154,43 @@ def get_recommendations(
     # Validate top_k
     # --------------------------------------------------------
 
-    if top_k <= 0:
+    if top_k <= 0 or top_k > MAX_RECOMMENDATION_TOP_K:
         raise HTTPException(
             status_code=400,
-            detail="top_k must be greater than 0.",
+            detail=(
+                "top_k must be between 1 and "
+                f"{MAX_RECOMMENDATION_TOP_K}."
+            ),
+        )
+
+    if page is not None and page < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="page must be greater than 0.",
+        )
+
+    if page_size is not None and not 1 <= page_size <= MAX_RECOMMENDATION_TOP_K:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "page_size must be between 1 and "
+                f"{MAX_RECOMMENDATION_TOP_K}."
+            ),
+        )
+
+    if mmr_lambda is not None and not 0.0 <= mmr_lambda <= 1.0:
+        raise HTTPException(
+            status_code=400,
+            detail="mmr_lambda must be between 0 and 1.",
+        )
+
+    if not 1 <= mmr_pool <= MAX_RECOMMENDATION_TOP_K:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "mmr_pool must be between 1 and "
+                f"{MAX_RECOMMENDATION_TOP_K}."
+            ),
         )
 
     # --------------------------------------------------------
@@ -2024,6 +2222,8 @@ def get_recommendations(
             pipeline=pipeline,
             top_k=top_k,
             custom_weights=custom_weights,
+            mmr_lambda=mmr_lambda,
+            mmr_pool=mmr_pool,
         )
 
     except ValueError as error:
@@ -2041,6 +2241,12 @@ def get_recommendations(
             status_code=500,
             detail="Recommendation search failed.",
         ) from error
+
+    if page is not None or page_size is not None:
+        requested_page = page or 1
+        requested_page_size = page_size or DEFAULT_RECOMMENDATION_PAGE_SIZE
+        start = (requested_page - 1) * requested_page_size
+        return results[start : start + requested_page_size]
 
     return results
 
@@ -2207,13 +2413,15 @@ def compare_recommendation_pipelines(
                 detail="Seed paper not found.",
             )
 
+    custom_weights = _resolve_custom_recipe(request.custom_weights)
+
     try:
         result = compare_pipelines(
             db=db,
             query=request.query,
             seed_paper_id=request.seed_paper_id,
             top_k=request.top_k,
-            custom_weights=request.custom_weights,
+            custom_weights=custom_weights,
         )
 
         # Log the run to the battle history so the frontend can
@@ -2328,12 +2536,14 @@ def web_compare_recommendation_pipelines(
             detail="The web search services could not be reached.",
         ) from error
 
+    custom_weights = _resolve_custom_recipe(request.custom_weights)
+
     try:
         result = compare_web_results(
             query=query,
             hits=hits,
             top_k=request.top_k,
-            custom_weights=request.custom_weights,
+            custom_weights=custom_weights,
         )
         return result
 
@@ -2540,10 +2750,13 @@ def get_similar_papers_graph(
     # Validate top_k
     # --------------------------------------------------------
 
-    if top_k <= 0:
+    if top_k <= 0 or top_k > MAX_RECOMMENDATION_TOP_K:
         raise HTTPException(
             status_code=400,
-            detail="top_k must be greater than 0.",
+            detail=(
+                "top_k must be between 1 and "
+                f"{MAX_RECOMMENDATION_TOP_K}."
+            ),
         )
 
     # --------------------------------------------------------
@@ -2687,7 +2900,30 @@ def get_similar_papers_graph(
         },
         "common_authors": graph["common_authors"],
         "common_topics": graph["common_topics"],
+        "common_references": graph["common_references"],
+        "common_citers": graph["common_citers"],
     }
+
+
+@app.post("/api/papers/{paper_id}/citations/refresh")
+def refresh_paper_citations_endpoint(
+    paper_id: int,
+    db: Session = Depends(get_session),
+):
+    paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .first()
+    )
+
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        )
+
+    return refresh_paper_citations(db, paper)
+
 
 # ============================================================
 # RESEARCH ASSISTANT

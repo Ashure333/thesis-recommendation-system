@@ -17,10 +17,10 @@ src/graph.ts):
 
 The reference model's common_references / common_citations are derived
 from bibliographic coupling and co-citation over Semantic Scholar's
-citation graph. This repository stores no reference lists, so shared
-topics (keywords + subject/category) stand in as the local analogue of
-bibliographic coupling -- a deliberate substitution, not a claim of
-equivalence.
+citation graph. P2-A supplies the same signal from cached OpenAlex
+rows (see app/services/citations.py): papers sharing cached
+references or cached citers get an additive 0.25 term, and shared
+work groups surface as common_references / common_citers.
 
 Edge weight between two graph papers blends the SELECTED pipeline's own
 components, so the graph can never disagree with the pipeline that
@@ -32,10 +32,13 @@ chose the node set:
                                             # 0.25*title + 0.25*abstract
                                             # + 0.25*keywords + 0.25*year
       + 0.15       * author_overlap          # Jaccard over last names
+      + 0.25       * citation_similarity     # 0.5* coupling
+                                            #  + 0.5*co-citation
 
 All terms are 0..1 and the result is clamped to 0..1. A missing
 stored vector contributes 0 -- the same rule the metadata component
-uses for missing fields.
+uses for missing fields. With no cached citation rows the citation
+term is exactly 0.0, so the output is identical to before P2-A.
 
 Edges kept: every origin<->node edge (the origin-star Connected Papers
 always shows; it also guarantees the graph is connected) plus every
@@ -48,7 +51,10 @@ from __future__ import annotations
 import heapq
 import json
 
+from sqlalchemy.orm import object_session
+
 from app.models.models import Paper
+from app.services.citations import citation_maps, similarity_from_maps
 from app.services.pdf_finder import _extract_author_last_names
 from app.services.recommendation.metadata_pipeline import score_candidates
 from app.services.recommendation.pipeline_config import get_pipeline_weights
@@ -64,8 +70,17 @@ MIN_EDGE_WEIGHT = 0.15
 # reference model's CommonAuthor contribution.
 AUTHOR_OVERLAP_BONUS = 0.15
 
+# Extra relatedness for bibliographic coupling / co-citation (P2-A).
+# Additive like the author bonus, and exactly 0.0 when the cache is
+# empty, so an un-refreshed database scores as it did before P2-A.
+CITATION_OVERLAP_BONUS = 0.25
+
 # Payload bounds for the shared-group collections.
 MAX_COMMON_GROUPS = 20
+
+# Citation groups are noisier than authors/topics (an OpenAlex work
+# id means little to a reader), so keep only the strongest few.
+MAX_CITATION_GROUPS = 10
 
 
 def _load_vector(raw: str | None) -> list[float] | None:
@@ -126,6 +141,7 @@ def _pair_weight(
     vectors: dict[int, dict[str, list[float] | None]],
     names: dict[int, set[str]],
     metadata_score: float,
+    citation_score: float = 0.0,
 ) -> float:
     vector_a = vectors[paper_a.id]
     vector_b = vectors[paper_b.id]
@@ -143,11 +159,14 @@ def _pair_weight(
         names[paper_b.id],
     )
 
+    citation_part = CITATION_OVERLAP_BONUS * citation_score
+
     weight = (
         weights.get("tfidf", 0.0) * tfidf_part
         + weights.get("sbert", 0.0) * sbert_part
         + weights.get("metadata", 0.0) * metadata_score
         + author_part
+        + citation_part
     )
 
     return round(max(0.0, min(1.0, weight)), 4)
@@ -257,19 +276,50 @@ def build_connected_graph(
     papers: list[Paper],
     pipeline: str,
     weights: dict[str, float] | None = None,
+    db=None,
 ) -> dict:
     """
     Build the weighted graph parts for the given node set.
 
     `papers` must contain `seed` first, followed by the ranked
     similar papers (any order after that). Returns the edge list,
-    weighted shortest-path data, and the shared author/topic groups;
-    the caller attaches them to its node payloads.
+    weighted shortest-path data, and the shared author/topic/
+    citation groups; the caller attaches them to its node payloads.
+
+    `db` is the session used to load PaperCitation rows. When omitted
+    it is derived from the attached `seed` (api.py's request session),
+    so the graph sees the citation cache without a signature change
+    at the call site. No session -> no citation data -> the exact
+    pre-P2-A output.
     """
     # Preset shares, or the caller's dial allocation for the
     # custom pipeline.
     if weights is None:
         weights = get_pipeline_weights(pipeline)
+
+    # --------------------------------------------------------
+    # Citation neighbourhood, loaded exactly once for the whole
+    # node set: one query backs both the pair weights and the
+    # common_references / common_citers groups. Never per pair.
+    # --------------------------------------------------------
+    if db is None:
+        db = object_session(seed)
+
+    paper_ids = [paper.id for paper in papers]
+
+    if db is not None:
+        references_by_paper, citers_by_paper = citation_maps(
+            db,
+            paper_ids,
+        )
+    else:
+        references_by_paper, citers_by_paper = {}, {}
+
+    citation_scores = similarity_from_maps(
+        references_by_paper,
+        citers_by_paper,
+        paper_ids,
+    )
 
     vectors = {
         paper.id: {
@@ -322,6 +372,11 @@ def build_connected_graph(
 
     for index, paper_a in enumerate(papers):
         for paper_b in papers[index + 1:]:
+            pair = (
+                min(paper_a.id, paper_b.id),
+                max(paper_a.id, paper_b.id),
+            )
+
             weight = _pair_weight(
                 paper_a=paper_a,
                 paper_b=paper_b,
@@ -329,6 +384,7 @@ def build_connected_graph(
                 vectors=vectors,
                 names=names,
                 metadata_score=metadata_for(paper_a, paper_b),
+                citation_score=citation_scores.get(pair, 0.0),
             )
 
             touches_origin = (
@@ -355,10 +411,18 @@ def build_connected_graph(
     path_lengths, node_paths = _shortest_paths(seed.id, edges)
 
     # --------------------------------------------------------
-    # Shared authors / topics (the common_* groups).
+    # Shared authors / topics / cited works (the common_* groups).
+    # Reference and citer group names are citation keys from
+    # citations.py's scheme ("local:<paper_id>" or the OpenAlex id).
     # --------------------------------------------------------
     common_authors = _common_groups(names)
     common_topics = _common_groups(topics)
+    common_references = _common_groups(references_by_paper)[
+        :MAX_CITATION_GROUPS
+    ]
+    common_citers = _common_groups(citers_by_paper)[
+        :MAX_CITATION_GROUPS
+    ]
 
     return {
         "start_id": seed.id,
@@ -367,4 +431,6 @@ def build_connected_graph(
         "node_paths": node_paths,
         "common_authors": common_authors,
         "common_topics": common_topics,
+        "common_references": common_references,
+        "common_citers": common_citers,
     }
