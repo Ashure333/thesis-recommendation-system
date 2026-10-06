@@ -109,6 +109,7 @@ const TOC = [
   ["my-library", "Walkthrough: My Library"],
   ["arena", "Walkthrough: Arena"],
   ["pet", "The pixel pet & scavenger hunt"],
+  ["garden", "The Garden & Tree of Knowledge"],
   ["engine", "The recommendation engine"],
   ["api", "Data & API reference"],
   ["screenshots", "Screenshots"],
@@ -563,6 +564,79 @@ export default function Walkthrough() {
                   condition,
                 ])}
               />
+            </WikiSub>
+          </WikiSection>
+
+          <WikiSection id="garden" title="The Garden & Tree of Knowledge">
+            <p className="text-sm leading-6 text-ink">
+              The Lab's Garden grows a pixel tree from a winged seed
+              to an ancient giant over a march of 3,000 fertilizer
+              packets, bought with sun in the tree's own Sun Shop.
+              Five species — the Crimson Maple, Royal Oak, Silver
+              Birch, Water Elm, and Giant Redwood — each mature on
+              their own curve and speak their own stage lines as
+              the milestones clear.
+            </p>
+            <WikiSub id="garden-march" title="The march and the feet">
+              <p className="text-sm leading-5 text-ink">
+                Seven stages are equally divided: Seed, Seedling,
+                Sapling, Young, Mature, Giant, Ancient. Every ft
+                label is the tree's ACTUAL painted height — the
+                canopy top measured against the ancient tree, so
+                1,000 ft is always a fully grown crown. Stage chips
+                above the meadow preview each milestone, stay
+                pressed to preview, and pressing again morphs the
+                tree smoothly back down.
+              </p>
+            </WikiSub>
+            <WikiSub id="garden-view" title="The viewing window">
+              <p className="text-sm leading-5 text-ink">
+                The tree lives in the references' own 128 x 128
+                window. Once it outgrows the box, the viewer
+                unlocks: drag (pointer or touch), scroll to climb
+                and descend, and the bottom-right arrows — every
+                motion pans up and down the trunk.
+              </p>
+            </WikiSub>
+            <WikiSub id="garden-cheats" title="Cheats">
+              <p className="text-sm leading-5 text-ink">
+                The tree blooms a cheat word at 250, 650, and 1,000
+                feet — each species offers its own three with their
+                own effects. The first bloom is announced once with
+                a golden burst; typing the word anywhere arms it and
+                the foliage drifts over the pages. Type it again to
+                disarm.
+              </p>
+              <WikiTable
+                headers={["Species", "250 ft", "650 ft", "1,000 ft"]}
+                rows={[
+                  ["Crimson Maple", "syrup", "blaze", "amber"],
+                  ["Royal Oak", "daisies", "dance", "pinata"],
+                  ["Silver Birch", "paper", "silver", "ribbon"],
+                  ["Water Elm", "vase", "ridge", "shade"],
+                  ["Giant Redwood", "grove", "mist", "elder"],
+                ]}
+              />
+            </WikiSub>
+            <WikiSub id="garden-themes" title="Backdrop themes">
+              <p className="text-sm leading-5 text-ink">
+                The meadow behind the tree is one of seven scenes —
+                Meadow, Winter, Desert, Shore, Violet Keep, Rose
+                Ruins, and Frost Spire — adopted with growth tokens
+                from the Theme shop. The scene follows your local
+                time zone: night when it is night, dawn at dawn,
+                and the canopy rising past it sinks the world away
+                in perspective while the haze thickens and birds
+                and leaves pass by.
+              </p>
+            </WikiSub>
+            <WikiSub id="garden-speech" title="Speech">
+              <p className="text-sm leading-5 text-ink">
+                The tree whispers every purchase and milestone into
+                its speech bubble, offset right of the crown, and
+                the bubble rests on a random 4-7 second cooldown —
+                the pet's own bubble does the same.
+              </p>
             </WikiSub>
           </WikiSection>
 

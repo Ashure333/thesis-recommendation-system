@@ -1157,6 +1157,7 @@ export default function PixelPet() {
 
   const [speechIndex, setSpeechIndex] = useState(0);
 
+
   /* --------------------------------------------------------
      Paper drops: a library paper dragged onto the pet gets
      destroyed with the current form's signature power — the
@@ -1165,6 +1166,14 @@ export default function PixelPet() {
      -------------------------------------------------------- */
 
   const [petHungry, setPetHungry] = useState(false);
+  /* The bubble rests after speaking, like the tree: every spoken
+     line auto-closes on a random cooldown between 4 and 7 s, then
+     the next line rings it back. */
+  const [speechMuted, setSpeechMuted] = useState(false);
+  const speechKey =
+    dropFx?.mode ??
+    petAnim ??
+    (petHungry ? "hungry" : speechIndex);
 
   const speechLines = getPetLines(count, total, effectiveComplete, form.variant);
   const speechLine = speechLines[speechIndex % speechLines.length];
@@ -1212,6 +1221,17 @@ export default function PixelPet() {
     hoverTipId,
     speechLines.length,
   ]);
+
+  /* The same cooldown as the Tree of Knowledge: a line is spoken,
+     then the bubble rests for a random 4-7 s before the next one. */
+  useEffect(() => {
+    setSpeechMuted(false);
+    if (open || charging) return;
+    const delay = 4000 + Math.floor(Math.random() * 3000);
+    const id = window.setTimeout(() => setSpeechMuted(true), delay);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speechKey, open, charging, dropFx, petAnim, petHungry]);
 
   function handleDragOver(event: React.DragEvent) {
     if (!event.dataTransfer.types.includes(PAPER_DROP_MIME)) return;
@@ -1485,7 +1505,7 @@ export default function PixelPet() {
           pauses while a tip box or dwell ring is up)
           ---------------------------------------------------- */}
 
-      {!open && !charging && (
+      {!open && !charging && !speechMuted && (
           <div
             key={dropFx ? dropFx.mode : petAnim ?? speechIndex}
             className={`animate-pop-in absolute z-20 max-w-[min(220px,calc(100vw-40px))] rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-xs leading-4 text-ink ${
