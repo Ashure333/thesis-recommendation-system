@@ -51,6 +51,9 @@ import {
   CHEAT_HEIGHTS,
   CHEAT_SETS,
   DEFAULT_SPECIES,
+  PROGRESS_LINES,
+  SPECIES_STAGE_FERT,
+  SPECIES_STAGE_LINES,
   treeHeightByFertilizer,
   type TreeSpeciesId,
 } from "../data/knowledge";
@@ -101,18 +104,6 @@ export const CHEAT_MILESTONES: CheatMilestone[] = [
     word: "pinata",
     effect: "Every paper the pet eats bursts into candy.",
   },
-];
-
-/* Stored wisdom handed out between milestones, rotated in order. */
-export const GARDEN_TIPS: string[] = [
-  "Feed after a hunt sweep — each treasure pays 5 sun, a quarter packet.",
-  "A ten-pack saves 40 sun over buying single packets.",
-  "Deeper trivia waits at every new stage; fertilizer is the shortcut.",
-  "Petting earns sun every ten pats, up to five sun a day.",
-  "A daily visit pays 10 sun before you touch anything.",
-  "The first cheat blooms at 100 feet.",
-  "Unread trivia is always handed out before repeats.",
-  "Every five tips discovered returns 2 sun.",
 ];
 
 interface SunState {
@@ -600,8 +591,24 @@ export function SunProvider({ children }: { children: ReactNode }) {
         )
         .join(" ");
     } else {
-      const tip = GARDEN_TIPS[state.gardenTips % GARDEN_TIPS.length];
-      wisdom = `The tree whispers: ${tip}`;
+      /* A stage cleared speaks its own line... */
+      const ferts = SPECIES_STAGE_FERT[state.species];
+      const stageNow = ferts.filter((f) => f <= state.fertilizer).length - 1;
+      const stageAfter = ferts.filter((f) => f <= state.fertilizer + count).length - 1;
+      if (stageAfter > stageNow) {
+        wisdom = SPECIES_STAGE_LINES[state.species][
+          Math.min(stageAfter, SPECIES_STAGE_LINES[state.species].length - 1)
+        ];
+      } else {
+        /* ...between stages, honest progress to the next one. */
+        const nextFert = ferts.find((f) => f > state.fertilizer + count);
+        if (nextFert !== undefined) {
+          const gap = treeHeightByFertilizer(nextFert, state.species) - after;
+          wisdom = `${PROGRESS_LINES[state.gardenTips % PROGRESS_LINES.length]} ${gap} ft to the next stage.`;
+        } else {
+          wisdom = PROGRESS_LINES[state.gardenTips % PROGRESS_LINES.length];
+        }
+      }
     }
 
     setState((current) => {

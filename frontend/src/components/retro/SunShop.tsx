@@ -124,6 +124,7 @@ export default function SunShop({
   onSelect,
   hidePicker = false,
   onWhisper,
+  onCheatFx,
 }: {
   /** Hide the "Your tree" preview when the real tree sits beside it. */
   hidePreview?: boolean;
@@ -137,6 +138,8 @@ export default function SunShop({
   hidePicker?: boolean;
   /** Whisper purchases into the tree's speech bubble. */
   onWhisper?: (text: string) => void;
+  /** A cheat just bloomed: fire the themed unlock animation. */
+  onCheatFx?: (word: string) => void;
 }) {
   const {
     balance,
@@ -229,6 +232,9 @@ export default function SunShop({
           title: "A cheat bloomed",
           body: result.text,
         });
+        if (typeof onCheatFx === "function") {
+          onCheatFx(result.unlocked[0]);
+        }
       }
     }
   }
@@ -358,7 +364,7 @@ export default function SunShop({
         role="group"
         aria-label="Garden shop"
         className={`flex w-full gap-2 overflow-x-auto border-b-[3px] border-gray-900 px-2 py-2 ${
-          embedded ? "bg-[#f5e08a]/45 dark:bg-[#2c2413]/70" : "bg-[#8a5a2b]"
+          embedded ? "bg-accentSoft/45 dark:bg-[#2c2413]/70" : "bg-[#8a5a2b]"
         }`}
         onKeyDown={(event) => {
           const index = RAIL_TABS.findIndex((entry) => entry.id === popup);
@@ -408,13 +414,13 @@ export default function SunShop({
               className={`flex min-w-[76px] shrink-0 flex-col items-center gap-1.5 rounded-lg border-[3px] px-2.5 py-2 transition-all duration-150 pixel-ease ${
                 active
                   ? "border-gray-900 bg-white text-gray-900 shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
-                  : "border-gray-800/40 bg-white/60 text-gray-700/70 dark:bg-[#262015]/70 hover:border-gray-900 hover:text-gray-900"
+                  : "border-gray-800/40 bg-white/60 text-gray-700/70 hover:border-gray-900 hover:text-gray-900"
               }`}
             >
               <span
                 className={`grid h-9 w-9 place-items-center rounded border-[3px] transition-colors ${
                   active
-                    ? "border-gray-900 bg-[#f5e08a]"
+                    ? "border-gray-900 bg-accentSoft"
                     : "border-gray-700/40 bg-white/70"
                 }`}
               >
@@ -446,7 +452,7 @@ export default function SunShop({
           <div className="p-4">
             {popup === "shop" && (
               <>
-<div className="rounded border-[3px] border-gray-900 bg-[#d9b382] p-3">
+<div className="rounded border-[3px] border-gray-900 bg-accentSoft/60 p-3">
           <div className="flex items-start gap-3">
             <FertilizerIcon />
 
@@ -459,7 +465,7 @@ export default function SunShop({
                 {GROWTH_PER_FERTILIZER} growth points. Height follows
                 the tree's stage — from seed at 0 ft to the ancient
                 tree at 1000 ft across all 10,000 packets — and
-                feeding dispenses wisdom: a cheat word at 100, 500,
+                feeding dispenses wisdom: a cheat word at 250, 650, 1000,
                 and 1000 feet, a garden tip otherwise.
               </p>
             </div>
@@ -520,7 +526,7 @@ export default function SunShop({
                   }
                   className={`flex flex-col items-center gap-0.5 rounded border-[3px] border-gray-900 px-1 py-2 font-mono text-[11px] font-bold transition-colors pixel-ease ${
                     affordable
-                      ? "bg-[#e8b04b] text-[#2b3347] hover:bg-[#f0c161] active:translate-y-[1px]"
+                      ? "bg-accent text-[#2b3347] hover:brightness-110 hover:bg-accent active:translate-y-[1px]"
                       : "cursor-not-allowed bg-[#cbb894] text-[#6a6053]"
                   }`}
                 >
@@ -529,7 +535,7 @@ export default function SunShop({
                     <SunGlyph className="h-3 w-3" />
                     {pack.price}
                   </span>
-                  <span className="text-[9px] font-bold uppercase text-[#3b6d11]">
+                  <span className="text-[9px] font-bold uppercase text-accent">
                     {pack.discount ?? "\u00a0"}
                   </span>
                 </button>
@@ -628,7 +634,7 @@ export default function SunShop({
           />
           <button
             type="submit"
-            className="rounded border-[2px] border-gray-900 bg-[#e8b04b] px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-[#2b3347] transition-colors pixel-ease hover:bg-[#f0c161]"
+            className="rounded border-[2px] border-gray-900 bg-accent px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-[#2b3347] transition-colors pixel-ease hover:brightness-110 hover:bg-accent"
           >
             Cast
           </button>
@@ -662,7 +668,7 @@ export default function SunShop({
                 key={entry.id}
                 className={`flex flex-col items-center gap-1.5 rounded-lg border-[3px] p-2.5 transition-all duration-150 pixel-ease ${
                   owned
-                    ? "border-[#2b8a3e] bg-[#eef7e6] dark:bg-[#1e2a18]"
+                    ? "border-[#2b8a3e] bg-accentSoft"
                     : "border-gray-900 bg-gradient-to-b from-[#e2c091] to-[#d3a971] hover:-translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.15)]"
                 }`}
               >
@@ -691,7 +697,7 @@ export default function SunShop({
                     }
                     className={`flex items-center gap-1 rounded border-[3px] border-gray-900 px-2 py-0.5 font-mono text-[9px] font-bold uppercase transition-colors pixel-ease ${
                       tokens >= price
-                        ? "bg-[#e8b04b] text-[#2b3347] hover:bg-[#f0c161] active:translate-y-[1px]"
+                        ? "bg-accent text-[#2b3347] hover:brightness-110 hover:bg-accent active:translate-y-[1px]"
                         : "cursor-not-allowed bg-[#cbb894] text-[#6a6053]"
                     }`}
                   >

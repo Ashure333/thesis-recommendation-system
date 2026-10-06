@@ -360,8 +360,24 @@ export const TREE_IDLE_LINES: { text: string; topic: string }[] = [
 
 /* ---------- per-species cheats and growth progress ---------- */
 
-/** Cheat unlock heights, shared by every species. */
-export const CHEAT_HEIGHTS = [100, 500, 1000];
+/** Cheat unlock heights, shared by every species — tuned to the
+ *  REAL relative foot scale (ancient = 1000 ft):
+ *    250 ft  ~ the Seedling/Sapling turn  (word 1)
+ *    650 ft  ~ the Young/Mature turn      (word 2)
+ *    1000 ft ~ the Ancient crown          (word 3)
+ *
+ *  Review of the cheat ladder (5 species x 3 cheats):
+ *    oak      daisies / dance / pinata      — pet eats papers
+ *    crimson  syrup / blaze / amber         — maple syrup, autumn
+ *    birch    paper / silver / ribbon       — barky paper trail
+ *    elm      vase / ridge / shade          — arced shade forms
+ *    redwood  grove / mist / elder          — coastal tower
+ *  Arming a word toggles it in `activeCheats`: the pet reacts
+ *  (daisies/candy bursts on eaten papers), the CheatFoliage
+ *  overlay starts drifting the cheat's foliage over the pages,
+ *  and the word stays armed until typed again. Each unlock is
+ *  announced exactly once (announcedCheats) with a themed burst. */
+export const CHEAT_HEIGHTS = [250, 650, 1000];
 
 /** Each tree offers its own three cheat words. */
 export const CHEAT_SETS: Record<
@@ -394,6 +410,66 @@ export const CHEAT_SETS: Record<
     { word: "elder", effect: "The pet stands tall as an elder redwood." },
   ],
 };
+
+/** Dedicated lines for each stage cleared (index 0 is the seed —
+ *  spoken the moment the milestone is crossed, in the tree's own
+ *  speech bubble). */
+export const SPECIES_STAGE_LINES: Record<TreeSpeciesId, string[]> = {
+  crimson: [
+    "",
+    "A Seedling maple — the first leaves uncurl toward the light.",
+    "Sapling now: the trunk seals its first rings.",
+    "Young maple — the canopy begins to arch overhead.",
+    "A Mature maple spreads its boughs to full reach.",
+    "Giant — the trunk towers over the meadow.",
+    "Ancient maple — it has known every season since the seed.",
+  ],
+  oak: [
+    "",
+    "A Seedling oak — one small true leaf, already stubborn.",
+    "Sapling oak: the bark starts its deep furrows.",
+    "Young oak — the crown rounds out above the roods.",
+    "A Mature oak holds the centre of its glade.",
+    "Giant — boughs cast a very wide afternoon.",
+    "Ancient oak — a landmark now, and patient.",
+  ],
+  birch: [
+    "",
+    "A Seedling birch — silver peeling already.",
+    "Sapling birch: the white bark catches the light.",
+    "Young birch — the airy crown shimmers at the top.",
+    "A Mature birch rustles like paper in wind.",
+    "Giant — the silver trunk bends to no storm.",
+    "Ancient birch — every coat of bark written in.",
+  ],
+  elm: [
+    "",
+    "A Seedling elm — the arch dreams in its twigs.",
+    "Sapling elm: the vase shape begins to show.",
+    "Young elm — a fountain of branches overhead.",
+    "A Mature elm keeps the avenue in shade.",
+    "Giant — the elm's arch spans the whole walk.",
+    "Ancient elm — the cathedral of the lane.",
+  ],
+  redwood: [
+    "",
+    "A Seedling redwood — bound for the sky already.",
+    "Sapling redwood: the red bark thickens.",
+    "Young redwood — it outgrows the meadow's edge.",
+    "A Mature redwood meets the fog line.",
+    "Giant — the tallest thing the coast has seen.",
+    "Ancient redwood — the world tree crowns the sky.",
+  ],
+};
+
+/** Honest between-stage whispers: no filler — real progress
+ *  toward the next stage follows on every feed. */
+export const PROGRESS_LINES = [
+  "The crown rises — every packet rings in the trunk.",
+  "Roots settle deeper with each feed.",
+  "The meadow grows small below the canopy.",
+  "Growth is patient, but the rings keep their promise.",
+];
 
 /** Each species matures on its own curve: the seven stage fert
  *  positions differ per tree while the march stays 3,000. */

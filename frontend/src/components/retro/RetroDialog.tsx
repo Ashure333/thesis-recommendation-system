@@ -168,7 +168,7 @@ export default function RetroDialog({
     >
       <div className="animate-pop-in w-[min(92%,430px)] overflow-hidden rounded-xl border-[3px] border-gray-900 bg-white shadow-[6px_6px_0_rgba(0,0,0,0.3)]">
         <div className="flex items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-gradient-to-b from-[#96683a] to-[#82572c] px-4 py-2.5">
-          <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-[#ffe9a8]">
+          <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-onAccent">
             {title}
           </p>
           {onCancel && (
@@ -176,7 +176,7 @@ export default function RetroDialog({
               type="button"
               onClick={onCancel}
               aria-label="Close"
-              className="grid h-5 w-5 place-items-center rounded border-[2px] border-[#ffe9a8]/80 font-mono text-[11px] font-bold leading-none text-[#ffe9a8] transition-colors pixel-ease hover:bg-[#ffe9a8]/15"
+              className="grid h-5 w-5 place-items-center rounded border-[2px] border-onAccent/80 font-mono text-[11px] font-bold leading-none text-onAccent transition-colors pixel-ease hover:bg-onAccent/15"
             >
               {"\u00D7"}
             </button>
@@ -199,7 +199,7 @@ export default function RetroDialog({
             <button
               type="button"
               onClick={onConfirm}
-              className="rounded-lg border-[3px] border-gray-900 bg-[#e8b04b] px-4 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#2b3347] shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:bg-[#f0c161] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.18)] active:translate-y-[3px] active:shadow-none"
+              className="rounded-lg border-[3px] border-gray-900 bg-accent px-4 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-onAccent shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:brightness-110 hover:bg-accent hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.18)] active:translate-y-[3px] active:shadow-none"
             >
               {confirmLabel}
             </button>

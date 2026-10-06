@@ -199,6 +199,15 @@ textarea {
 /* --- pixel easing: snaps instead of gliding --- */
 .pixel-ease { transition-timing-function: steps(3, end) !important; }
 
+/* Subtle retro text shadows: a light halo for dark ink on light
+   surfaces, a soft dark lift for light text on accent fills. */
+.retro-shadow-light {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 3px rgba(0, 0, 0, 0.18);
+}
+.retro-shadow-dark {
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.28);
+}
+
 /* --- blinking block cursor / press-start indicator --- */
 .animate-blink { animation: retro-blink 1s steps(2, start) infinite; }
 @keyframes retro-blink { 50% { opacity: 0; } }

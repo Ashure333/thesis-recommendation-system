@@ -84,7 +84,7 @@ export default function ThemeShop({
               key={theme.id}
               className={`rounded-lg border-[3px] p-2 transition-colors pixel-ease ${
                 isActive
-                  ? "border-gray-900 bg-[#fff3cf] dark:bg-[#2c2512] shadow-[3px_3px_0_rgba(0,0,0,0.15)]"
+                  ? "border-gray-900 bg-accentSoft/80 shadow-[3px_3px_0_rgba(0,0,0,0.15)]"
                   : "border-gray-900 bg-white"
               }`}
             >
@@ -112,7 +112,7 @@ export default function ThemeShop({
                     <button
                       type="button"
                       onClick={() => onChanged(owned, theme.id)}
-                      className="shrink-0 rounded border-[3px] border-gray-900 bg-[#e8b04b] px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-[#2b3347] transition-all pixel-ease hover:bg-[#f0c161] active:translate-y-[1px]"
+                      className="shrink-0 rounded border-[3px] border-gray-900 bg-accent px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-onAccent transition-all pixel-ease hover:brightness-110 hover:bg-accent active:translate-y-[1px]"
                     >
                       Set scene
                     </button>
@@ -121,7 +121,7 @@ export default function ThemeShop({
                   <button
                     type="button"
                     onClick={() => adopt(theme)}
-                    className="flex shrink-0 items-center gap-1 rounded border-[3px] border-gray-900 bg-[#e8b04b] px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-[#2b3347] transition-all pixel-ease hover:bg-[#f0c161] active:translate-y-[1px]"
+                    className="flex shrink-0 items-center gap-1 rounded border-[3px] border-gray-900 bg-accent px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-onAccent transition-all pixel-ease hover:brightness-110 hover:bg-accent active:translate-y-[1px]"
                   >
                     <TokenGlyph className="h-2.5 w-2.5" />
                     {theme.price}

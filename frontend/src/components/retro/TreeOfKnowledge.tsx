@@ -194,6 +194,7 @@ export default function TreeOfKnowledge({
   /* Dropping a fertilizer pack feeds the tree; the outcome echoes
      in the speech bubble. */
   const [feedNote, setFeedNote] = useState<string | null>(null);
+
   /* The tree card's own menu: the shop, skins, and wallet panes. */
   const [menu, setMenu] = useState<
     "info" | "shop" | "skins" | "themes" | "wallet" | null
@@ -292,6 +293,21 @@ export default function TreeOfKnowledge({
   morphRef.current = morphG;
   /* Bump to recentre the pan when a stage chip navigates. */
   const [viewReset, setViewReset] = useState(0);
+  /* Cheat-bloom burst: a golden ring + the word + extra sparkles. */
+  const [cheatFx, setCheatFx] = useState<{
+    id: number;
+    word: string;
+  } | null>(null);
+  const fxId = useRef(0);
+  function triggerCheatFx(word: string) {
+    const id = fxId.current + 1;
+    fxId.current = id;
+    setCheatFx({ id, word });
+    spawnSparkles(16);
+    window.setTimeout(() => {
+      setCheatFx((current) => (current?.id === id ? null : current));
+    }, 1800);
+  }
   useEffect(() => {
     const to =
       previewStage === null
@@ -493,6 +509,15 @@ export default function TreeOfKnowledge({
     topic: string;
   } | null>(null);
   const [bubbleClosed, setBubbleClosed] = useState(false);
+  /* The bubble rests after speaking: every whisper or trivia piece
+     auto-closes on a random cooldown between 4 and 7 seconds. */
+  useEffect(() => {
+    if (bubbleClosed || (!feedNote && !current)) return;
+    const delay = 4000 + Math.floor(Math.random() * 3000);
+    const id = window.setTimeout(() => setBubbleClosed(true), delay);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedNote, current, bubbleClosed]);
   const hoverRef = useRef(false);
 
   useEffect(() => {
@@ -538,10 +563,10 @@ export default function TreeOfKnowledge({
       className="overflow-hidden rounded border-[3px] border-gray-900 bg-white"
     >
       {/* ---------------- menu bar: currency, menus, species ------ */}
-      <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap border-b-[3px] border-gray-900 bg-[#8a5a2b] px-3 py-2">
+      <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap border-b-[3px] border-gray-900 bg-accent px-3 py-2">
         <div className="flex items-center gap-1.5">
         <div
-          className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-[#f5e08a] px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
+          className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
           title={`Growth points: ${earnedPoints} earned + ${bonusGrowth} from fertilizer`}
         >
           <SunGlyph />
@@ -556,7 +581,7 @@ export default function TreeOfKnowledge({
           className={`flex items-center gap-1.5 rounded border-[3px] border-gray-900 px-2 py-1 font-mono text-xs font-bold transition-colors pixel-ease ${
             menu === "shop"
               ? "bg-white text-gray-900"
-              : "bg-[#f5e08a] text-[#2b3347] hover:bg-[#fff3b8]"
+              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
           }`}
         >
           <SunGlyph />
@@ -571,7 +596,7 @@ export default function TreeOfKnowledge({
           className={`flex items-center gap-1.5 rounded border-[3px] border-gray-900 px-2 py-1 font-mono text-xs font-bold transition-colors pixel-ease ${
             menu === "skins"
               ? "bg-white text-gray-900"
-              : "bg-[#f5e08a] text-[#2b3347] hover:bg-[#fff3b8]"
+              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
           }`}
         >
           <TokenGlyph />
@@ -586,7 +611,7 @@ export default function TreeOfKnowledge({
           className={`rounded border-[3px] border-gray-900 px-2 py-[5px] font-mono text-[10px] font-bold uppercase tracking-wider transition-colors pixel-ease ${
             menu === "wallet"
               ? "bg-white text-gray-900"
-              : "bg-[#f5e08a] text-[#2b3347] hover:bg-[#fff3b8]"
+              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
           }`}
         >
           Wallet
@@ -636,8 +661,8 @@ export default function TreeOfKnowledge({
                 }
                 className={`flex w-16 shrink-0 flex-col items-center gap-0.5 rounded-lg border-[3px] px-1 py-1 transition-all duration-150 pixel-ease ${
                   planted
-                    ? "border-gray-900 bg-[#ffe9a8] text-[#2b3347] shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
-                    : "border-gray-900 bg-[#d9b382] text-[#453b2f] opacity-75 hover:opacity-100"
+                    ? "border-gray-900 bg-accentSoft/65 text-[#2b3347] dark:text-onAccent shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
+                    : "border-gray-900 bg-accentSoft/60 text-[#453b2f] dark:text-onAccent opacity-75 hover:opacity-100"
                 }`}
               >
                 <KnowledgeTree
@@ -676,7 +701,7 @@ export default function TreeOfKnowledge({
               <span className="font-mono text-[9px] font-bold uppercase text-gray-700">
                 {species.label}
               </span>
-              <span className="font-mono text-[8px] font-bold uppercase text-[#8a5a2b]">
+              <span className="font-mono text-[8px] font-bold uppercase text-accent">
                 <TokenGlyph className="inline-block h-2.5 w-2.5" /> {price}
               </span>
             </button>
@@ -829,7 +854,22 @@ export default function TreeOfKnowledge({
               className="absolute -bottom-1 left-1/2 h-2 w-20 -translate-x-1/2 rounded-full bg-black/20"
             />
 
-              {/* sparkle burst when the tree dispenses trivia */}
+              {/* cheat bloom: ring + word burst */}
+            {cheatFx && (
+              <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+                <span
+                  aria-hidden="true"
+                  className="absolute h-40 w-40 animate-ping rounded-full border-4 border-[#f0c161] opacity-70"
+                />
+                <span
+                  className="animate-pulse rounded-lg border-[3px] border-gray-900 bg-white/95 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-accent shadow-[3px_3px_0_rgba(0,0,0,0.2)]"
+                >
+                  Cheat unlocked — {"\u201C"}{cheatFx.word}{"\u201D"}
+                </span>
+              </div>
+            )}
+
+            {/* sparkle burst when the tree dispenses trivia */}
             {sparkles.map((sparkle) => (
               <span
                 key={sparkle.id}
@@ -871,17 +911,17 @@ export default function TreeOfKnowledge({
                       setPreviewStage(active ? null : index);
                       setViewReset((n) => n + 1);
                     }}
-                    className={`flex items-center gap-1 rounded-md border-[2px] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide transition-colors pixel-ease ${
+                    className={`retro-shadow-light flex items-center gap-1 rounded-md border-[2px] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide transition-colors pixel-ease ${
                       active ? "animate-pulse" : ""
                     }
                     ${
                       active
-                        ? "border-gray-900 bg-[#e8b04b] text-[#2b3347] shadow-[2px_2px_0_rgba(0,0,0,0.2)]"
+                        ? "border-gray-900 bg-accent text-[#2b3347] shadow-[2px_2px_0_rgba(0,0,0,0.2)]"
                         : live
-                          ? "border-gray-900 bg-[#f5e08a] text-[#2b3347]"
+                          ? "border-gray-900 bg-accentSoft text-[#2b3347]"
                           : reached
-                            ? "border-[#4a7a2f] bg-[#eef7e6] dark:bg-[#1e2a18] text-[#2b6e1e] hover:bg-[#dff0d2]"
-                            : "border-gray-300/80 bg-white/85 text-[#6a6053] dark:bg-[#241c12]/90 hover:border-gray-900 hover:text-gray-800"
+                            ? "border-[#4a7a2f] bg-accentSoft text-[#2b6e1e] hover:bg-[#dff0d2]"
+                            : "border-gray-300/80 bg-white/85 text-[#6a6053] dark:bg-[#241c12]/90 dark:text-[#cfc3b4] hover:border-gray-900 hover:text-gray-800"
                     }`}
                   >
                     <span aria-hidden="true" className="text-[8px]">
@@ -914,8 +954,8 @@ export default function TreeOfKnowledge({
         aria-label="Tree sidebar"
         className="overflow-hidden border-t-[3px] border-gray-900 md:h-[500px] md:border-l-[3px] md:border-t-0"
       >
-        <div className="flex h-[49px] items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-gradient-to-b from-[#96683a] to-[#82572c] px-3 py-2">
-          <p className="truncate font-mono text-xs font-bold uppercase tracking-[0.15em] text-[#ffe9a8]">
+        <div className="flex h-[49px] items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-gradient-to-b from-accent to-accent/70 px-3 py-2">
+          <p className="retro-shadow-dark truncate font-mono text-xs font-bold uppercase tracking-[0.15em] text-onAccent">
             {menu === "shop"
               ? "Sun shop"
               : menu === "skins"
@@ -929,7 +969,7 @@ export default function TreeOfKnowledge({
           <span className="flex items-center gap-2">
             {menu === "shop" && (
               <span
-                className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-[#f5e08a] px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
+                className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
                 title="Your sun tokens"
               >
                 <SunGlyph />
@@ -938,7 +978,7 @@ export default function TreeOfKnowledge({
             )}
             {menu === "skins" && (
               <span
-                className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-[#f5e08a] px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
+                className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
                 title="Your growth tokens"
               >
                 <TokenGlyph />
@@ -950,7 +990,7 @@ export default function TreeOfKnowledge({
               onClick={() => setMenu(null)}
               aria-label="Close sidebar"
               title="Back to the tree info"
-              className="grid h-5 w-5 place-items-center rounded border-[2px] border-[#ffe9a8]/80 font-mono text-[11px] font-bold leading-none text-[#ffe9a8] transition-colors pixel-ease hover:bg-[#ffe9a8]/15"
+              className="grid h-5 w-5 place-items-center rounded border-[2px] border-onAccent/80 font-mono text-[11px] font-bold leading-none text-onAccent transition-colors pixel-ease hover:bg-onAccent/15"
             >
               {"×"}
             </button>
@@ -961,7 +1001,7 @@ export default function TreeOfKnowledge({
         <div
           role="group"
           aria-label="Tree sidebar menus"
-          className="flex w-full gap-2 overflow-x-auto border-b-[3px] border-gray-900 bg-[#f5e08a]/45 dark:bg-[#2c2413]/70 px-2 py-2"
+          className="flex w-full gap-2 overflow-x-auto border-b-[3px] border-gray-900 bg-accentSoft/45 dark:bg-[#2c2413]/70 px-2 py-2"
           onKeyDown={(event) => {
             const RAIL = [
               { id: "info", label: "Tree info" },
@@ -1036,7 +1076,7 @@ export default function TreeOfKnowledge({
                   <span
                     className={`grid h-7 w-7 place-items-center rounded border-[3px] transition-colors ${
                       active
-                        ? "border-gray-900 bg-[#f5e08a]"
+                        ? "border-gray-900 bg-accentSoft"
                         : "border-gray-700/40 bg-white/70"
                     }`}
                   >
@@ -1051,13 +1091,13 @@ export default function TreeOfKnowledge({
           })}
         </div>
 
-        <div className="md:h-[376px] md:overflow-y-auto bg-[#fbf7ee] dark:bg-[#241b12]">
+        <div className="md:h-[376px] md:overflow-y-auto bg-white">
           {(menu === "info" || menu === null) && (
             <div className="p-4">
               <p className="font-pixelify text-lg font-bold leading-tight text-ink">
                 {SPECIES_INFO[speciesId].name}
               </p>
-              <p className="mt-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-[#8a5a2b]">
+              <p className="mt-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent">
                 {treeSpecies(speciesId).label}
               </p>
 
@@ -1069,7 +1109,7 @@ export default function TreeOfKnowledge({
                 <button
                   type="button"
                   onClick={() => setInfoExpanded(true)}
-                  className="mt-4 w-full rounded-lg border-[3px] border-gray-900 bg-[#e8b04b] px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-[#2b3347] shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:bg-[#f0c161] active:translate-y-[2px] active:shadow-none"
+                  className="mt-4 w-full rounded-lg border-[3px] border-gray-900 bg-accent px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-[#2b3347] shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:brightness-110 hover:bg-accent active:translate-y-[2px] active:shadow-none"
                 >
                   Get info
                 </button>
@@ -1077,7 +1117,7 @@ export default function TreeOfKnowledge({
                 <div>
                   <span
                     role="status"
-                    className="mb-2 mt-4 inline-block rounded-md border-[2px] border-gray-900 bg-[#eef7e6] dark:bg-[#1e2a18] px-2 py-1 font-mono text-[10px] font-bold text-[#2b6e1e]"
+                    className="mb-2 mt-4 inline-block rounded-md border-[2px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-[10px] font-bold text-[#2b6e1e]"
                   >
                     {handout && handout.eligible > 0
                       ? `${handout.learned}/${handout.eligible} learned`
@@ -1107,7 +1147,7 @@ export default function TreeOfKnowledge({
                           key={item.id}
                           className="rounded border-[2px] border-gray-900 bg-white px-2 py-1.5"
                         >
-                          <p className="font-mono text-[9px] font-bold uppercase tracking-wide text-[#8a5a2b]">
+                          <p className="font-mono text-[9px] font-bold uppercase tracking-wide text-accent">
                             {item.topic}
                           </p>
                           <p className="text-[11px] leading-4 text-ink">
@@ -1138,7 +1178,7 @@ export default function TreeOfKnowledge({
           )}
 
           {menu !== null && menu !== "info" && menu !== "themes" && (
-        <div className="bg-[#fbf7ee] dark:bg-[#241b12]">
+        <div className="bg-white">
             <SunShop
               embedded
               tab={menu}
@@ -1149,6 +1189,7 @@ export default function TreeOfKnowledge({
                 setFeedNote(text);
                 setBubbleClosed(false);
               }}
+              onCheatFx={triggerCheatFx}
             />
           </div>
           )}
@@ -1157,12 +1198,12 @@ export default function TreeOfKnowledge({
       </div>
 
       {/* centered action row under the bed */}
-      <div className="flex flex-wrap items-center justify-center gap-2.5 border-t-[3px] border-gray-900 bg-[#eef7e6] dark:bg-[#1e2a18] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-center gap-2.5 border-t-[3px] border-gray-900 bg-accentSoft px-4 py-3">
 
         <button
           type="button"
           onClick={askTree}
-          className="rounded-lg border-[3px] border-gray-900 bg-[#e8b04b] px-5 py-2 font-mono text-xs font-bold uppercase tracking-[0.1em] text-[#2b3347] shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:bg-[#f0c161] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.18)] active:translate-y-[3px] active:shadow-none"
+          className="retro-shadow-dark rounded-lg border-[3px] border-gray-900 bg-accent px-5 py-2 font-mono text-xs font-bold uppercase tracking-[0.1em] text-onAccent shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:brightness-110 hover:bg-accent hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.18)] active:translate-y-[3px] active:shadow-none"
         >
           Ask the tree
         </button>
