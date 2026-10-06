@@ -178,7 +178,7 @@ export default function TreeOfKnowledge({
   /* The tree's growth: sun consumed by fertilizer, then extra sun
      zooms into the world tree. */
   /* Every fertilizer is one step on the original's growth
-     timeline: 10,000 packets take the tree from seed to ancient,
+     timeline: 3,000 packets take the tree from seed to ancient,
      extra packets beyond that rise into the world tree. */
   const growth = Math.min(1, fertilizer / TREE_GROWTH_TARGET);
 

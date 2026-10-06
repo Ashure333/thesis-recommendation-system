@@ -412,10 +412,11 @@ export default function SunShop({
               </p>
               <p className="mt-0.5 text-xs leading-5 text-gray-800">
                 Feeds the Tree of Knowledge: each packet adds{" "}
-                {GROWTH_PER_FERTILIZER} growth points and{" "}
-                {FEET_PER_FERTILIZER} feet. Every feeding dispenses
-                wisdom — a cheat word at 100, 500, and 1000 feet, and
-                a garden tip otherwise.
+                {GROWTH_PER_FERTILIZER} growth points. Height follows
+                the tree's stage — from seed at 0 ft to the ancient
+                tree at 1000 ft across all 10,000 packets — and
+                feeding dispenses wisdom: a cheat word at 100, 500,
+                and 1000 feet, a garden tip otherwise.
               </p>
             </div>
           </div>

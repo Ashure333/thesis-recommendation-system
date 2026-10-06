@@ -32,6 +32,8 @@ import { useAchievements } from "./achievements";
 const STORAGE_KEY = "paperrec_sun";
 const SEEN_TIPS_KEY = "paperrec_tips_seen";
 
+import { treeHeightByFertilizer } from "../data/knowledge";
+
 export const DAILY_BONUS = 10;
 export const PETS_PER_SUN = 10;
 export const PET_SUN_CAP = 5;
@@ -250,18 +252,15 @@ function claimMilestones(
   };
 }
 
-/** Tree height in feet: progress + every fertilizer bag. */
+/** Tree height in feet — relative to the tree's stage: it climbs
+ *  the stage ladder (Seed 0 ft … Ancient maple 1000 ft) as
+ *  fertilizer marks progress, instead of a flat 30 ft per packet. */
 export function treeHeight(
   state: Pick<SunState, "fertilizer" | "tipsSeen">,
   treasureCount: number,
   achievementCount: number,
 ): number {
-  const earned =
-    treasureCount +
-    achievementCount +
-    Math.floor(state.tipsSeen / 4);
-
-  return 1 + earned * FEET_PER_POINT + state.fertilizer * FEET_PER_FERTILIZER;
+  return treeHeightByFertilizer(state.fertilizer);
 }
 
 /** Unlock every cheat whose milestone the tree has reached. */
@@ -518,8 +517,10 @@ export function SunProvider({ children }: { children: ReactNode }) {
       ok: true,
       text:
         `Planted ${count} fertilizer${count === 1 ? "" : "s"} — ` +
-        `+${count * GROWTH_PER_FERTILIZER} growth, ` +
-        `+${count * FEET_PER_FERTILIZER} ft. ${wisdom}`,
+        `+${count * GROWTH_PER_FERTILIZER} growth — ` +
+        `${treeHeightByFertilizer(state.fertilizer + count)} ft. ${
+          wisdom
+        }`,
       unlocked: crossed.map((milestone) => milestone.word),
     };
   }

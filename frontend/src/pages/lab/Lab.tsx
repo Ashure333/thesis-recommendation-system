@@ -882,18 +882,18 @@ export default function Lab() {
               <p className="mt-1 max-w-xl text-xs leading-5 text-muted">
                 The tree carries its own menus: the sun and token
                 chips open the shop, the skins, and the wallet in the
-                card itself. Ten thousand packets take it from seed to
+                card itself. Three thousand packets take it from seed to
                 ancient oak.
               </p>
             </div>
             <div
               className="flex items-center gap-1.5 rounded-lg border-[3px] border-[#8a5a2b]/45 bg-[#fffdf5] px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-[#6b4c1f] shadow-[2px_2px_0_rgba(0,0,0,0.06)]"
-              title="Ten thousand packets take the tree from seed to ancient maple"
+              title="Three thousand packets take the tree from seed to ancient maple"
             >
               <span aria-hidden="true" className="text-[#8a5a2b]">
                 {"\u25CF"}
               </span>
-              10,000 packets
+              3,000 packets
             </div>
           </div>
 

@@ -207,20 +207,42 @@ export const TREE_SKIN_PRICES: Record<TreeSpeciesId, number> = {
 };
 
 /** Total fertilizer packets that grow the tree to the ancient
- *  tree — ten thousand feedings on the reference's timeline. */
-export const TREE_GROWTH_TARGET = 10000;
+ *  tree — three thousand feedings on the reference's timeline. */
+export const TREE_GROWTH_TARGET = 3000;
+
+/** Feet at each growth stage: the height is relative to the tree's
+ *  stage, scaled to the mural's milestones (cheats at 100 / 500 /
+ *  1000 ft, knowledge at 100 / 300 / 1000 ft). */
+export const TREE_STAGE_FT = [0, 4, 18, 60, 150, 400, 1000];
+
+/** Height in feet from the fertilizer position — a smooth climb
+ *  between stage values, so the feeding pacing reads correctly at
+ *  every point of the ten-thousand-packet march. */
+export function treeHeightByFertilizer(fert: number): number {
+  const t = Math.min(1, Math.max(0, fert / TREE_GROWTH_TARGET));
+  const pos = t * (TREE_STAGE_FT.length - 1);
+  const i = Math.min(
+    TREE_STAGE_FT.length - 2,
+    Math.max(0, Math.floor(pos)),
+  );
+  const f = Math.min(1, pos - i);
+  const ease = f * f * (3 - 2 * f);
+  return Math.round(
+    TREE_STAGE_FT[i] + (TREE_STAGE_FT[i + 1] - TREE_STAGE_FT[i]) * ease,
+  );
+}
 
 /** Growth markers: the maple reference's stage captions, mapped
  *  to fertilizer counts (g<0.04 Seed … P>=0.66 Ancient maple). */
-/* Equally divided: seven stages across the 10,000 feedings,
- * 10,000 / 6 apart. */
+/* Equally divided: seven stages across the 3,000 feedings,
+ * 3,000 / 6 apart. */
 export const TREE_GROWTH_MARKERS = [
   { label: "Seed", fert: 0 },
-  { label: "Seedling", fert: 1667 },
-  { label: "Sapling", fert: 3333 },
-  { label: "Young maple", fert: 5000 },
-  { label: "Mature maple", fert: 6667 },
-  { label: "Giant", fert: 8333 },
+  { label: "Seedling", fert: 500 },
+  { label: "Sapling", fert: 1000 },
+  { label: "Young maple", fert: 1500 },
+  { label: "Mature maple", fert: 2000 },
+  { label: "Giant", fert: 2500 },
   { label: "Ancient maple", fert: TREE_GROWTH_TARGET },
 ] as const;
 
