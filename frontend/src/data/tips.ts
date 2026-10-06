@@ -104,7 +104,7 @@ export const TIPS: Tip[] = [
   {
     id: "weight-bar",
     title: "Pipeline weights",
-    body: "This bar shows how much each signal contributes: teal = TF-IDF (lexical overlap), orange = S-BERT (semantic similarity), purple = metadata (subject, type, year).",
+    body: "This bar shows how much each signal contributes: teal = TF-IDF (lexical overlap), orange = S-BERT (semantic similarity), purple = metadata (subject, type, year). Switch to Dials to set your own mix; turning one dial rebalances the others so the three always total 100%.",
   },
   {
     id: "repo-stats",
@@ -172,7 +172,7 @@ export const TIPS: Tip[] = [
   {
     id: "ui-search",
     title: "Instant search",
-    body: "Searches titles, authors, abstracts and keywords as you type, within the selected category. Drag a PDF straight onto the table below to import a paper.",
+    body: "Searches titles, authors, abstracts and keywords as you type, within the selected category; matches rank by relevance with highlighted snippets and near-duplicate records collapsed. Drag a PDF straight onto the table below to import a paper.",
   },
   {
     id: "ui-detail-tabs",
@@ -282,7 +282,7 @@ export const EXTRA_TIPS: DeepTip[] = [
       "Abstract, Keywords (each a small cosine comparison) and " +
       "Publication Year via 1 / (1 + |Δyear|), so a paper from the same " +
       "year scores 1.0 and each year apart halves the gap. Missing " +
-      "fields contribute 0; a paper can't be inflated just because " +
+      "fields contribute 0; a paper cannot be inflated just because " +
       "its neighbors are missing data.",
   },
   {
@@ -296,6 +296,9 @@ export const EXTRA_TIPS: DeepTip[] = [
       "min max",
       "normalization",
       "blend",
+      "fusion",
+      "learned",
+      "tuned",
     ],
     body:
       "Hybrid configurations first min-max normalize each component's " +
@@ -303,7 +306,10 @@ export const EXTRA_TIPS: DeepTip[] = [
       "never changes the ranking; then take a weighted average: " +
       "S(d) = Σ w·score(d). The six study pipelines are every " +
       "combination of the TF-IDF, S-BERT and metadata signals with " +
-      "weights summing to 1.",
+      "weights summing to 1. Offline, a deterministic learner can " +
+      "search the weight simplex against a relevance file; the " +
+      "learned mix stays a research instrument rather than replacing " +
+      "the fixed study presets.",
   },
   {
     id: "deep-eval",
@@ -324,7 +330,7 @@ export const EXTRA_TIPS: DeepTip[] = [
       "consensus (how many pipelines ranked a paper; the more, the " +
       "stronger the signal), pairwise overlap and mean rank gap " +
       "(lower gap = more agreement), and a winner crowned by " +
-      "independence-weighted consensus so a pipeline can't be " +
+      "independence-weighted consensus so a pipeline cannot be " +
       "confirmed by its own hybrids.",
   },
   {
@@ -381,12 +387,21 @@ export const EXTRA_TIPS: DeepTip[] = [
       "node",
       "neighborhood",
       "visual",
+      "citation",
+      "citations",
+      "reference",
+      "references",
+      "co citation",
+      "coupling",
     ],
     body:
       "The similar-papers graph renders a paper at the center and " +
       "ranks its neighborhood under the active pipeline; click any " +
       "rank badge to re-center the graph on that paper. Small dots " +
-      "are further connections the layout didn't fully expand.",
+      "are further connections the layout did not fully expand. " +
+      "Edges also carry cached OpenAlex citation links, and shared " +
+      "references or citers surface as common-reference and " +
+      "common-citer groups.",
   },
   {
     id: "deep-battle",
@@ -423,7 +438,7 @@ export const EXTRA_TIPS: DeepTip[] = [
     ],
     body:
       "I started as a tip guide: hover anything for 2.5 seconds and " +
-      "I explain it, or click me to replay what you've found. Find " +
+      "I explain it, or click me to replay what you have found. Find " +
       "all six hidden treasures and I become a full help library; " +
       "the deep tips unlock and you can ask me questions directly.",
   },

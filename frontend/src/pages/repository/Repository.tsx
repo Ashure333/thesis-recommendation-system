@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  Database,
+  Globe,
+  SlidersHorizontal,
+  Table,
+} from "lucide-react";
+import {
   listPapers,
   saveToLibrary,
   removeFromLibrary,
@@ -26,6 +32,9 @@ import Pagination from "../../components/retro/Pagination";
 import WeightBar from "../../components/WeightBar";
 import PaneHandle, { usePaneWidth } from "../../components/ResizeHandle";
 import Highlight from "../../components/Highlight";
+import ConnectionsPane from "../../components/ConnectionsPane";
+import LiteratureMenu from "../../components/LiteratureMenu";
+import RepoStatsPane from "../../components/RepoStatsPane";
 import { Check, Star } from "../../components/retro/PixelIcons";
 import { Button, EmptyState, PageHeader, TextInput } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
@@ -42,6 +51,7 @@ import {
 } from "../../data/catalog";
 import { useCatalog } from "../../hooks/useCatalog";
 import { useLayoutPrefs } from "../../state/layoutPrefs";
+import { useLongPressFeed } from "../../utils/longPress";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 
 function categoryOf(paper: Paper) {
@@ -71,9 +81,10 @@ export default function Repository() {
   const { prefs } = useLayoutPrefs();
 
   /* Resizable pane widths (persisted per browser). */
+
   const [leftPaneW, resizeLeft] = usePaneWidth(
     REPO_LEFT_KEY,
-    256,
+    288,
     REPO_LEFT_MIN,
     REPO_LEFT_MAX,
   );
@@ -138,7 +149,32 @@ export default function Repository() {
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
-  const [detailTab, setDetailTab] = useState<"details" | "notes" | "pdf">("details");
+  const [detailTab, setDetailTab] = useState<
+    "details" | "notes" | "pdf" | "similar"
+  >("details");
+
+  // Right-side Stats for Nerds pane (live while you search).
+  const [statsOpen, setStatsOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("paperrec_repo_stats") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  function toggleStats() {
+    const next = !statsOpen;
+    setStatsOpen(next);
+
+    try {
+      window.localStorage.setItem(
+        "paperrec_repo_stats",
+        next ? "1" : "0"
+      );
+    } catch {
+      // Best-effort.
+    }
+  }
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // ------------------------------------------------------------
@@ -152,6 +188,18 @@ export default function Repository() {
   >("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  // Right-click literature menu for the current selection.
+  const [literatureMenu, setLiteratureMenu] = useState<{
+    x: number;
+    y: number;
+    papers: Paper[];
+  } | null>(null);
+
+  // Status line for context-menu actions + a reload trigger the
+  // background jobs (metadata refresh, merge) can poke.
+  const [actionMessage, setActionMessage] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
   const [syncing, setSyncing] = useState(false);
 
   // Load the saved-library set once so Favorites/★ reflect reality.
@@ -384,7 +432,21 @@ export default function Repository() {
       .then(setPapers)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [searchMode, search, subject, category, documentType, minYear, maxYear, sortBy]);
+  }, [searchMode, search, subject, category, documentType, minYear, maxYear, sortBy, reloadToken]);
+
+  // Context-menu messages fade after a beat.
+  useEffect(() => {
+    if (!actionMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setActionMessage(""),
+      8000
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [actionMessage]);
 
   /* ------------------------------------------------------------
      Web search uses legitimate APIs only (OpenAlex, Crossref,
@@ -509,6 +571,28 @@ export default function Repository() {
     } else {
       void handleSave(paperId);
     }
+  }
+
+  // Touch long-press behaves like a right-click on a row.
+  const longPress = useLongPressFeed(openMenuAt);
+
+  function openMenuAt(paperId: number, x: number, y: number) {
+    const paper = rankedPapers.find((row) => row.id === paperId);
+
+    if (!paper) {
+      return;
+    }
+
+    const isSelected = selectedIds.has(paperId);
+    const papersForMenu = isSelected
+      ? rankedPapers.filter((row) => selectedIds.has(row.id))
+      : [paper];
+
+    if (!isSelected) {
+      setSelectedIds(new Set([paperId]));
+    }
+
+    setLiteratureMenu({ x, y, papers: papersForMenu });
   }
 
   function toggleSelected(id: number) {
@@ -640,11 +724,12 @@ export default function Repository() {
   const selectedSaved = selected ? savedIds.has(selected.id) : false;
 
   return (
-    <div className="mx-auto w-full max-w-[1400px]">
+    <div className="mx-auto w-full max-w-[1560px]">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-orb")!} />
       <PageHeader
         eyebrow="Repository"
         title="Browse academic papers"
+        icon={<Database className="h-4 w-4" />}
         description={
           loading
             ? "Loading papers…"
@@ -654,10 +739,23 @@ export default function Repository() {
                     ? `${webResults.length} result${webResults.length === 1 ? "" : "s"}`
                     : "peer-reviewed by default"
                 }`
-              : `${papers.length} papers · three-pane layout: filter on the left, list in the middle, details on the right.`
+              : `${papers.length} papers · filter on the left, list in the middle, details on the right.`
         }
         action={
           <div className="flex flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              aria-pressed={statsOpen}
+              onClick={toggleStats}
+              title="Toggle the live Stats for Nerds pane on the right"
+              className={`inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 px-3 text-sm font-semibold transition-colors ${
+                statsOpen
+                  ? "bg-accent text-onAccent"
+                  : "bg-white text-ink hover:bg-accentSoft"
+              }`}
+            >
+              Stats for Nerds
+            </button>
             <LayoutOptions />
             <Button type="button" onClick={() => navigate("/upload")}>
               Upload paper
@@ -674,9 +772,8 @@ export default function Repository() {
           </button>
         </div>
       )}
-
       <div
-        className="mt-6 flex min-h-0 flex-col gap-4 lg:h-[calc(100dvh-19rem)] lg:flex-row lg:min-h-[480px]"
+        className="mt-4 flex min-h-0 flex-col gap-3 lg:h-[calc(100dvh-20rem)] lg:flex-row lg:min-h-[480px]"
         style={
           {
             "--pane-left": `${leftPaneW}px`,
@@ -684,46 +781,54 @@ export default function Repository() {
           } as React.CSSProperties
         }
       >
+
         {/* ====================================================
             LEFT PANE — filters
             ==================================================== */}
 
         {prefs.sidebar && (
         <aside
-          className="shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white p-4 lg:w-[var(--pane-left)]"
+          className="shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-left)]"
           data-tips="repo-filters"
         >
-          <p className="mb-3 font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
-            Filters
-          </p>
+          <div className="flex items-center gap-1.5 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
+            <SlidersHorizontal className="h-3.5 w-3.5 text-muted" />
+            <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
+              Filter console
+            </p>
+          </div>
+
+          <div className="p-4">
 
           <div className="space-y-3">
             {/* Search scope: local repository vs the open web */}
             <div>
               <span className="filter-label">Search in</span>
-              <div className="flex">
+              <div className="flex gap-1 rounded border-[3px] border-gray-900 bg-canvas p-1">
                 <button
                   type="button"
                   onClick={() => setSearchMode("repository")}
                   aria-pressed={searchMode === "repository"}
-                  className={`rounded-l border-[3px] border-gray-900 px-3 py-1.5 text-sm font-bold text-ink transition-colors pixel-ease ${
+                  className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded border-[2px] px-2 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors pixel-ease ${
                     searchMode === "repository"
-                      ? "bg-accent"
-                      : "bg-surface hover:bg-accentSoft"
+                      ? "border-gray-900 bg-accent text-onAccent shadow-[inset_0_-3px_0_rgba(0,0,0,0.3)]"
+                      : "border-transparent text-muted hover:text-accent"
                   }`}
                 >
+                  <Database className="h-3.5 w-3.5" />
                   Repository
                 </button>
                 <button
                   type="button"
                   onClick={() => setSearchMode("web")}
                   aria-pressed={searchMode === "web"}
-                  className={`-ml-[3px] rounded-r border-[3px] border-gray-900 px-3 py-1.5 text-sm font-bold text-ink transition-colors pixel-ease ${
+                  className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded border-[2px] px-2 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors pixel-ease ${
                     searchMode === "web"
-                      ? "bg-accent"
-                      : "bg-surface hover:bg-accentSoft"
+                      ? "border-gray-900 bg-accent text-onAccent shadow-[inset_0_-3px_0_rgba(0,0,0,0.3)]"
+                      : "border-transparent text-muted hover:text-accent"
                   }`}
                 >
+                  <Globe className="h-3.5 w-3.5" />
                   Web
                 </button>
               </div>
@@ -997,6 +1102,7 @@ export default function Repository() {
               ? "Web searches run when you press Search web."
               : "Filters apply as you change them."}
           </p>
+          </div>
         </aside>
         )}
 
@@ -1044,11 +1150,18 @@ export default function Repository() {
             </div>
           )}
 
-          <div className="flex shrink-0 items-center justify-between border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5">
-            <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink">
-              {searchMode === "web" ? "Web results" : "Papers"}
-            </p>
-            <p className="font-mono text-xs text-muted">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5">
+            <span className="flex items-center gap-1.5">
+              {searchMode === "web" ? (
+                <Globe className="h-3.5 w-3.5 text-muted" />
+              ) : (
+                <Table className="h-3.5 w-3.5 text-muted" />
+              )}
+              <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink">
+                {searchMode === "web" ? "Web results" : "Papers"}
+              </p>
+            </span>
+            <p className="truncate text-right font-mono text-xs text-muted">
               {searchMode === "web"
                 ? webLoading
                   ? "…"
@@ -1194,6 +1307,7 @@ export default function Repository() {
                  TABULAR REFERENCE LIST — sortable columns,
                  favorites, PDF indicators, multi-select.
                  ------------------------------------------------ */
+              <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-left text-xs">
                 <thead>
                   <tr className="border-b-[3px] border-gray-900 text-xs uppercase tracking-wide text-muted">
@@ -1267,6 +1381,29 @@ export default function Repository() {
                       <tr
                         key={paper.id}
                         onClick={() => selectPaper(paper)}
+                        onPointerDown={(event) => {
+                          if (event.pointerType !== "mouse") {
+                            longPress.start(
+                              paper.id,
+                              event.clientX,
+                              event.clientY
+                            );
+                          }
+                        }}
+                        onPointerMove={(event) =>
+                          longPress.move(event.clientX, event.clientY)
+                        }
+                        onPointerUp={longPress.cancel}
+                        onPointerCancel={longPress.cancel}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          longPress.cancel();
+                          openMenuAt(
+                            paper.id,
+                            event.clientX,
+                            event.clientY
+                          );
+                        }}
                         className={`cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
                           isSelected ? "bg-accentSoft" : active ? "bg-accentSoft/60" : "hover:bg-canvas"
                         }`}
@@ -1309,7 +1446,7 @@ export default function Repository() {
                                 {paperSubject}
                               </span>
                             )}
-                            <span className="truncate font-bold text-ink">
+                            <span className="font-pixelify truncate font-bold text-ink">
                               <MathText text={paper.title} />
                             </span>
                           </div>
@@ -1362,6 +1499,17 @@ export default function Repository() {
                   })}
                 </tbody>
               </table>
+              </div>
+            )}
+
+            {/* Context-menu action status */}
+            {searchMode === "repository" && actionMessage && (
+              <div
+                role="status"
+                className="border-t-[3px] border-gray-900 bg-white px-4 py-2 font-mono text-xs text-muted"
+              >
+                {actionMessage}
+              </div>
             )}
 
             {/* Batch action bar */}
@@ -1416,11 +1564,18 @@ export default function Repository() {
         {prefs.details && (
         <PaneHandle
           label="Resize details panel"
+          direction="right"
           onResize={resizeRight}
         />
         )}
 
-        {prefs.details && (
+        {prefs.details && statsOpen && (
+        <aside className="w-full shrink-0 overflow-hidden rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
+          <RepoStatsPane papers={rankedPapers} query={search} />
+        </aside>
+        )}
+
+        {prefs.details && !statsOpen && (
         <aside className="w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
           {searchMode === "web" ? (
             /* ------------------------------------------------
@@ -1545,9 +1700,9 @@ export default function Repository() {
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              {/* Detail / Notes / PDF tabs */}
+              {/* Detail / Notes / PDF / Similar tabs */}
               <div className="flex shrink-0 gap-0.5 border-b-[3px] border-gray-900 bg-canvas p-2">
-                {(["details", "notes", "pdf"] as const).map((tab) => (
+                {(["details", "notes", "pdf", "similar"] as const).map((tab) => (
                   <button
                     key={tab}
                     type="button"
@@ -1559,12 +1714,43 @@ export default function Repository() {
                         : "bg-surface text-ink hover:bg-accentSoft"
                     }`}
                   >
-                    {tab === "details" ? "Details" : tab === "notes" ? "Notes" : "PDF"}
+                    {tab === "details"
+                      ? "Details"
+                      : tab === "notes"
+                        ? "Notes"
+                        : tab === "pdf"
+                          ? "PDF"
+                          : "Similar"}
                   </button>
                 ))}
               </div>
 
-              {detailTab === "notes" ? (
+              {detailTab === "similar" ? (
+                /* ----------------------------------------------
+                   SIMILAR TAB — connection graph / contrast for the
+                   selected paper (local repository or live web).
+                   ---------------------------------------------- */
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <ConnectionsPane
+                    paperId={selected.id}
+                    pipeline={pipelineId}
+                    pipelineLabel={activePipelineConfig.codename}
+                    weights={
+                      pipelineId === "custom"
+                        ? customWeights
+                        : undefined
+                    }
+                    onExpand={() =>
+                      navigate("/recommendations", {
+                        state: {
+                          graphPaperId: selected.id,
+                          searchTab: "connections",
+                        },
+                      })
+                    }
+                  />
+                </div>
+              ) : detailTab === "notes" ? (
                 /* ----------------------------------------------
                    NOTES TAB
                    ---------------------------------------------- */
@@ -1794,6 +1980,23 @@ export default function Repository() {
         )}
       </div>
 
+      {literatureMenu && (
+        <LiteratureMenu
+          papers={literatureMenu.papers}
+          x={literatureMenu.x}
+          y={literatureMenu.y}
+          onClose={() => setLiteratureMenu(null)}
+          onOpenFile={(paper) => {
+            selectPaper(paper);
+            openPdfPreview(null);
+          }}
+          onChanged={(message) => {
+            setActionMessage(message);
+            setReloadToken((token) => token + 1);
+          }}
+        />
+      )}
+
       <PaperViewerModal
         paper={selectedPaper}
         open={viewerOpen && !!selectedPaper}
@@ -1808,6 +2011,7 @@ export default function Repository() {
           setSelectedPaper(updated);
         }}
       />
+
     </div>
   );
 }

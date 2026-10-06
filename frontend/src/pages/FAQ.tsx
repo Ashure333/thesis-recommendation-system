@@ -5,37 +5,37 @@ const faqs = [
   {
     question: "What is Re:Search?",
     answer:
-      "Re:Search is an academic paper repository and recommendation system designed to help BulSU BSMCS students search, discover, and organize research papers.",
+      "Re:Search is a paper repository and recommendation system for BulSU BSMCS students. It helps you search, discover, and organize research papers.",
   },
   {
     question: "How do I search for papers?",
     answer:
-      "Go to the Search page and enter keywords, a research topic, or a paper title. You can then browse the available results and open papers that match your research needs.",
+      "Open the Search page. Enter keywords, a research topic, or a paper title. The page ranks the papers that match your query. Open a result to read its record.",
   },
   {
     question: "How do I browse all available papers?",
     answer:
-      "Open the Repository page from the navigation bar. The repository contains the academic papers currently available in the system.",
+      "Open the Repository page. The page lists every paper in the system. Use the filters to limit the list.",
   },
   {
     question: "How do recommendations work?",
     answer:
-      "Re:Search uses the configured recommendation pipeline to identify papers that are related to your research interests and the papers you interact with.",
+      "Re:Search ranks papers with a recommendation pipeline. Select the pipeline on the Search page. The default pipeline combines three signals: TF-IDF, S-BERT, and metadata.",
   },
   {
     question: "How do I save a paper?",
     answer:
-      "When a paper is useful to you, you can save it to My Library. Saved papers can then be accessed again from the My Library page.",
+      "Select Save to library on a paper. The paper moves to My Library. Open My Library to read your saved papers again.",
   },
   {
     question: "How do I upload a paper?",
     answer:
-      "Open the Upload page from the navigation bar and follow the provided fields to submit a paper to the repository.",
+      "Open the Upload page. Fill in the form, then select Upload. Re:Search stores the file and adds the paper to the repository.",
   },
   {
-    question: "What happens when I log out?",
+    question: "What happens when I sign out?",
     answer:
-      "Logging out ends your current Re:Search session and returns you to the sign-in page. Your repository papers are not deleted when you log out.",
+      "The sign-out ends your session and returns you to the sign-in page. Signing out does not delete the repository or your saved papers.",
   },
 ];
 
@@ -59,8 +59,8 @@ export default function FAQ() {
         </h1>
 
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-          Find answers to common questions about using the Re:Search academic
-          repository and recommendation system.
+          Answers to common questions about the Re:Search repository
+          and recommendation system.
         </p>
       </div>
 

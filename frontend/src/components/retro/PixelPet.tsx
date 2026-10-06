@@ -8,7 +8,7 @@ import {
 } from "../../data/tips";
 import { HUNT_ITEMS } from "../../data/hunt";
 import { ACHIEVEMENTS } from "../../data/achievements";
-import { PET_FORMS, type PetVariant } from "../../data/petForms";
+import { PET_FORMS } from "../../data/petForms";
 import type { PetAnimState } from "./PetBlob";
 import { usePetForm } from "../../state/petForm";
 import PetBlob from "./PetBlob";
@@ -28,6 +28,7 @@ import {
   useAchievements,
   ACHIEVEMENT_UNLOCKED_EVENT,
 } from "../../state/achievements";
+import { useSun } from "../../state/sun";
 import { ArrowDown, BlockCursor, CloseX, Diamond, Star } from "./PixelIcons";
 
 /* ============================================================
@@ -62,7 +63,7 @@ import { ArrowDown, BlockCursor, CloseX, Diamond, Star } from "./PixelIcons";
    treasures persist in paperrec_hunt_found.
    ============================================================ */
 
-const HOVER_DELAY_MS = 2_500;
+const HOVER_DELAY_MS = 1_000;
 const HOVER_COOLDOWN_MS = 3_000;
 const HOVER_GRACE_MS = 500;
 const TICK_MS = 100;
@@ -127,7 +128,16 @@ const INTRO: Tip = {
     "pages. Find them all and I become a full help library.",
 };
 
-const QUICK_QUESTIONS = ["PIPELINES?", "TF-IDF?", "IMPORT?", "BATTLE?"];
+const QUICK_QUESTIONS = [
+  "PIPELINES?",
+  "TF-IDF?",
+  "RANKED SEARCH?",
+  "DIVERSIFY?",
+  "DUPLICATES?",
+  "EVALUATION?",
+  "IMPORT?",
+  "BATTLE RECORDS?",
+];
 
 function readSeen(): string[] {
   try {
@@ -231,7 +241,56 @@ function clampPetPos(pos: PetPos, box: number): PetPos {
   };
 }
 
+/* Daisy particle for the "daisies" Tree of Knowledge cheat. */
+function DaisyGlyph() {
+  return (
+    <svg viewBox="0 0 12 12" className="h-3 w-3" aria-hidden="true">
+      {[0, 72, 144, 216, 288].map((angle) => (
+        <circle
+          key={angle}
+          cx="6"
+          cy="2.6"
+          r="1.7"
+          fill="#ffffff"
+          stroke="#adb5bd"
+          strokeWidth="0.4"
+          transform={`rotate(${angle} 6 6)`}
+        />
+      ))}
+      <circle cx="6" cy="6" r="1.8" fill="#f5b301" stroke="#8a5a2b" strokeWidth="0.4" />
+    </svg>
+  );
+}
+
 export default function PixelPet() {
+  // Settings toggle: paperrec_pet_visible must not be "0".
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return window.localStorage.getItem("paperrec_pet_visible") === "0";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    function refresh() {
+      let next = false;
+      try {
+        next = window.localStorage.getItem("paperrec_pet_visible") === "0";
+      } catch {
+        next = false;
+      }
+      setHidden(next);
+    }
+
+    window.addEventListener("paperrec-settings-changed", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("paperrec-settings-changed", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
   const [open, setOpen] = useState(false);
   const [currentTip, setCurrentTip] = useState<Tip | null>(null);
 
@@ -250,19 +309,42 @@ export default function PixelPet() {
     seenRef.current = seen;
   }, [seen]);
 
+  /* Sun bounties follow real progress: tip milestones pay out
+     whenever the discovered-tip set changes. */
+  useEffect(() => {
+    syncProgress(seen.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seen]);
+
   const [hop, setHop] = useState(false);
   const [hovering, setHovering] = useState(false);
-  const [transformForm, setTransformForm] = useState<PetVariant | null>(null);
-  const transformTimerRef = useRef<number | null>(null);
-  const transformIntervalRef = useRef<number | null>(null);
+
+  /* Destruction animation state (eat / zap / crumple / burn) and
+     its timers — declared up here so the sprite state can play the
+     pet's own "review" row while it eats a paper. */
+  const [petAnim, setPetAnim] = useState<SlimeAnimationMode | null>(null);
+  const petAnimTimerRef = useRef<number | null>(null);
+  const destructionTimerRef = useRef<number | null>(null);
+  const [dropFx, setDropFx] = useState<{
+    mode: DropMode;
+    title: string;
+  } | null>(null);
   const [coins, setCoins] = useState<number[]>([]);
   const coinId = useRef(0);
+
+  /* Cheat particles: daisies and candy burst out of a disposed
+     paper while the matching Tree of Knowledge cheats are armed. */
+  const [bursts, setBursts] = useState<
+    { id: number; kind: "daisy" | "candy"; x: number }[]
+  >([]);
+  const burstId = useRef(0);
 
   const [query, setQuery] = useState("");
 
   const { found, count, total, complete, reset } = useHunt();
   const { unlocked, updateProgress, bump, reset: resetAchievements } =
     useAchievements();
+  const { trackPet, trackAsk, syncProgress, activeCheats } = useSun();
 
   /* UNLOCKED = everything maxed out. The pet behaves as if the
      hunt were complete and every tip and achievement were earned;
@@ -607,45 +689,51 @@ export default function PixelPet() {
     );
   }, []);
 
+  /* Spawn cheat particles (armed via the Sun Shop's cheat words). */
+  const spawnBurst = useCallback((kind: "daisy" | "candy", count: number) => {
+    const items = Array.from({ length: count }, () => ({
+      id: burstId.current++,
+      kind,
+      x: Math.round(Math.random() * 44 - 22),
+    }));
+
+    setBursts((current) => [...current, ...items]);
+
+    const ids = new Set(items.map((item) => item.id));
+    window.setTimeout(
+      () => setBursts((current) => current.filter((item) => !ids.has(item.id))),
+      1400,
+    );
+  }, []);
+
+  /* "dance" — the pet hops on the spot while the cheat is armed. */
+  useEffect(() => {
+    if (!activeCheats.includes("dance")) return;
+
+    const id = window.setInterval(() => {
+      setHop(true);
+      window.setTimeout(() => setHop(false), 600);
+    }, 2400);
+
+    return () => window.clearInterval(id);
+  }, [activeCheats]);
+
   /* While dragging, the pet plays the Petdex running animation
-     (handled via the sprite `state` prop). */
-  const animState: PetAnimState = hop
-    ? "jump"
-    : dragging
-      ? dragDir === "left"
-        ? "run-left"
-        : "run-right"
-      : hovering
-        ? "wave"
-        : "idle";
-
-  /* Shapeshift through every form for a moment, then return to the
-     selected form. Runs when the pet eats a paper. */
-  const startTransform = useCallback(() => {
-    const all = PET_FORMS.map((f) => f.variant);
-    let index = all.indexOf(form.variant);
-    if (index === -1) index = 0;
-
-    if (transformIntervalRef.current !== null) {
-      window.clearInterval(transformIntervalRef.current);
-    }
-    if (transformTimerRef.current !== null) {
-      window.clearTimeout(transformTimerRef.current);
-    }
-
-    transformIntervalRef.current = window.setInterval(() => {
-      index = (index + 1) % all.length;
-      setTransformForm(all[index]);
-    }, 280);
-
-    transformTimerRef.current = window.setTimeout(() => {
-      if (transformIntervalRef.current !== null) {
-        window.clearInterval(transformIntervalRef.current);
-        transformIntervalRef.current = null;
-      }
-      setTransformForm(null);
-    }, 1_700);
-  }, [form.variant]);
+     (handled via the sprite `state` prop). While eating a paper it
+     plays its own atlas "review" row — the real inspecting frames
+     from its sheet — instead of shuffling through other forms. */
+  const animState: PetAnimState =
+    petAnim === "eat"
+      ? "review"
+      : hop
+        ? "jump"
+        : dragging
+          ? dragDir === "left"
+            ? "run-left"
+            : "run-right"
+          : hovering
+            ? "wave"
+            : "idle";
 
   /* --------------------------------------------------------
      Reveal a tip (from the hover engine)
@@ -706,6 +794,14 @@ export default function PixelPet() {
     function start(element: Element, resume: boolean) {
       const id = element.getAttribute("data-tips");
       if (!id || !TIP_BY_ID[id]) return;
+
+      // Already-recorded tips need no dwell: they appear instantly.
+      // The chat unlock already shows every tip, so it stays as is.
+      if (seenRef.current.includes(id) && !chatUnlocked) {
+        stop();
+        reveal(id);
+        return;
+      }
 
       // Post-reveal cooldown: the dwell clock starts when the
       // cooldown ends, so hovering during it simply waits — the
@@ -979,12 +1075,15 @@ export default function PixelPet() {
 
   function handlePet() {
     // Swallow the click that immediately follows a drag.
-    if (performance.now() - lastDragEndRef.current < 500) {
+    if (performance.now() - lastDragEndRef.current < 300) {
       lastDragEndRef.current = 0;
       return;
     }
 
     celebrate();
+    // Sun is earned from real interactions regardless of the
+    // unlocked preview state; the daily caps keep it fair.
+    trackPet();
     // Ephemeral while unlocked: clicking during a free-access
     // session must not advance the real click counter.
     if (!chatUnlocked) {
@@ -999,6 +1098,10 @@ export default function PixelPet() {
 
     if (done) {
       setCurrentTip(nextDiscoveredTip());
+    } else {
+      // Clicking while the panel is still typing: close it instead
+      // of doing nothing, so the click never feels blocked.
+      setOpen(false);
     }
   }
 
@@ -1015,13 +1118,19 @@ export default function PixelPet() {
     if (!question) return;
 
     const answer = answerQuestion(question);
+    const title = answer.title;
+    const body = answer.body;
+
     setCurrentTip({
       id: `ask-${question.slice(0, 40)}`,
-      title: answer.title,
-      body: answer.body,
+      title,
+      body,
     });
     setOpen(true);
     setQuery("");
+    // Every question earns sun (daily cap), even in the unlocked
+    // preview; the achievement counter below stays real-only.
+    trackAsk();
     // Ephemeral while unlocked: asks during a free-access session
     // do not advance the real ask counter.
     if (!chatUnlocked) {
@@ -1055,17 +1164,7 @@ export default function PixelPet() {
      and is deleted from the library. Pure visual flair.
      -------------------------------------------------------- */
 
-  const [dropFx, setDropFx] = useState<{
-    mode: DropMode;
-    title: string;
-  } | null>(null);
   const [petHungry, setPetHungry] = useState(false);
-
-  /* Event-driven reactions (search zap, upload eat, delete burn…). */
-  const [petAnim, setPetAnim] = useState<SlimeAnimationMode | null>(null);
-  const petAnimTimerRef = useRef<number | null>(null);
-
-  const destructionTimerRef = useRef<number | null>(null);
 
   const speechLines = getPetLines(count, total, effectiveComplete, form.variant);
   const speechLine = speechLines[speechIndex % speechLines.length];
@@ -1083,14 +1182,36 @@ export default function PixelPet() {
         : speechLine;
 
   useEffect(() => {
-    if (open || charging || dropFx) return;
+    // No idle talk while the user is interacting with the pet:
+    // hovering or dragging it, opening its menu, or dwelling on
+    // a tips target.
+    if (
+      open ||
+      charging ||
+      dropFx ||
+      hovering ||
+      dragging ||
+      menuPos !== null ||
+      hoverTipId !== null
+    ) {
+      return;
+    }
 
     const id = window.setInterval(() => {
       setSpeechIndex((index) => index + 1);
     }, 6_000);
 
     return () => window.clearInterval(id);
-  }, [open, charging, speechLines.length, dropFx]);
+  }, [
+    open,
+    charging,
+    dropFx,
+    hovering,
+    dragging,
+    menuPos,
+    hoverTipId,
+    speechLines.length,
+  ]);
 
   function handleDragOver(event: React.DragEvent) {
     if (!event.dataTransfer.types.includes(PAPER_DROP_MIME)) return;
@@ -1126,6 +1247,9 @@ export default function PixelPet() {
     setDropFx({ mode, title: paper.title ?? `Paper #${paper.id}` });
     celebrate();
 
+    if (activeCheats.includes("daisies")) spawnBurst("daisy", 3);
+    if (activeCheats.includes("pinata")) spawnBurst("candy", 5);
+
     /* The body plays the power too, so the character visibly
        casts rather than only the paper chip reacting. */
     if (petAnimTimerRef.current !== null) {
@@ -1135,12 +1259,6 @@ export default function PixelPet() {
     petAnimTimerRef.current = window.setTimeout(() => {
       setPetAnim(null);
     }, 1_000);
-
-    /* Eating a paper makes the pet shapeshift through the forms,
-       then return to the selected form (Rimuru-style transformation). */
-    if (mode === "eat") {
-      startTransform();
-    }
 
     if (destructionTimerRef.current !== null) {
       window.clearTimeout(destructionTimerRef.current);
@@ -1161,12 +1279,6 @@ export default function PixelPet() {
     return () => {
       if (destructionTimerRef.current !== null) {
         window.clearTimeout(destructionTimerRef.current);
-      }
-      if (transformIntervalRef.current !== null) {
-        window.clearInterval(transformIntervalRef.current);
-      }
-      if (transformTimerRef.current !== null) {
-        window.clearTimeout(transformTimerRef.current);
       }
     };
   }, []);
@@ -1235,6 +1347,10 @@ export default function PixelPet() {
   /* ============================================================
      RENDER
      ============================================================ */
+
+  if (hidden) {
+    return null;
+  }
 
   return (
     <div
@@ -1483,6 +1599,22 @@ export default function PixelPet() {
             </span>
           ))}
 
+          {/* cheat particles: daisies / candy from eaten papers */}
+          {bursts.map((burst) => (
+            <span
+              key={burst.id}
+              aria-hidden="true"
+              className="animate-coin-pop pointer-events-none absolute -top-2 z-30"
+              style={{ left: `calc(50% + ${burst.x}px)` }}
+            >
+              {burst.kind === "candy" ? (
+                <span className="block h-2.5 w-2.5 rotate-45 border border-gray-900 bg-[#f06595]" />
+              ) : (
+                <DaisyGlyph />
+              )}
+            </span>
+          ))}
+
           {/* shadow — scales with the pet */}
           <span
             aria-hidden="true"
@@ -1538,7 +1670,7 @@ export default function PixelPet() {
                 )}
 
                 <PetBlob
-                  variant={transformForm ?? effectiveForm.variant}
+                  variant={effectiveForm.variant}
                   size={petSize}
                   hungry={petHungry}
                   state={animState}

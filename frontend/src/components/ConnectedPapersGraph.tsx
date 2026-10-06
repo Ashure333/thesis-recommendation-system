@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getSimilarPapersGraph,
   SimilarGraphNode,
   SimilarPapersGraph,
+  type ClusterWork,
   type DialWeights,
 } from "../api";
 import {
@@ -14,6 +15,7 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { useTheme } from "../theme";
+import { CloseX } from "./retro/PixelIcons";
 
 interface ConnectedPapersGraphProps {
   paperId: number;
@@ -21,6 +23,16 @@ interface ConnectedPapersGraphProps {
   topK?: number;
   /** Dial allocation for pipeline="custom". */
   weights?: DialWeights;
+  /** Hide the embedded prior/derivative sections (own tabs now). */
+  hideClusterSections?: boolean;
+  /** Hide the embedded ranked list (results live elsewhere). */
+  hideRankedList?: boolean;
+  /** Let the canvas grow beyond the narrow-pane width. */
+  widened?: boolean;
+  /** Paper ids to highlight from a focused prior/derivative work. */
+  highlightPaperIds?: number[];
+  /** Reports graph node selection so sibling tabs can mirror it. */
+  onSelectNode?: (id: number | null) => void;
 }
 
 interface PositionedNode extends SimilarGraphNode {
@@ -57,10 +69,23 @@ interface PositionedNode extends SimilarGraphNode {
   any width; titles live in the ranked list underneath, linked to
   the graph (hover / click either one and the other highlights).
 */
-const WIDTH = 560;
-const HEIGHT = 440;
-const CENTER_X = WIDTH / 2;
-const CENTER_Y = HEIGHT / 2;
+interface GraphDims {
+  width: number;
+  height: number;
+  cx: number;
+  cy: number;
+}
+
+// Compact canvas for the side panes; the big workbench tab uses a
+// wider, web-matching aspect (560:440 vs 900:520) — the tall compact
+// aspect pushed the details card below the fold when widened.
+const COMPACT_DIMS: GraphDims = {
+  width: 560,
+  height: 440,
+  cx: 280,
+  cy: 220,
+};
+const WIDE_DIMS: GraphDims = { width: 900, height: 520, cx: 450, cy: 260 };
 
 const CURRENT_RADIUS = 30;
 
@@ -116,13 +141,17 @@ function buildForceLayout(
   nodes: SimilarGraphNode[],
   edges: GraphEdge[],
   dotIds: Set<number>,
+  dims: GraphDims,
 ): PositionedNode[] {
+  const ringX = dims.width * 0.214;
+  const ringY = dims.height * 0.227;
+
   const simNodes = nodes.map((node, index) => ({
     ...node,
-    x: CENTER_X + Math.cos((index / Math.max(nodes.length, 1)) * Math.PI * 2) * 120,
-    y: CENTER_Y + Math.sin((index / Math.max(nodes.length, 1)) * Math.PI * 2) * 100,
-    fx: node.relationship === "current" ? CENTER_X : undefined,
-    fy: node.relationship === "current" ? CENTER_Y : undefined,
+    x: dims.cx + Math.cos((index / Math.max(nodes.length, 1)) * Math.PI * 2) * ringX,
+    y: dims.cy + Math.sin((index / Math.max(nodes.length, 1)) * Math.PI * 2) * ringY,
+    fx: node.relationship === "current" ? dims.cx : undefined,
+    fy: node.relationship === "current" ? dims.cy : undefined,
     rank: 0,
     isDot: dotIds.has(node.id),
   }));
@@ -148,7 +177,7 @@ function buildForceLayout(
         ),
     )
     .force("charge", forceManyBody().strength(-190))
-    .force("center", forceCenter(CENTER_X, CENTER_Y))
+    .force("center", forceCenter(dims.cx, dims.cy))
     .force(
       "collide",
       forceCollide((node: SimulationNodeDatum) => {
@@ -207,12 +236,21 @@ export default function ConnectedPapersGraph({
   pipeline = "tfidf_sbert_metadata",
   topK = 10,
   weights,
+  hideClusterSections = false,
+  hideRankedList = false,
+  widened = false,
+  highlightPaperIds,
+  onSelectNode,
 }: ConnectedPapersGraphProps) {
   const [graph, setGraph] = useState<SimilarPapersGraph | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<number | null>(null);
+  // Selected prior/derivative work: highlights the graph papers that
+  // reference it (or are cited by it), and vice versa.
+  const [activeWorkKey, setActiveWorkKey] = useState<string | null>(null);
+  const dims = widened ? WIDE_DIMS : COMPACT_DIMS;
   const { accent } = useTheme();
   const [accentColor, setAccentColor] = useState(resolveAccent);
 
@@ -242,6 +280,7 @@ export default function ConnectedPapersGraph({
     setGraph(null);
     setSelectedNodeId(null);
     setHoveredNodeId(null);
+    setActiveWorkKey(null);
 
     getSimilarPapersGraph(
       paperId,
@@ -296,8 +335,9 @@ export default function ConnectedPapersGraph({
 
     const allNodes = currentNode ? [currentNode, ...similarNodes] : similarNodes;
 
-    return buildForceLayout(allNodes, graph.edges, dotIds);
-  }, [graph, currentNode, topK]);
+    return buildForceLayout(allNodes, graph.edges, dotIds, dims);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, currentNode, topK, widened]);
 
   const nodeMap = useMemo(
     () => new Map(positionedNodes.map((node) => [node.id, node])),
@@ -337,8 +377,108 @@ export default function ConnectedPapersGraph({
 
   const activeId = hoveredNodeId ?? selectedNodeId;
 
-  const toggleSelected = (id: number) =>
+  const toggleSelected = (id: number) => {
     setSelectedNodeId((prev) => (prev === id ? null : id));
+    onSelectNode?.(selectedNodeId === id ? null : id);
+  };
+
+  // ----------------------------------------------------------
+  // CLICK-TO-ZOOM — selecting a node animates the canvas toward it
+  // (scale + recenter) and raises its details card.
+  // ----------------------------------------------------------
+
+  const ZOOM_SCALE = 1.9;
+
+  const zoomNode = useMemo(
+    () =>
+      selectedNodeId === null
+        ? null
+        : positionedNodes.find((node) => node.id === selectedNodeId) ??
+          null,
+    [positionedNodes, selectedNodeId]
+  );
+
+  const zoomStyle = useMemo(() => {
+    const transition =
+      "transform 450ms cubic-bezier(0.22, 1, 0.36, 1)";
+
+    if (!zoomNode) {
+      return {
+        transform: "translate(0px, 0px) scale(1)",
+        transition,
+        transformBox: "view-box" as const,
+        transformOrigin: "0 0",
+      };
+    }
+
+    return {
+      transform: `translate(${dims.cx - ZOOM_SCALE * zoomNode.x}px, ${
+        dims.cy - ZOOM_SCALE * zoomNode.y
+      }px) scale(${ZOOM_SCALE})`,
+      transition,
+      transformBox: "view-box" as const,
+      transformOrigin: "0 0",
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomNode, widened]);
+
+  // ----------------------------------------------------------
+  // FOCUSED DETAILS POP-UP — auto-focused like the pet's
+  // right-click menu; Escape or a click anywhere outside dismisses
+  // it, and the canvas zooms back out with the same animation.
+  // ----------------------------------------------------------
+
+  const detailsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (selectedNodeId !== null) {
+      detailsRef.current?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+      detailsRef.current?.focus({ preventScroll: true });
+    }
+  }, [selectedNodeId]);
+
+  useEffect(() => {
+    if (selectedNodeId === null) {
+      return;
+    }
+
+    function dismiss() {
+      setSelectedNodeId(null);
+      onSelectNode?.(null);
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Element | null;
+
+      if (detailsRef.current?.contains(target as Node)) {
+        return;
+      }
+
+      // Node clicks handle their own selection toggle.
+      if (target?.closest?.("g[role=button]")) {
+        return;
+      }
+
+      dismiss();
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        dismiss();
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedNodeId, onSelectNode]);
 
   // ----------------------------------------------------------
   // SHORTEST PATH from the origin paper to the active node —
@@ -366,6 +506,28 @@ export default function ConnectedPapersGraph({
 
     return pathKeys;
   }, [graph, activeId]);
+
+  // Graph papers highlighted by the selected prior/derivative work.
+  const workHighlightIds = useMemo(() => {
+    const ids = new Set<number>(highlightPaperIds ?? []);
+
+    if (!graph || activeWorkKey === null) {
+      return ids;
+    }
+
+    const work = [
+      ...graph.prior_works,
+      ...graph.derivative_works,
+    ].find((entry) => entry.work_id === activeWorkKey);
+
+    for (const id of work?.graph_paper_ids ?? []) {
+      ids.add(id);
+    }
+
+    return ids;
+  }, [graph, activeWorkKey, highlightPaperIds]);
+
+  const hasWorkFocus = activeWorkKey !== null || workHighlightIds.size > 0;
 
   /* ---------- LOADING / ERROR / EMPTY ---------- */
 
@@ -444,14 +606,18 @@ export default function ConnectedPapersGraph({
       </div>
 
       {/* GRAPH: sits on the cream canvas so it reads as "inside" the panel */}
-      <div className="border-t-[3px] border-gray-900 bg-canvas px-2 py-3">
+      <div className="relative border-t-[3px] border-gray-900 bg-canvas px-2 py-3">
         <svg
-          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          className="mx-auto block h-auto w-full max-w-[520px]"
+          viewBox={`0 0 ${dims.width} ${dims.height}`}
+          className={`mx-auto block h-auto w-full ${
+            widened ? "max-w-[960px]" : "max-w-[520px]"
+          }`}
           role="img"
           aria-label="Similar papers graph"
           onMouseLeave={() => setHoveredNodeId(null)}
         >
+          {/* ZOOM LAYER — click a node to scale/recenter here */}
+          <g style={zoomStyle}>
           {/* CONNECTIONS — weighted triples [source, target, weight] */}
           {graph.edges.map(([sourceId, targetId, weight], edgeIndex) => {
             const source = nodeMap.get(sourceId);
@@ -472,7 +638,14 @@ export default function ConnectedPapersGraph({
               activeId !== null &&
               (activeId === sourceId || activeId === targetId);
 
-            const dimmed = activeId !== null && !onPath && !touchesActive;
+            const touchesWork =
+              hasWorkFocus &&
+              (workHighlightIds.has(sourceId) ||
+                workHighlightIds.has(targetId));
+
+            const dimmed =
+              (activeId !== null && !onPath && !touchesActive) ||
+              (hasWorkFocus && !touchesWork);
 
             const touchesDot =
               dotIdSet.has(sourceId) || dotIdSet.has(targetId);
@@ -482,15 +655,14 @@ export default function ConnectedPapersGraph({
             // other edge scales thickness and opacity with its weight
             // so stronger relations read as stronger lines;
             // suggestion-dot edges stay thin and faint.
-            const stroke = onPath
-              ? COLORS.ink
-              : touchesActive
+            const stroke =
+              onPath || touchesActive || touchesWork
                 ? COLORS.ink
                 : COLORS.hairline;
 
             const width = onPath
               ? OUTLINE
-              : touchesActive
+              : touchesActive || touchesWork
                 ? 2 + weight * 2
                 : touchesDot
                   ? 1
@@ -540,10 +712,13 @@ export default function ConnectedPapersGraph({
               });
 
             const dimmed =
-              activeId !== null &&
-              !isActive &&
-              !isCurrent &&
-              !onPath;
+              (activeId !== null &&
+                !isActive &&
+                !isCurrent &&
+                !onPath) ||
+              (hasWorkFocus &&
+                !workHighlightIds.has(node.id) &&
+                !isCurrent);
 
             const radius = getNodeRadius(
               node,
@@ -552,10 +727,14 @@ export default function ConnectedPapersGraph({
             );
 
             // Flat fills only: ink = compared paper, orange = active / on
-            // the similarity path, white = idle.
+            // the similarity path / highlighted by a selected work,
+            // white = idle.
             const fill = isCurrent
               ? COLORS.ink
-              : isActive || isSelected || onPath
+              : isActive ||
+                  isSelected ||
+                  onPath ||
+                  workHighlightIds.has(node.id)
                 ? accentColor
                 : COLORS.surface;
 
@@ -663,7 +842,68 @@ export default function ConnectedPapersGraph({
               aria-hidden="true"
             />
           ))}
+                  </g>
         </svg>
+
+        {/* NODE DETAILS — raised while a node is zoomed in */}
+        {zoomNode && (
+          <div
+            ref={detailsRef}
+            data-node-details
+            role="dialog"
+            aria-label="Paper details"
+            tabIndex={-1}
+            className="animate-step-in pointer-events-none absolute bottom-3 left-3 right-3 z-10 rounded border-[3px] border-gray-900 bg-white p-3 shadow-[4px_4px_0_rgba(0,0,0,0.25)] focus:outline-none sm:right-auto sm:max-w-md"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[2px] border-gray-900 bg-gray-900 font-mono text-xs font-bold text-white">
+                {zoomNode.relationship === "current" ? "★" : zoomNode.rank}
+              </span>
+
+              <button
+                type="button"
+                aria-label="Close details and zoom out"
+                onClick={() => toggleSelected(zoomNode.id)}
+                className="pointer-events-auto rounded border-2 border-gray-900 bg-white px-1.5 py-0.5 text-gray-900 transition-colors pixel-ease hover:bg-accent hover:text-onAccent"
+              >
+                <CloseX className="h-3 w-3" />
+              </button>
+            </div>
+
+            <p className="mt-1.5 text-sm font-bold leading-snug text-gray-900">
+              {zoomNode.title}
+            </p>
+
+            <p className="mt-0.5 text-xs text-gray-600">
+              {zoomNode.author || "Unknown author"}
+              {zoomNode.publication_year
+                ? `, ${zoomNode.publication_year}`
+                : ""}
+              {zoomNode.relationship === "current"
+                ? " · center paper"
+                : ` · ${(zoomNode.similarity * 100).toFixed(1)}% similar`}
+            </p>
+
+            {zoomNode.doi && (
+              <p className="mt-1">
+                <a
+                  href={`https://doi.org/${zoomNode.doi}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="pointer-events-auto break-all text-xs text-accent underline"
+                >
+                  doi.org/{zoomNode.doi}
+                </a>
+              </p>
+            )}
+
+            {zoomNode.abstract && (
+              <p className="mt-2 line-clamp-4 text-xs leading-5 text-gray-600">
+                {zoomNode.abstract}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* LEGEND */}
         <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-2 text-sm text-gray-900">
@@ -731,6 +971,42 @@ export default function ConnectedPapersGraph({
         </div>
       )}
 
+      {/* PRIOR / DERIVATIVE WORKS — hidden in the workbench layout,
+          where each list has its own tab. */}
+      {!hideClusterSections && (
+        <>
+          <ClusterSection
+            title="Prior works"
+            description="Papers that were most commonly cited by the papers in this graph — usually the seminal works of the field. Selecting one highlights the graph papers referencing it; selecting a graph paper highlights its referenced prior work."
+            works={graph.prior_works}
+            side="prior"
+            startId={graph.start_id}
+            activeKey={activeWorkKey}
+            onSelect={setActiveWorkKey}
+            nodeMap={nodeMap}
+            onSelectNode={(id) => {
+              setSelectedNodeId(id);
+              setHoveredNodeId(null);
+            }}
+          />
+
+          <ClusterSection
+            title="Derivative works"
+            description="Papers that cited many of the papers in this graph — usually surveys of the field or recent works inspired by many papers in the graph. Selecting one highlights the graph papers it cites; selecting a graph paper highlights the derivative works citing it."
+            works={graph.derivative_works}
+            side="derivative"
+            startId={graph.start_id}
+            activeKey={activeWorkKey}
+            onSelect={setActiveWorkKey}
+            nodeMap={nodeMap}
+            onSelectNode={(id) => {
+              setSelectedNodeId(id);
+              setHoveredNodeId(null);
+            }}
+          />
+        </>
+      )}
+
       {/* CENTER PAPER */}
       {currentNode && (
         <div className="border-t-[3px] border-gray-900 bg-white px-4 py-3">
@@ -741,84 +1017,89 @@ export default function ConnectedPapersGraph({
         </div>
       )}
 
-      {/* RANKED LIST */}
-      <ol
-        className="border-t-[3px] border-gray-900"
-        onMouseLeave={() => setHoveredNodeId(null)}
-      >
-        {rankedNodes.map((node) => {
-          const isActive = activeId === node.id;
-          const isSelected = selectedNodeId === node.id;
-          const percent = node.similarity * 100;
+      {/* RANKED LIST — hidden in the workbench layout (results
+          live in the main list / prior-derivative tabs). */}
+      {!hideRankedList && (
+        <ol
+          className="border-t-[3px] border-gray-900"
+          onMouseLeave={() => setHoveredNodeId(null)}
+        >
+          {rankedNodes.map((node) => {
+            const isActive =
+              activeId === node.id || workHighlightIds.has(node.id);
+            const isSelected = selectedNodeId === node.id;
+            const percent = node.similarity * 100;
 
-          return (
-            <li
-              key={node.id}
-              // hairline: the one incidental separator in the design language
-              className="border-b border-gray-200 last:border-b-0"
-            >
-              <button
-                type="button"
-                onClick={() => toggleSelected(node.id)}
-                onMouseEnter={() => setHoveredNodeId(node.id)}
-                onFocus={() => setHoveredNodeId(node.id)}
-                onBlur={() => setHoveredNodeId(null)}
-                aria-pressed={isSelected}
-                className={`flex w-full items-start gap-3 px-4 py-3 text-left text-gray-900 transition-colors duration-100 motion-reduce:transition-none ${FOCUS_INSET} ${
-                  isActive ? "bg-accent" : "bg-white"
-                }`}
+            return (
+              <li
+                key={node.id}
+                // hairline: the one incidental separator in the design language
+                className="border-b border-gray-200 last:border-b-0"
               >
-                {/* rank chip: circular indicator, ink when selected */}
-                <span
-                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[3px] border-gray-900 text-sm font-bold leading-none ${
-                    isSelected
-                      ? "bg-gray-900 text-white"
-                      : "bg-white text-gray-900"
+                <button
+                  type="button"
+                  onClick={() => toggleSelected(node.id)}
+                  onMouseEnter={() => setHoveredNodeId(node.id)}
+                  onFocus={() => setHoveredNodeId(node.id)}
+                  onBlur={() => setHoveredNodeId(null)}
+                  aria-pressed={isSelected}
+                  className={`flex w-full items-start gap-3 px-4 py-3 text-left text-gray-900 transition-colors duration-100 motion-reduce:transition-none ${FOCUS_INSET} ${
+                    isActive ? "bg-accent" : "bg-white"
                   }`}
                 >
-                  {node.rank}
-                </span>
-
-                <span className="min-w-0 flex-1">
+                  {/* rank chip: circular indicator, ink when selected */}
                   <span
-                    className={`block text-sm leading-snug text-gray-900 ${
-                      isSelected ? "font-bold" : "line-clamp-2 font-medium"
+                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[3px] border-gray-900 text-sm font-bold leading-none ${
+                      isSelected
+                        ? "bg-gray-900 text-white"
+                        : "bg-white text-gray-900"
                     }`}
                   >
-                    {node.title}
+                    {node.rank}
                   </span>
 
-                  {isSelected && (
-                    <span className="mt-0.5 block text-sm text-gray-900">
-                      {node.author || "Unknown author"}
-                      {node.publication_year
-                        ? `, ${node.publication_year}`
-                        : ""}
-                    </span>
-                  )}
-
-                  {/* similarity bar: same construction as WeightBar */}
-                  <span className="mt-2 flex items-center gap-3">
-                    <span className="h-3 flex-1 overflow-hidden rounded border-[3px] border-gray-900 bg-field">
-                      <span
-                        className="block h-full bg-gray-900"
-                        style={{
-                          width: `${Math.max(2, Math.min(100, percent))}%`,
-                          transition: "width 100ms linear",
-                        }}
-                      />
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={`block text-sm leading-snug text-gray-900 ${
+                        isSelected ? "font-bold" : "line-clamp-2 font-medium"
+                      }`}
+                    >
+                      {node.title}
                     </span>
 
-                    <span className="w-12 shrink-0 text-right text-sm font-bold tabular-nums text-gray-900">
-                      {percent.toFixed(1)}%
+                    {isSelected && (
+                      <span className="mt-0.5 block text-sm text-gray-900">
+                        {node.author || "Unknown author"}
+                        {node.publication_year
+                          ? `, ${node.publication_year}`
+                          : ""}
+                      </span>
+                    )}
+
+                    {/* similarity bar: same construction as WeightBar */}
+                    <span className="mt-2 flex items-center gap-3">
+                      <span className="h-3 flex-1 overflow-hidden rounded border-[3px] border-gray-900 bg-field">
+                        <span
+                          className="block h-full bg-gray-900"
+                          style={{
+                            width: `${Math.max(2, Math.min(100, percent))}%`,
+                            transition: "width 100ms linear",
+                          }}
+                        />
+                      </span>
+
+                      <span className="w-12 shrink-0 text-right text-sm font-bold tabular-nums text-gray-900">
+                        {percent.toFixed(1)}%
+                      </span>
                     </span>
                   </span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+
+      )}
 
       {/* FOOTER */}
       <div className="border-t-[3px] border-gray-900 bg-white px-4 py-3">
@@ -829,11 +1110,179 @@ export default function ConnectedPapersGraph({
 
         {dotNodes.length > 0 && (
           <p className="mt-1.5 text-xs leading-normal text-gray-600">
-            The small dots suggest {dotNodes.length} further related papers
-            beyond the ranked list. Raise the link count to include them.
+            {hideRankedList
+              ? `The small dots suggest ${dotNodes.length} further related papers — raise the link count to include them.`
+              : `The small dots suggest ${dotNodes.length} further related papers beyond the ranked list. Raise the link count to include them.`}
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CLUSTERED WORKS — prior / derivative sections
+   ============================================================ */
+
+function csvEscape(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function downloadClusterCsv(title: string, works: ClusterWork[]) {
+  const lines = [
+    "work_id,label,doi,mentions,graph_paper_ids",
+    ...works.map((work) =>
+      [
+        work.work_id,
+        csvEscape(work.label),
+        work.doi ?? "",
+        work.count,
+        work.graph_paper_ids.join(" "),
+      ].join(",")
+    ),
+  ];
+
+  const blob = new Blob([lines.join("\n")], {
+    type: "text/csv;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = `${title.toLowerCase().replace(/\s+/g, "-")}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function ClusterSection({
+  title,
+  description,
+  works,
+  side,
+  startId,
+  activeKey,
+  onSelect,
+  nodeMap,
+  onSelectNode,
+}: {
+  title: string;
+  description: string;
+  works: ClusterWork[];
+  side: "prior" | "derivative";
+  startId: number;
+  activeKey: string | null;
+  onSelect: (key: string | null) => void;
+  nodeMap: Map<number, PositionedNode>;
+  onSelectNode: (id: number) => void;
+}) {
+  return (
+    <div
+      className="border-t-[3px] border-gray-900 bg-white px-4 py-3"
+      data-cluster={side}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-gray-900">{title}</p>
+
+          <p className="mt-1 text-xs leading-normal text-gray-600">
+            {description}
+          </p>
+        </div>
+
+        {works.length > 0 && (
+          <button
+            type="button"
+            onClick={() => downloadClusterCsv(title, works)}
+            className="shrink-0 rounded border-[2px] border-gray-900 bg-white px-2 py-1 text-xs font-bold text-gray-900 transition-colors hover:bg-accent hover:text-onAccent"
+          >
+            Download
+          </button>
+        )}
+      </div>
+
+      {works.length === 0 ? (
+        <p className="mt-2 text-xs leading-normal text-gray-600">
+          No shared {side === "prior" ? "references" : "citers"} are
+          cached for this graph yet — refresh a paper's citations from
+          its record page to fill this in.
+        </p>
+      ) : (
+        <ul className="mt-2 flex flex-col">
+          {works.map((work) => {
+            const isActive = activeKey === work.work_id;
+
+            return (
+              <li
+                key={work.work_id}
+                className={`border-b border-gray-200 px-1 py-2 last:border-b-0 ${
+                  isActive ? "bg-accent" : "bg-white"
+                }`}
+              >
+                <button
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() =>
+                    onSelect(isActive ? null : work.work_id)
+                  }
+                  className="flex w-full items-baseline justify-between gap-2 text-left"
+                >
+                  <span
+                    className={`min-w-0 flex-1 text-sm leading-snug ${
+                      isActive
+                        ? "font-bold text-onAccent"
+                        : "text-gray-900"
+                    }`}
+                  >
+                    {work.label}
+                  </span>
+
+                  <span
+                    className={`shrink-0 text-xs font-bold ${
+                      isActive ? "text-onAccent" : "text-gray-600"
+                    }`}
+                    title={`${work.count} graph papers`}
+                  >
+                    ×{work.count}
+                  </span>
+                </button>
+
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  <span
+                    className={`text-xs ${
+                      isActive ? "text-onAccent" : "text-gray-600"
+                    }`}
+                  >
+                    {side === "prior" ? "referenced by" : "cites"}
+                  </span>
+
+                  {work.graph_paper_ids.map((paperId) => {
+                    const node = nodeMap.get(paperId);
+
+                    return (
+                      <button
+                        key={paperId}
+                        type="button"
+                        onClick={() => onSelectNode(paperId)}
+                        className={`rounded border-[2px] px-1 py-0.5 text-xs font-bold ${
+                          isActive
+                            ? "border-onAccent bg-white/20 text-onAccent"
+                            : "border-gray-900 bg-canvas text-gray-900 hover:bg-accentSoft"
+                        }`}
+                      >
+                        {node
+                          ? `#${node.rank}`
+                          : paperId === startId
+                            ? "center"
+                            : `#${paperId}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

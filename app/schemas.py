@@ -5,7 +5,9 @@ diverge if needed (e.g. hiding password_hash from API responses).
 """
 
 from datetime import datetime
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class PaperOut(BaseModel):
@@ -114,3 +116,92 @@ class MetadataImportRequest(BaseModel):
     # Optional explicit open-access PDF to attach at import time;
     # when omitted, the background enrichment queue searches for one.
     pdf_url: str | None = None
+
+
+# ============================================================
+# LIBRARY MODE & SITE EDITOR
+# ============================================================
+
+
+AnnouncementLevel = Literal["info", "important", "event"]
+FeatureState = Literal["shown", "locked", "hidden"]
+
+
+class AdminLoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class AdminTokenOut(BaseModel):
+    token: str
+    username: str
+    expires_at: int  # unix seconds
+
+
+class AdminMeOut(BaseModel):
+    username: str
+
+
+class AdminPasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
+class AnnouncementIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1)
+    level: AnnouncementLevel = "info"
+    active: bool = True
+
+
+class AnnouncementUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    body: str | None = Field(default=None, min_length=1)
+    level: AnnouncementLevel | None = None
+    active: bool | None = None
+    position: int | None = Field(default=None, ge=0)
+
+
+class AnnouncementOut(BaseModel):
+    id: int
+    title: str
+    body: str
+    level: str
+    active: bool
+    position: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LibraryFeaturesOut(BaseModel):
+    features: dict[str, FeatureState]
+
+
+class LibraryFeaturesIn(BaseModel):
+    features: dict[str, FeatureState]
+
+
+# ============================================================
+# LITERATURE ACTIONS (multi-select context menu)
+# ============================================================
+
+
+class PaperIdsIn(BaseModel):
+    paper_ids: list[int] = Field(min_length=1)
+
+
+class RenameFilesIn(PaperIdsIn):
+    pattern: Literal[
+        "title",
+        "author-year",
+        "author-year-title",
+        "custom",
+    ] = "title"
+    custom_name: str | None = None
+
+
+class MarkPapersIn(PaperIdsIn):
+    valid: bool

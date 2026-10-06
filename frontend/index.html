@@ -79,8 +79,7 @@
         };
         try {
           var id = localStorage.getItem("paperrec_accent");
-          var palette = palettes[id];
-          if (palette) {
+          var palette = palettes[id];          if (palette) {
             var root = document.documentElement;
             root.style.setProperty("--accent", palette.accent);
             root.style.setProperty("--accent-soft", palette.soft);
@@ -178,6 +177,20 @@
             }
             root.dataset.accent = id;
           }
+
+          // Pre-paint background: the dark boot color while the boot
+          // splash is going to play (otherwise the unstyled white
+          // body flashes before the stylesheet loads), the palette
+          // canvas otherwise.
+          var willBoot = false;
+          try {
+            willBoot =
+              sessionStorage.getItem("paperrec_booted") !== "1" &&
+              !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          } catch (inner) {}
+          document.documentElement.style.background = willBoot
+            ? "#030712"
+            : "rgb(" + (palette ? palette.canvas : "255 250 240") + ")";
         } catch (e) {}
       })();
     </script>

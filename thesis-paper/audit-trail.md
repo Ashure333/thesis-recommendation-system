@@ -269,3 +269,34 @@ are shown as a signal bar on the result cards; the three values sum to
 the reported score. Corpus counts in Chapter I (two places) and Chapter
 III (two places) were updated to 168 papers / 145 valid for
 recommendation.
+
+## Tree of Knowledge (2026-10-05, supersedes two experiments)
+
+Two experimental features were implemented and then removed the same
+day. The random-walk rerank (personalized PageRank over the similarity
+graph) reduced relevance on the 18-query OpenAlex qrels at every blend
+(NDCG@10 0.4811 off vs 0.4537 at lambda 0.1 and 0.3950 at 0.5), and
+the Markov lore generator produced word-salad sentences; both were
+deleted (random_walk.py, test_random_walk.py, markov.ts,
+walkthroughCorpus.ts, extract-docs-corpus.mjs, plus the walk query
+parameters and checkbox). The help matcher's whole-word fix stays.
+
+The pet's LORE mechanic is now the Tree of Knowledge: a stored trivia
+bank (frontend/src/data/trivia.ts, 48 facts across four tiers, every
+entry checked against the code and the Walkthrough/Engine pages)
+handed out one per press. The tree grows with real progress — each
+treasure, each achievement, and every fourth discovered tip — through
+four stages (Seed, Sprout, Sapling, Elder Tree), shown in the Lab's
+Tree of Knowledge tab — a Plants-vs-Zombies-style lawn with a species
+seed bank, the planted tree's own speech bubble, and an Ask the tree
+button; the pet chat is a pure help library again (the LORE quick
+question was removed). knowledge.ts keeps the
+growth and handout logic pure and deterministic: deepest unseen tier
+first, then an order-preserving rotation, so presses never repeat
+back-to-back and nothing is generated. Verification: a logic suite
+over 40 simulated presses per stage (no tier violations, no
+back-to-back repeats, full first-cycle coverage) and a headless
+browser run (the default unlocked profile starts at Sprout; hunt
+completion reaches Elder Tree; each LORE press stores the next
+trivia). The species picker (Oak, Birch, Elm, Redwood) is cosmetic and persisted per browser. A third Lab tab, the Sun Shop, adds a play-earned currency: sun from the daily visit, petting and questions (daily-capped), treasures, achievements and tip milestones; fertilizer packs (1/5/10 at 20/90/160 sun) add 2 growth points and 30 feet per packet, and every feeding dispenses stored wisdom — a typed cheat word (daisies at 100 ft, dance at 500 ft, pinata at 1000 ft) or the next garden tip in rotation. Cheats arm real pet effects: daisy and candy bursts when a paper is disposed, and a dance hop. The backend suite is 181 tests (the 32 random-walk tests
+were removed with the feature); the frontend build passes.

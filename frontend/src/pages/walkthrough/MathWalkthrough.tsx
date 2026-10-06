@@ -21,6 +21,7 @@ import {
 
 const INFOBOX_ROWS: [string, string][] = [
   ["Name", "The Re:Search engine"],
+  ["Developer", "TEMPEST"],
   ["Core models", "Vector space (TF-IDF) · sentence embeddings (S-BERT) · metadata fusion · weighted graph"],
   ["Algorithms", "TF-IDF · cosine similarity · min-max normalization · Dijkstra's shortest paths · independence-weighted voting"],
   ["Embedding model", "all-MiniLM-L6-v2, 6 layers, 384 dimensions"],

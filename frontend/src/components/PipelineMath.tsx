@@ -24,6 +24,8 @@ interface PipelineMathProps {
   configOverride?: PipelineConfig;
   /** Dial allocation (0..100 per signal) for pipeline="custom". */
   weights?: DialAllocation;
+  /** Open the pseudocode card immediately (Stats for Nerds tab). */
+  defaultOpen?: boolean;
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -208,8 +210,9 @@ export default function PipelineMath({
   inputs,
   configOverride,
   weights,
+  defaultOpen = false,
 }: PipelineMathProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [trace, setTrace] = useState<TraceEvent[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

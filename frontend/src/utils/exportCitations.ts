@@ -29,7 +29,7 @@ function cleanMulti(value: string | null | undefined): string[] {
 }
 
 /** First author's last name + year, for citation keys. */
-function citationKey(paper: Paper): string {
+export function citationKey(paper: Paper): string {
   const surnames = cleanMulti(paper.author).map(
     (author) => author.trim().split(/\s+/).pop() ?? "",
   );
@@ -59,7 +59,10 @@ function bibField(name: string, value: string | null | undefined): string {
   return `  ${name} = {${text}},`;
 }
 
-export function paperToBibtex(paper: Paper): string {
+export function paperToBibtex(
+  paper: Paper,
+  options?: { includeAbstract?: boolean },
+): string {
   const lines: string[] = [];
 
   lines.push(`@${bibType(paper)}{${citationKey(paper)},`);
@@ -68,7 +71,12 @@ export function paperToBibtex(paper: Paper): string {
     ["title", paper.title],
     ["author", paper.author],
     ["year", paper.publication_year?.toString()],
-    ["abstract", paper.abstract],
+    ...(options?.includeAbstract === false
+      ? []
+      : ([["abstract", paper.abstract]] as [
+          string,
+          string | null | undefined,
+        ][])),
     ["keywords", paper.keywords],
     ["doi", paper.doi],
   ];
