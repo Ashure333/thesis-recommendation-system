@@ -23,8 +23,6 @@ const BIRCH_MARK = "#343a40";
 /* Idle sway by stage: younger, lighter trees move more and faster;
    the elder tree barely stirs (mirrors the weight factor of the
    original pygame simulation). */
-const SWAY_DEGREES = [3.2, 2.7, 2.2, 1.6];
-const SWAY_DURATION = [3.2, 3.7, 4.2, 4.8];
 
 /* Feet of height needed for each extra trunk pixel, capped so the
    trunk never pierces the crown. */
@@ -204,11 +202,6 @@ export default function KnowledgeTree({
     tree.id === "redwood" ? 16 : tree.id === "elm" ? 18 : 20;
   const trunkTop = baseTrunkTop - trunkBonus;
 
-  const swayStyle = {
-    "--tree-sway": `${SWAY_DEGREES[level]}deg`,
-    "--tree-duration": `${SWAY_DURATION[level]}s`,
-  } as React.CSSProperties;
-
   return (
     <svg
       viewBox="0 0 40 40"
@@ -217,10 +210,10 @@ export default function KnowledgeTree({
       role="img"
       aria-label={`${tree.label} tree of knowledge, stage ${level + 1} of 4`}
     >
-      {/* soil — stays put while the canopy sways */}
+      {/* soil — the thumbnails hold still; no stray animation */}
       <rect x="9" y="34" width="22" height="4" fill={SOIL} />
 
-      <g className="tree-sway" style={swayStyle}>
+      <g>
         {level === 0 ? (
           <>
             <rect x="19" y="30" width="2" height="4" fill={tree.trunk} />

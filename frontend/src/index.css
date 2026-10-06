@@ -199,6 +199,36 @@ textarea {
 /* --- pixel easing: snaps instead of gliding --- */
 .pixel-ease { transition-timing-function: steps(3, end) !important; }
 
+/* The walkthrough lightbox spawns from the clicked image's spot
+   in the current scroll, wherever that happens to sit. */
+@keyframes lightbox-pop {
+  from {
+    transform: translate(var(--pop-x, 0px), var(--pop-y, 0px)) scale(0.12);
+    opacity: 0.35;
+  }
+  to {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+}
+.lightbox-pop {
+  animation: lightbox-pop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lightbox-pop {
+    animation: none;
+  }
+}
+
+/* Subtle retro text shadows: a light halo for dark ink on light
+   surfaces, a soft dark lift for light text on accent fills. */
+.retro-shadow-light {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 3px rgba(0, 0, 0, 0.18);
+}
+.retro-shadow-dark {
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.28);
+}
+
 /* --- blinking block cursor / press-start indicator --- */
 .animate-blink { animation: retro-blink 1s steps(2, start) infinite; }
 @keyframes retro-blink { 50% { opacity: 0; } }

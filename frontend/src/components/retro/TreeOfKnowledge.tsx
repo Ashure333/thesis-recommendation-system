@@ -27,13 +27,17 @@ import {
   treeSpecies,
   type TreeSpeciesId,
 } from "../../data/knowledge";
-import type { Trivia } from "../../data/trivia";
+import { TRIVIA, type Trivia } from "../../data/trivia";
+import { SPECIES_INFO } from "../../data/knowledge";
+import { BACKDROP_THEMES, DEFAULT_BACKDROP_THEME } from "../../data/backdrops";
+import type { BackdropThemeId } from "../../data/backdrops";
 import { useHunt } from "../../state/hunt";
 import { useAchievements } from "../../state/achievements";
 import { readSeenTipCount, useSun } from "../../state/sun";
 import { addOwnedSkin, SKINS_KEY, useOwnedSkins } from "../../state/skins";
 import {
   TREE_GROWTH_TARGET,
+  treeHeightByFertilizer,
   TREE_IDLE_LINES,
   TREE_SKIN_PRICES,
 } from "../../data/knowledge";
@@ -41,35 +45,82 @@ import KnowledgeTree from "./KnowledgeTree";
 import PixelGrowthTree from "./PixelGrowthTree";
 import GardenBackdrop from "./GardenBackdrop";
 import SunShop from "./SunShop";
+import ThemeShop from "./ThemeShop";
 import SparkleGlyph from "./SparkleGlyph";
 import SunGlyph from "./SunGlyph";
 import TokenGlyph from "./TokenGlyph";
+import RetroDialog from "./RetroDialog";
+
+const BACKDROP_THEMES_KEY = "paperrec_backdrop_themes";
+const BACKDROP_ACTIVE_KEY = "paperrec_backdrop_theme";
 
 const TRIVIA_KEY = "paperrec_knowledge_trivia";
 const LEGACY_TRIVIA_KEY = "paperrec_wisdom_trivia";
+/* Each species' tree learns its OWN trunk of trivia: the bank maps
+   species id -> learned trivia ids. The old global list migrates
+   into the starter maple's trunk. */
+const TRIVIA_BANK_KEY = "paperrec_knowledge_trivia_bank";
 const SPECIES_KEY = "paperrec_knowledge_species";
 const ASKS_KEY = "paperrec_tree_asks";
 
 const LAWN_COLS = 5;
 const LAWN_ROWS = 4;
 
-function readTriviaSeen(): string[] {
+function emptyBank(): Record<TreeSpeciesId, string[]> {
+  return {
+    crimson: [],
+    oak: [],
+    birch: [],
+    elm: [],
+    redwood: [],
+  };
+}
+
+function readTriviaBank(): Record<TreeSpeciesId, string[]> {
   try {
-    const raw =
-      window.localStorage.getItem(TRIVIA_KEY) ??
+    const raw = window.localStorage.getItem(TRIVIA_BANK_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        const bank = emptyBank();
+        for (const id of Object.keys(bank) as TreeSpeciesId[]) {
+          const list = parsed[id];
+          bank[id] = Array.isArray(list)
+            ? list.filter((value) => typeof value === "string")
+            : [];
+        }
+        return bank;
+      }
+    }
+    /* No bank yet: migrate the old single trunk into the starter
+       maple so nothing already learned is lost. */
+    const legacy = window.localStorage.getItem(TRIVIA_KEY) ??
       window.localStorage.getItem(LEGACY_TRIVIA_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed)
-      ? parsed.filter((value) => typeof value === "string")
-      : [];
+    const bank = emptyBank();
+    if (legacy) {
+      const parsed = JSON.parse(legacy);
+      if (Array.isArray(parsed)) {
+        bank[DEFAULT_SPECIES] = parsed.filter(
+          (value) => typeof value === "string",
+        );
+      }
+    }
+    try {
+      window.localStorage.setItem(TRIVIA_BANK_KEY, JSON.stringify(bank));
+    } catch {
+      // best-effort
+    }
+    return bank;
   } catch {
-    return [];
+    return emptyBank();
   }
 }
 
-function writeTriviaSeen(ids: string[]) {
+function writeTriviaBank(bank: Record<TreeSpeciesId, string[]>) {
   try {
-    window.localStorage.setItem(TRIVIA_KEY, JSON.stringify(ids));
+    window.localStorage.setItem(TRIVIA_BANK_KEY, JSON.stringify(bank));
+    window.localStorage.removeItem(TRIVIA_KEY);
+    window.localStorage.removeItem(LEGACY_TRIVIA_KEY);
   } catch {
     // best-effort
   }
@@ -134,20 +185,96 @@ export default function TreeOfKnowledge({
     spendTokens,
     buy,
     resetTree,
+    plantSpecies,
   } = useSun();
 
-  const [seenTrivia, setSeenTrivia] = useState<string[]>(readTriviaSeen);
+  const [triviaBank, setTriviaBank] = useState<Record<TreeSpeciesId, string[]>>(
+    readTriviaBank,
+  );
   /* Dropping a fertilizer pack feeds the tree; the outcome echoes
      in the speech bubble. */
   const [feedNote, setFeedNote] = useState<string | null>(null);
+
   /* The tree card's own menu: the shop, skins, and wallet panes. */
-  const [menu, setMenu] = useState<"shop" | "skins" | "wallet" | null>(
-    null,
-  );
+  const [menu, setMenu] = useState<
+    "info" | "shop" | "skins" | "themes" | "wallet" | null
+  >(null);
+  /* "Get info" reveals the research the tree holds; the default
+     sidebar itself always shows the tree's name and fact card. */
+  const [infoExpanded, setInfoExpanded] = useState(false);
+
+  /* Backdrop themes: Meadow is the default; the Theme shop adds
+     and applies the rest. */
+  const [themes, setThemes] = useState<BackdropThemeId[]>(() => {
+    try {
+      const raw = window.localStorage.getItem(BACKDROP_THEMES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        const ids = parsed.filter((id): id is BackdropThemeId =>
+          BACKDROP_THEMES.some((theme) => theme.id === id),
+        );
+        if (ids.length > 0) return ids;
+      }
+    } catch {
+      // best-effort
+    }
+    return [DEFAULT_BACKDROP_THEME];
+  });
+  const [activeTheme, setActiveTheme] = useState<BackdropThemeId>(() => {
+    try {
+      const raw = window.localStorage.getItem(BACKDROP_ACTIVE_KEY);
+      if (raw && BACKDROP_THEMES.some((theme) => theme.id === raw)) {
+        return raw as BackdropThemeId;
+      }
+    } catch {
+      // best-effort
+    }
+    return DEFAULT_BACKDROP_THEME;
+  });
+  function adoptTheme(
+    nextOwned: BackdropThemeId[],
+    nextActive: BackdropThemeId,
+  ) {
+    setThemes(nextOwned);
+    setActiveTheme(nextActive);
+    try {
+      window.localStorage.setItem(BACKDROP_THEMES_KEY, JSON.stringify(nextOwned));
+      window.localStorage.setItem(BACKDROP_ACTIVE_KEY, nextActive);
+    } catch {
+      // best-effort
+    }
+  }
+
+  /* The tall tree window fits the stage's height. */
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [stageH, setStageH] = useState(0);
+  useEffect(() => {
+    const node = stageRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const measure = () => setStageH(node.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  /* Themed confirm / notice pop-ups (no browser dialogs). */
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    body: string;
+    onYes: () => void;
+  } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  /* Toggled growth preview: tapping a stage chip shows the tree
+     as it looks at that stage; tapping again returns to live. */
+  const [previewStage, setPreviewStage] = useState<number | null>(null);
+
+  
   const dropDepthRef = useRef(0);
   const [speciesId, setSpeciesId] =
     useState<TreeSpeciesId>(readSpecies);
+  /* The ACTIVE tree's own trunk; every species keeps its own. */
+  const seenTrivia = triviaBank[speciesId] ?? [];
   const [current, setCurrent] = useState<Trivia | null>(null);
   const [tipsSeen] = useState<number>(readSeenTipCount);
   const ownedSkins = useOwnedSkins();
@@ -159,33 +286,82 @@ export default function TreeOfKnowledge({
      extra packets beyond that rise into the world tree. */
   const growth = Math.min(1, fertilizer / TREE_GROWTH_TARGET);
 
+/* The tree morphs between stages: every chip press animates the
+     climb up or the descent down — never a jump. */
+  const [morphG, setMorphG] = useState(growth);
+  const morphRef = useRef(growth);
+  morphRef.current = morphG;
+  /* Bump to recentre the pan when a stage chip navigates. */
+  const [viewReset, setViewReset] = useState(0);
+  /* Cheat-bloom burst: a golden ring + the word + extra sparkles. */
+  const [cheatFx, setCheatFx] = useState<{
+    id: number;
+    word: string;
+  } | null>(null);
+  const fxId = useRef(0);
+  function triggerCheatFx(word: string) {
+    const id = fxId.current + 1;
+    fxId.current = id;
+    setCheatFx({ id, word });
+    spawnSparkles(16);
+    window.setTimeout(() => {
+      setCheatFx((current) => (current?.id === id ? null : current));
+    }, 1800);
+  }
+  useEffect(() => {
+    const to =
+      previewStage === null
+        ? growth
+        : growthMarkers[previewStage].fert / TREE_GROWTH_TARGET;
+    const from = morphRef.current;
+    if (Math.abs(from - to) < 0.001) return;
+    const t0 = performance.now();
+    let raf = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / 900);
+      const ease = t * t * (3 - 2 * t);
+      setMorphG(from + (to - from) * ease);
+      if (t < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewStage, growth]);
+
   const growthMarkers = SPECIES_GROWTH_MARKERS[speciesId];
   const activeMarker = [...growthMarkers]
     .reverse()
     .find((marker) => fertilizer >= marker.fert);
   function resetTreeProgress() {
-    if (
-      !window.confirm(
-        "Reset the TREE completely — trivia, fertilizer, growth, " +
-          "species, and skins? Sun and tokens stay; the tree " +
-          "returns to the starter maple at its seed.",
-      )
-    ) {
-      return;
-    }
+    setConfirm({
+      title: "Reset the tree",
+      body:
+        "Wipe the garden? Trivia, fertilizer, growth, species, and " +
+        "skins reset — sun, tokens, and the pet stay. The starter " +
+        "maple grows back from its seed.",
+      onYes: () => {
+        doResetTreeProgress();
+      },
+    });
+  }
+
+  function doResetTreeProgress() {
 
     try {
       window.localStorage.removeItem(TRIVIA_KEY);
       window.localStorage.removeItem(LEGACY_TRIVIA_KEY);
+      window.localStorage.removeItem(TRIVIA_BANK_KEY);
       window.localStorage.removeItem(ASKS_KEY);
       window.localStorage.removeItem(SPECIES_KEY);
       window.localStorage.removeItem(SKINS_KEY);
       window.localStorage.removeItem("paperrec_tree_size");
     } catch {
       // best-effort
+
     }
 
-    setSeenTrivia([]);
+    setTriviaBank(emptyBank());
+    writeTriviaBank(emptyBank());
     setCurrent(null);
     setFeedNote(null);
     setIdleLine(null);
@@ -245,35 +421,37 @@ export default function TreeOfKnowledge({
   const nextAt = nextKnowledgeHeight(height);
 
   function chooseSpecies(id: TreeSpeciesId) {
+    setPreviewStage(null);
     setSpeciesId(id);
     writeSpecies(id);
+    plantSpecies(id);
   }
 
   function buySkin(id: TreeSpeciesId) {
     const price = TREE_SKIN_PRICES[id];
     if (ownedSkins.includes(id)) return;
 
-    if (
-      !window.confirm(
-        `Buy the ${treeSpecies(id).label} skin for ${price} growth tokens?`,
-      )
-    ) {
-      return;
-    }
+    const label = treeSpecies(id).label;
 
-    if (!spendTokens(price)) {
-      window.alert(
-        `Not enough growth tokens — ${price - tokens} more needed. ` +
-          "Earn them by using the app: daily visits, battles, asks, " +
-          "treasures, and achievements all pay tokens.",
-      );
-      return;
-    }
-
-    addOwnedSkin(id);
-    setSpeciesId(id);
-    writeSpecies(id);
-    spawnSparkles(6);
+    setConfirm({
+      title: "Buy this skin",
+      body: `Adopt the ${label} for ${price} growth tokens? It unlocks in the seed bank and plants right away.`,
+      onYes: () => {
+        if (!spendTokens(price)) {
+          setNotice(
+            `Not enough growth tokens — ${price - tokens} more needed.` +
+              " Earn more by using the app: daily visits, hunts, asks," +
+              " treasures, and achievements all pay tokens.",
+          );
+          return;
+        }
+        addOwnedSkin(id);
+        setSpeciesId(id);
+        writeSpecies(id);
+        plantSpecies(id);
+        spawnSparkles(6);
+      },
+    });
   }
 
   /* The speech bubble rides the tree's crown: a seed's bubble sits
@@ -305,8 +483,11 @@ export default function TreeOfKnowledge({
     if (!knowledgeHandout) return;
 
     const nextSeen = [...seenTrivia, knowledgeHandout.trivia.id];
-    setSeenTrivia(nextSeen);
-    writeTriviaSeen(nextSeen);
+    setTriviaBank((bank) => {
+      const next = { ...bank, [speciesId]: nextSeen };
+      writeTriviaBank(next);
+      return next;
+    });
     setCurrent(knowledgeHandout.trivia);
     setBubbleClosed(false);
     spawnSparkles(5);
@@ -328,6 +509,15 @@ export default function TreeOfKnowledge({
     topic: string;
   } | null>(null);
   const [bubbleClosed, setBubbleClosed] = useState(false);
+  /* The bubble rests after speaking: every whisper or trivia piece
+     auto-closes on a random cooldown between 4 and 7 seconds. */
+  useEffect(() => {
+    if (bubbleClosed || (!feedNote && !current)) return;
+    const delay = 4000 + Math.floor(Math.random() * 3000);
+    const id = window.setTimeout(() => setBubbleClosed(true), delay);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedNote, current, bubbleClosed]);
   const hoverRef = useRef(false);
 
   useEffect(() => {
@@ -368,12 +558,15 @@ export default function TreeOfKnowledge({
   }, [current, idleLine, bubbleClosed]);
 
   return (
-    <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
+    <div
+      data-tree-card=""
+      className="overflow-hidden rounded border-[3px] border-gray-900 bg-white"
+    >
       {/* ---------------- menu bar: currency, menus, species ------ */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b-[3px] border-gray-900 bg-[#8a5a2b] px-3 py-2">
+      <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap border-b-[3px] border-gray-900 bg-accent px-3 py-2">
         <div className="flex items-center gap-1.5">
         <div
-          className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-[#f5e08a] px-2 py-1 font-mono text-xs font-bold text-gray-900"
+          className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
           title={`Growth points: ${earnedPoints} earned + ${bonusGrowth} from fertilizer`}
         >
           <SunGlyph />
@@ -388,7 +581,7 @@ export default function TreeOfKnowledge({
           className={`flex items-center gap-1.5 rounded border-[3px] border-gray-900 px-2 py-1 font-mono text-xs font-bold transition-colors pixel-ease ${
             menu === "shop"
               ? "bg-white text-gray-900"
-              : "bg-[#f5e08a] text-gray-900 hover:bg-[#fff3b8]"
+              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
           }`}
         >
           <SunGlyph />
@@ -403,7 +596,7 @@ export default function TreeOfKnowledge({
           className={`flex items-center gap-1.5 rounded border-[3px] border-gray-900 px-2 py-1 font-mono text-xs font-bold transition-colors pixel-ease ${
             menu === "skins"
               ? "bg-white text-gray-900"
-              : "bg-[#f5e08a] text-gray-900 hover:bg-[#fff3b8]"
+              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
           }`}
         >
           <TokenGlyph />
@@ -418,15 +611,36 @@ export default function TreeOfKnowledge({
           className={`rounded border-[3px] border-gray-900 px-2 py-[5px] font-mono text-[10px] font-bold uppercase tracking-wider transition-colors pixel-ease ${
             menu === "wallet"
               ? "bg-white text-gray-900"
-              : "bg-[#f5e08a] text-gray-900 hover:bg-[#fff3b8]"
+              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
           }`}
         >
           Wallet
         </button>
         </div>
 
-        {/* the species bank */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        {/* the species picker: character-selector cards */}
+        <div
+          role="group"
+          aria-label="Species picker"
+          className="flex items-center gap-1.5 overflow-x-auto"
+          onKeyDown={(event) => {
+            const owned = TREE_SPECIES.filter((sp) =>
+              ownedSkins.includes(sp.id),
+            );
+            const index = owned.findIndex((sp) => sp.id === speciesId);
+            if (event.key === "ArrowRight") {
+              event.preventDefault();
+              if (owned.length > 0) chooseSpecies(owned[(index + 1) % owned.length].id);
+            } else if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              if (owned.length > 0) {
+                chooseSpecies(
+                  owned[(index - 1 + owned.length) % owned.length].id,
+                );
+              }
+            }
+          }}
+        >
 
         {TREE_SPECIES.map((species) => {
           const planted = species.id === speciesId;
@@ -440,11 +654,15 @@ export default function TreeOfKnowledge({
                 type="button"
                 onClick={() => chooseSpecies(species.id)}
                 aria-pressed={planted}
-                title={`Plant a ${species.label}`}
-                className={`flex w-16 flex-col items-center gap-0.5 rounded border-[3px] border-gray-900 px-1 py-1 transition-colors pixel-ease ${
+                title={
                   planted
-                    ? "bg-[#ffe9a8]"
-                    : "bg-[#d9b382] hover:bg-[#e6c79c]"
+                    ? `${species.label} planted — swap with \u2190 \u2192`
+                    : `Plant the ${species.label}`
+                }
+                className={`flex w-16 shrink-0 flex-col items-center gap-0.5 rounded-lg border-[3px] px-1 py-1 transition-all duration-150 pixel-ease ${
+                  planted
+                    ? "border-gray-900 bg-accentSoft/65 text-[#2b3347] dark:text-onAccent shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
+                    : "border-gray-900 bg-accentSoft/60 text-[#453b2f] dark:text-onAccent opacity-75 hover:opacity-100"
                 }`}
               >
                 <KnowledgeTree
@@ -471,8 +689,8 @@ export default function TreeOfKnowledge({
               key={species.id}
               type="button"
               onClick={() => buySkin(species.id)}
-              title={`Buy a ${species.label} skin for ${price} growth tokens (Sun Shop currency)`}
-              className="flex w-16 flex-col items-center gap-0.5 rounded border-[3px] border-gray-900 bg-[#e0cfb8] px-1 py-1 transition-colors pixel-ease hover:bg-[#ecdcc4]"
+              title={`Locked — buy the ${species.label} skin for ${price} growth tokens`}
+              className="flex w-16 shrink-0 flex-col items-center gap-0.5 rounded-lg border-[3px] border-dashed border-gray-600 bg-[#e0cfb8]/70 px-1 py-1 opacity-60 grayscale transition-all duration-150 pixel-ease hover:opacity-90 hover:grayscale-0"
             >
               <span
                 className="flex h-[30px] items-center justify-center text-[13px] text-gray-600"
@@ -483,7 +701,7 @@ export default function TreeOfKnowledge({
               <span className="font-mono text-[9px] font-bold uppercase text-gray-700">
                 {species.label}
               </span>
-              <span className="font-mono text-[8px] font-bold uppercase text-[#8a5a2b]">
+              <span className="font-mono text-[8px] font-bold uppercase text-accent">
                 <TokenGlyph className="inline-block h-2.5 w-2.5" /> {price}
               </span>
             </button>
@@ -504,11 +722,16 @@ export default function TreeOfKnowledge({
       </div>
 
       {/* ---------------- garden bed: the animated landscape ------ */}
-      <div className="relative overflow-hidden px-3 pb-1.5 pt-6">
-        {/* the completed landscape rests behind the tree */}
-        <GardenBackdrop />
+      {/* the tree and its menus sit side by side so the pop-ups
+          always fit within the window */}
+      <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+      <div className="relative w-full overflow-hidden px-3 pb-1.5 pt-6">
+        {/* the landscape stage is an exact 16:9 box: wide enough to
+            cover the column, never stretched, never letterboxed */}
+        <div ref={stageRef} className="relative aspect-[16/9] w-full">
+        <GardenBackdrop theme={activeTheme} parallax={morphG} />
 
-      <div className="relative z-10 flex flex-col items-center">
+      <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center justify-end pb-1">
           <div
             className={`relative transition-all duration-200 pixel-ease ${
               dropActive
@@ -557,7 +780,9 @@ export default function TreeOfKnowledge({
           >
             <PixelGrowthTree
               speciesId={speciesId}
-              growth={growth}
+              growth={morphG}
+              viewerMax={stageH > 0 ? Math.round(stageH) - 6 : undefined}
+              viewResetKey={viewReset}
               onTreeClick={() => setBubbleClosed(false)}
             />
 
@@ -568,7 +793,7 @@ export default function TreeOfKnowledge({
                 call it back. */}
             {!bubbleClosed && (
             <div
-              className="absolute left-1/2 z-10 w-max max-w-[260px] -translate-x-1/2 rounded border-[3px] border-gray-900 bg-white px-2.5 py-1.5 font-mono text-[11px] leading-4 text-ink shadow-[3px_3px_0_rgba(0,0,0,0.25)] transition-[bottom] duration-700 pixel-ease"
+              className="absolute left-[calc(50%+3.5rem)] z-10 w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded border-[3px] border-gray-900 bg-white px-2.5 py-1.5 font-mono text-[11px] leading-4 text-ink shadow-[3px_3px_0_rgba(0,0,0,0.25)] transition-[bottom] duration-700 pixel-ease"
               data-tree-bubble
               style={{
                 bottom: `${bubbleBottomPct}%`,
@@ -629,45 +854,20 @@ export default function TreeOfKnowledge({
               className="absolute -bottom-1 left-1/2 h-2 w-20 -translate-x-1/2 rounded-full bg-black/20"
             />
 
-              {/* growth markers: the tree visibly grows at each sun value */}
-              {!hideMarkers && (
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-1">
-                {growthMarkers.map((marker, index) => {
-                  const reached = fertilizer >= marker.fert;
-                  const active = activeMarker?.label === marker.label;
-                  const nextFert =
-                    growthMarkers[index + 1]?.fert ?? marker.fert;
-
-                  return (
-                    <span
-                      key={marker.label}
-                      className={`flex items-center gap-1 rounded-md border-[2px] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide shadow-[1px_1px_0_rgba(0,0,0,0.08)] ${
-                        active
-                          ? "border-gray-900 bg-[#f5e08a] text-gray-900"
-                          : reached
-                            ? "border-[#4a7a2f] bg-[#eef7e6] text-[#2b6e1e]"
-                            : "border-gray-300/80 bg-white/85 text-gray-500"
-                      }`}
-                    >
-                      <span aria-hidden="true" className="text-[8px]">
-                        {reached
-                          ? "\u2713"
-                          : index === growthMarkers.length - 1
-                            ? "\u2605"
-                            : "\u25CB"}
-                      </span>
-                      {marker.label}
-                      {!reached && (
-                        <span className="opacity-60">
-                          {"\u00B7"} {nextFert - fertilizer}{" "}
-                          fert
-                        </span>
-                      )}
-                    </span>
-                  );
-                })}
+              {/* cheat bloom: ring + word burst */}
+            {cheatFx && (
+              <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+                <span
+                  aria-hidden="true"
+                  className="absolute h-40 w-40 animate-ping rounded-full border-4 border-[#f0c161] opacity-70"
+                />
+                <span
+                  className="animate-pulse rounded-lg border-[3px] border-gray-900 bg-white/95 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-accent shadow-[3px_3px_0_rgba(0,0,0,0.2)]"
+                >
+                  Cheat unlocked — {"\u201C"}{cheatFx.word}{"\u201D"}
+                </span>
               </div>
-              )}
+            )}
 
             {/* sparkle burst when the tree dispenses trivia */}
             {sparkles.map((sparkle) => (
@@ -685,61 +885,325 @@ export default function TreeOfKnowledge({
             ))}
           </div>
         </div>
+            {/* growth markers: the tree visibly grows at each sun value;
+                relocated to the top-left corner of the meadow as a
+                toggleable stage strip */}
+            {!hideMarkers && (
+            <div className="absolute left-2 top-2 z-20 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-1">
+              {growthMarkers.map((marker, index) => {
+                const reached = fertilizer >= marker.fert;
+                const live = activeMarker?.label === marker.label;
+                const active = previewStage === index;
+                const nextFert =
+                  growthMarkers[index + 1]?.fert ?? marker.fert;
+
+                return (
+                  <button
+                    key={marker.label}
+                    type="button"
+                    aria-pressed={active}
+                    title={
+                      active
+                        ? "Back to the tree as it grows"
+                        : `Preview the ${marker.label} stage`
+                    }
+                    onClick={() => {
+                      setPreviewStage(active ? null : index);
+                      setViewReset((n) => n + 1);
+                    }}
+                    className={`retro-shadow-light flex items-center gap-1 rounded-md border-[2px] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide transition-colors pixel-ease ${
+                      active ? "animate-pulse" : ""
+                    }
+                    ${
+                      active
+                        ? "border-gray-900 bg-accent text-[#2b3347] shadow-[2px_2px_0_rgba(0,0,0,0.2)]"
+                        : live
+                          ? "border-gray-900 bg-accentSoft text-[#2b3347]"
+                          : reached
+                            ? "border-[#4a7a2f] bg-accentSoft text-[#2b6e1e] hover:bg-[#dff0d2]"
+                            : "border-gray-300/80 bg-white/85 text-[#6a6053] dark:bg-[#241c12]/90 dark:text-[#cfc3b4] hover:border-gray-900 hover:text-gray-800"
+                    }`}
+                  >
+                    <span aria-hidden="true" className="text-[8px]">
+                      {reached
+                        ? "\u2713"
+                        : index === growthMarkers.length - 1
+                          ? "\u2605"
+                          : "\u25CB"}
+                    </span>
+                    {marker.label}
+                    {!reached && (
+                      <span className="opacity-60">
+                        {"\u00B7"}{" "}
+                        {treeHeightByFertilizer(nextFert, speciesId) -
+                          treeHeightByFertilizer(fertilizer, speciesId)}{" "}
+                        ft
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            )}
+        </div>
       </div>
 
-      {/* the tree's menu panels, inside its own card */}
-      {menu && (
-        <div className="border-t-[3px] border-gray-900">
-          <div className="flex items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-gradient-to-b from-[#96683a] to-[#82572c] px-3 py-2">
-            <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-[#ffe9a8]">
-              {menu === "shop"
-                ? "Sun shop"
-                : menu === "skins"
-                  ? "Tree skins"
-                  : "Test wallet"}
-            </p>
-            <span className="flex items-center gap-2">
-              {menu === "shop" && (
-                <span
-                  className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-[#f5e08a] px-2 py-1 font-mono text-xs font-bold text-gray-900"
-                  title="Your sun tokens"
-                >
-                  <SunGlyph />
-                  {balance}
-                </span>
-              )}
-              {menu === "skins" && (
-                <span
-                  className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-[#f5e08a] px-2 py-1 font-mono text-xs font-bold text-gray-900"
-                  title="Your growth tokens"
-                >
-                  <TokenGlyph />
-                  {tokens}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setMenu(null)}
-                aria-label="Close menu"
-                title="Close this menu"
-                className="grid h-5 w-5 place-items-center rounded border-[2px] border-[#ffe9a8]/80 font-mono text-[11px] font-bold leading-none text-[#ffe9a8] transition-colors pixel-ease hover:bg-[#ffe9a8]/15"
+{/* the sidebar: the tree's info by default, the shops on
+          request; same height as the tree column either way */}
+      <aside
+        aria-label="Tree sidebar"
+        className="overflow-hidden border-t-[3px] border-gray-900 md:h-[500px] md:border-l-[3px] md:border-t-0"
+      >
+        <div className="flex h-[49px] items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-gradient-to-b from-accent to-accent/70 px-3 py-2">
+          <p className="retro-shadow-dark truncate font-mono text-xs font-bold uppercase tracking-[0.15em] text-onAccent">
+            {menu === "shop"
+              ? "Sun shop"
+              : menu === "skins"
+                ? "Tree skins"
+                : menu === "themes"
+                  ? "Theme shop"
+                  : menu === "wallet"
+                    ? "Token wallet"
+                    : "Tree info"}
+          </p>
+          <span className="flex items-center gap-2">
+            {menu === "shop" && (
+              <span
+                className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
+                title="Your sun tokens"
               >
-                {"\u00D7"}
-              </button>
-            </span>
-          </div>
-          <div className="bg-[#fbf7ee]">
-            <SunShop embedded tab={menu} hidePreview />
-          </div>
+                <SunGlyph />
+                {balance}
+              </span>
+            )}
+            {menu === "skins" && (
+              <span
+                className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
+                title="Your growth tokens"
+              >
+                <TokenGlyph />
+                {tokens}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setMenu(null)}
+              aria-label="Close sidebar"
+              title="Back to the tree info"
+              className="grid h-5 w-5 place-items-center rounded border-[2px] border-onAccent/80 font-mono text-[11px] font-bold leading-none text-onAccent transition-colors pixel-ease hover:bg-onAccent/15"
+            >
+              {"×"}
+            </button>
+          </span>
         </div>
-      )}
+
+        {/* picker rail: info + the three shops */}
+        <div
+          role="group"
+          aria-label="Tree sidebar menus"
+          className="flex w-full gap-2 overflow-x-auto border-b-[3px] border-gray-900 bg-accentSoft/45 dark:bg-[#2c2413]/70 px-2 py-2"
+          onKeyDown={(event) => {
+            const RAIL = [
+              { id: "info", label: "Tree info" },
+              { id: "shop", label: "Sun shop" },
+              { id: "skins", label: "Tree skins" },
+              { id: "themes", label: "Themes" },
+              { id: "wallet", label: "Wallet" },
+            ] as const;
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+              return;
+            }
+            event.preventDefault();
+            const index = RAIL.findIndex((entry) => entry.id === menu);
+            const next =
+              event.key === "ArrowRight"
+                ? RAIL[(index + 1) % RAIL.length].id
+                : RAIL[(index - 1 + RAIL.length) % RAIL.length].id;
+            setMenu(next);
+          }}
+        >
+          {(
+            [
+              { id: "info", label: "Tree info", glyph: "i" },
+              { id: "shop", label: "Sun shop", glyph: "\u2600" },
+              { id: "skins", label: "Tree skins", glyph: "\uD83C\uDF33" },
+              { id: "themes", label: "Themes", glyph: "\u25C8" },
+              { id: "wallet", label: "Wallet", glyph: "\u25C6" },
+            ] as const
+          ).map((entry) => {
+            const active = (menu ?? "info") === entry.id;
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setMenu(entry.id)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== "ArrowLeft" &&
+                    event.key !== "ArrowRight"
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const RAIL = [
+                    { id: "info", label: "Tree info" },
+                    { id: "shop", label: "Sun shop" },
+                    { id: "skins", label: "Tree skins" },
+                    { id: "themes", label: "Themes" },
+                    { id: "wallet", label: "Wallet" },
+                  ] as const;
+                  const index = RAIL.findIndex(
+                    (entry2) => entry2.id === menu,
+                  );
+                  const next =
+                    event.key === "ArrowRight"
+                      ? RAIL[(index + 1) % RAIL.length].id
+                      : RAIL[(index - 1 + RAIL.length) % RAIL.length].id;
+                  setMenu(next);
+                }}
+                title={`${entry.label} — press \u2190 \u2192 to switch`}
+                className={`flex min-w-[68px] shrink-0 flex-col items-center gap-0.5 rounded-lg border-[3px] px-1.5 py-1 transition-all duration-150 pixel-ease ${
+                  active
+                    ? "border-gray-900 bg-white text-gray-900 shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
+                    : "border-gray-800/40 bg-white/60 text-gray-700/70 dark:bg-[#262015]/70 hover:border-gray-900 hover:text-gray-900"
+                }`}
+              >
+                <span
+                  className="grid h-7 w-7 place-items-center rounded border-[3px] font-mono text-[11px] font-bold"
+                >
+                  <span
+                    className={`grid h-7 w-7 place-items-center rounded border-[3px] transition-colors ${
+                      active
+                        ? "border-gray-900 bg-accentSoft"
+                        : "border-gray-700/40 bg-white/70"
+                    }`}
+                  >
+                    {entry.glyph}
+                  </span>
+                </span>
+                <span className="font-mono text-[9px] font-bold uppercase">
+                  {entry.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="md:h-[376px] md:overflow-y-auto bg-white">
+          {(menu === "info" || menu === null) && (
+            <div className="p-4">
+              <p className="font-pixelify text-lg font-bold leading-tight text-ink">
+                {SPECIES_INFO[speciesId].name}
+              </p>
+              <p className="mt-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent">
+                {treeSpecies(speciesId).label}
+              </p>
+
+              <p className="mt-3 text-xs leading-5 text-ink">
+                {SPECIES_INFO[speciesId].fact}
+              </p>
+
+              {!infoExpanded ? (
+                <button
+                  type="button"
+                  onClick={() => setInfoExpanded(true)}
+                  className="mt-4 w-full rounded-lg border-[3px] border-gray-900 bg-accent px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-[#2b3347] shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:brightness-110 hover:bg-accent active:translate-y-[2px] active:shadow-none"
+                >
+                  Get info
+                </button>
+              ) : (
+                <div>
+                  <span
+                    role="status"
+                    className="mb-2 mt-4 inline-block rounded-md border-[2px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-[10px] font-bold text-[#2b6e1e]"
+                  >
+                    {handout && handout.eligible > 0
+                      ? `${handout.learned}/${handout.eligible} learned`
+                      : "0/0 learned"}
+                  </span>
+
+                  <p className="mt-1 font-mono text-[10px] font-bold uppercase tracking-wide text-muted">
+                    Research on the tree
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-ink">
+                    {SPECIES_INFO[speciesId].research}
+                  </p>
+
+                  <p className="mt-3 font-mono text-[10px] font-bold uppercase tracking-wide text-muted">
+                    The trunk's knowledge
+                  </p>
+                  {seenTrivia.length === 0 ? (
+                    <p className="mt-1 text-xs italic text-muted">
+                      Nothing yet — ask the tree while it grows.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 flex flex-col gap-2">
+                      {TRIVIA.filter((item) =>
+                        seenTrivia.includes(item.id),
+                      ).map((item) => (
+                        <li
+                          key={item.id}
+                          className="rounded border-[2px] border-gray-900 bg-white px-2 py-1.5"
+                        >
+                          <p className="font-mono text-[9px] font-bold uppercase tracking-wide text-accent">
+                            {item.topic}
+                          </p>
+                          <p className="text-[11px] leading-4 text-ink">
+                            {item.text}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {nextAt !== undefined && (
+                    <p className="mt-3 font-mono text-[9px] font-bold uppercase tracking-wider text-muted">
+                      Next knowledge at {nextAt} ft — grow it to ask
+                      deeper.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {menu === "themes" && (
+            <ThemeShop
+              owned={themes}
+              active={activeTheme}
+              onChanged={adoptTheme}
+            />
+          )}
+
+          {menu !== null && menu !== "info" && menu !== "themes" && (
+        <div className="bg-white">
+            <SunShop
+              embedded
+              tab={menu}
+              onSelect={(id) => setMenu(id)}
+              hidePicker
+              hidePreview
+              onWhisper={(text) => {
+                setFeedNote(text);
+                setBubbleClosed(false);
+              }}
+              onCheatFx={triggerCheatFx}
+            />
+          </div>
+          )}
+        </div>
+      </aside>
+      </div>
 
       {/* centered action row under the bed */}
-      <div className="flex flex-wrap items-center justify-center gap-2.5 border-t-[3px] border-gray-900 bg-[#eef7e6] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-center gap-2.5 border-t-[3px] border-gray-900 bg-accentSoft px-4 py-3">
+
         <button
           type="button"
           onClick={askTree}
-          className="rounded-lg border-[3px] border-gray-900 bg-[#e8b04b] px-5 py-2 font-mono text-xs font-bold uppercase tracking-[0.1em] text-gray-900 shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:bg-[#f0c161] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.18)] active:translate-y-[3px] active:shadow-none"
+          className="retro-shadow-dark rounded-lg border-[3px] border-gray-900 bg-accent px-5 py-2 font-mono text-xs font-bold uppercase tracking-[0.1em] text-onAccent shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:brightness-110 hover:bg-accent hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.18)] active:translate-y-[3px] active:shadow-none"
         >
           Ask the tree
         </button>
@@ -769,6 +1233,28 @@ export default function TreeOfKnowledge({
           Reset progress
         </button>
       </div>
+
+      <RetroDialog
+        open={confirm !== null}
+        title={confirm?.title ?? ""}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          confirm?.onYes();
+          setConfirm(null);
+        }}
+      >
+        {confirm?.body}
+      </RetroDialog>
+
+      <RetroDialog
+        open={notice !== null}
+        title="Heads up"
+        onCancel={() => setNotice(null)}
+        onConfirm={() => setNotice(null)}
+        confirmLabel="OK"
+      >
+        {notice}
+      </RetroDialog>
     </div>
   );
 }

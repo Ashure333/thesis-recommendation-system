@@ -445,6 +445,69 @@ export const TRIVIA: Trivia[] = [
       "RESET in the pet footer clears discovered tips and hunt " +
       "progress so the whole scavenger hunt can be replayed.",
   },
+  {
+    id: "g-march",
+    tier: 0,
+    topic: "Walkthrough",
+    text:
+      "The Garden's tree marches on fertilizer: 3,000 packets " +
+      "take it from Seed through Seedling, Sapling, Young, Mature, " +
+      "and Giant to the Ancient crown.",
+  },
+  {
+    id: "g-feet",
+    tier: 1,
+    topic: "Walkthrough",
+    text:
+      "Every ft the tree reports is its real painted height: the " +
+      "canopy measured against the fully grown tree, so 1,000 ft " +
+      "is always an ancient crown.",
+  },
+  {
+    id: "g-cheats",
+    tier: 2,
+    topic: "Walkthrough",
+    text:
+      "Cheat words bloom at 250, 650, and 1,000 ft — each species " +
+      "owns its own three, and typing the word arms it until " +
+      "typed again.",
+  },
+  {
+    id: "g-themes",
+    tier: 1,
+    topic: "Walkthrough",
+    text:
+      "The backdrop is one of seven scenes — Meadow, Winter, " +
+      "Desert, Shore, Violet Keep, Rose Ruins, and Frost Spire — " +
+      "adopted with growth tokens in the Theme shop.",
+  },
+  {
+    id: "g-timezone",
+    tier: 2,
+    topic: "Walkthrough",
+    text:
+      "The garden keeps your local time: the scene shows night " +
+      "when it is night, dawn at dawn, and midday at noon — the " +
+      "day and the tree are both on your clock.",
+  },
+  {
+    id: "g-climb",
+    tier: 2,
+    topic: "Walkthrough",
+    text:
+      "Once the tree outgrows its window, the viewer unlocks: " +
+      "drag, scroll, or the arrows to climb the trunk, and the " +
+      "stage chips morph it back down to any milestone.",
+  },
+  {
+    id: "g-bubble",
+    tier: 0,
+    topic: "Walkthrough",
+    text:
+      "The tree whispers every feed and milestone into its speech " +
+      "bubble, offset right of the crown, and rests it on a " +
+      "random 4-7 second cooldown.",
+  },
 ];
 
 /** Trivias unlocked at a growth stage (all tiers up to it). */

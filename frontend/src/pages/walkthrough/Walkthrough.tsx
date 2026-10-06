@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CloseX } from "../../components/retro/PixelIcons";
 import {
   Chip,
@@ -109,6 +110,7 @@ const TOC = [
   ["my-library", "Walkthrough: My Library"],
   ["arena", "Walkthrough: Arena"],
   ["pet", "The pixel pet & scavenger hunt"],
+  ["garden", "The Garden & Tree of Knowledge"],
   ["engine", "The recommendation engine"],
   ["api", "Data & API reference"],
   ["screenshots", "Screenshots"],
@@ -141,26 +143,138 @@ const FORMS = [
 ] as const;
 
 const GALLERY = [
-  ["01-login.png", "Login", "Single-user local sign-in; any email and password works."],
-  ["02-recommendations.png", "Search", "Query bar, mode tabs, ranked results, and the similar-papers graph."],
-  ["03-repository.png", "Repository", "Browse with sidebar filters, sorting, and per-row actions."],
-  ["04-upload.png", "Upload", "Add by identifier with an arXiv record resolved into the review form."],
-  ["05-library.png", "My Library", "Saved papers, Find Similar, and drag-to-pet disposal."],
-  ["06-arena.png", "Arena", "A battle run: winner banner, consensus ranking, and pairwise agreement."],
-  ["07-pet.png", "The pixel pet", "The resident companion, mid-speech above the Arena."],
-  ["08-pet-forms.png", "Pet forms", "The ten Tempest forms the slime shifts into, each in the character's own palette."],
-  ["09-pet-speech.png", "Pet speech", "The second voice: Japanese lines always carry their translation."],
+  ["01-login.png", "Login", "Single-user local sign-in; any email and password works.", "overview"],
+  ["10-login-splash.png", "Title screen", "The arcade splash: INSERT COIN TO CONTINUE before the app opens.", "overview"],
+  ["11-settings.png", "Settings", "Theme accent picker, pet visibility, and the site-mode switches.", "overview"],
+  ["02-recommendations.png", "Search", "Query bar, mode tabs, ranked results, and the similar-papers graph.", "search"],
+  ["12-search-details.png", "Search: details pane", "Any result opens a detail pane with score contributions and actions.", "search"],
+  ["13-search-modes.png", "Search: mode tabs", "Switch between the six pipelined modes without losing the query.", "search"],
+  ["14-search-lower.png", "Search: lower results", "The ranked list continues with pagination and per-row tools.", "search"],
+  ["03-repository.png", "Repository", "Browse with sidebar filters, sorting, and per-row actions.", "repository"],
+  ["15-repository-filters.png", "Repository: filters", "Sidebar filters narrow the corpus by year, venue, and signals.", "repository"],
+  ["16-repository-lower.png", "Repository: deep list", "The full list scrolls; every row carries its own actions.", "repository"],
+  ["04-upload.png", "Upload", "Add by identifier with an arXiv record resolved into the review form.", "upload"],
+  ["17-upload-lower.png", "Upload: review form", "Parsed metadata lands in the review form for correction before saving.", "upload"],
+  ["18-upload-bottom.png", "Upload: import paths", "PDF, BibTeX paste, and URL import all feed the same repository.", "upload"],
+  ["05-library.png", "My Library", "Saved papers, Find Similar, and drag-to-pet disposal.", "my-library"],
+  ["19-library-lower.png", "My Library: actions", "Find Similar, PDF actions, and removal all live on the card.", "my-library"],
+  ["33-library-mid.png", "My Library: selection", "Selecting a paper opens its detail view beside the list.", "my-library"],
+  ["06-arena.png", "Arena", "A battle run: winner banner, consensus ranking, and pairwise agreement.", "arena"],
+  ["20-arena-lower.png", "Arena: rankings", "The consensus table ranks all six pipelines for the run.", "arena"],
+  ["21-arena-bottom.png", "Arena: history", "Battle history powers the long-term tally across runs.", "arena"],
+  ["07-pet.png", "The pixel pet", "The resident companion, mid-speech above the Arena.", "pet"],
+  ["08-pet-forms.png", "Pet forms", "The ten Tempest forms the slime shifts into, each in the character's own palette.", "pet"],
+  ["09-pet-speech.png", "Pet speech", "The second voice: Japanese lines always carry their translation.", "pet"],
+  ["25-pet-menu.png", "Pet menu", "Right-click the pet for its menu: hunt, tips, chat, and RESET.", "pet"],
+  ["26-garden-seedling.png", "Garden: seedling", "A young tree in the meadow, stage chips along the top-left.", "garden"],
+  ["27-garden-mature.png", "Garden: mature", "The canopy at full spread; the milestone chips mark the march.", "garden"],
+  ["28-garden-ancient.png", "Garden: ancient", "The ancient crown rising through the haze at 1,000 ft.", "garden"],
+  ["29-garden-themes.png", "Theme shop", "Seven backdrop scenes adopted with growth tokens.", "garden"],
+  ["30-garden-cheats.png", "Cheat ladder", "Each species keeps three cheat words with their effects.", "garden"],
+  ["31-garden-climb.png", "Climbing the tree", "Zoomed in, the arrows and drag walk you up the trunk.", "garden"],
+  ["32-engine.png", "Engine walkthrough", "The engine page documents every pipeline's math end to end.", "engine"],
+  ["34-engine-lower.png", "Engine: components", "Component maths: lexical, semantic, and metadata signals.", "engine"],
+  ["35-engine-bottom.png", "Engine: evaluation", "How the harness scores and compares the six pipelines.", "engine"],
 ] as const;
+
+const TOPIC_LABELS: Record<string, string> = {
+  overview: "Overview",
+  search: "Search",
+  repository: "Repository",
+  upload: "Upload",
+  "my-library": "My Library",
+  arena: "Arena",
+  pet: "The pixel pet",
+  garden: "The Garden",
+  engine: "The engine",
+};
+
+function TopicShots({
+  topic,
+  open,
+}: {
+  topic: string;
+  open: (index: number, el: HTMLElement | null) => void;
+}) {
+  const items = GALLERY.map((entry, index) => ({ entry, index })).filter(
+    ({ entry }) => entry[3] === topic,
+  );
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-4 border-t-[3px] border-gray-900 pt-3">
+      <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted">
+        {TOPIC_LABELS[topic] ?? topic} · {items.length} screenshots
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {items.map(({ entry, index }) => {
+          const [src, title, caption] = entry;
+          return (
+            <figure
+              key={src}
+              className="group overflow-hidden rounded border-[3px] border-gray-900 bg-white"
+            >
+              <button
+                type="button"
+                onClick={(event) => open(index, event.currentTarget)}
+                aria-label={`Preview ${title}`}
+                title="Click to preview"
+                className="block w-full cursor-zoom-in border-b-[3px] border-gray-900 transition-colors pixel-ease focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-gray-900 group-hover:bg-accentSoft"
+              >
+                <img
+                  src={`/walkthrough/${src}`}
+                  alt={title}
+                  loading="lazy"
+                  className="block w-full"
+                />
+              </button>
+              <figcaption className="p-2.5">
+                <p className="font-pixelify text-xs font-bold text-ink">
+                  {title}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-4 text-muted">
+                  {caption}
+                </p>
+              </figcaption>
+            </figure>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function Walkthrough() {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  /* The clicked image's spot in the CURRENT scroll, so the pop-up
+     spawns right there (viewport coordinates) instead of popping
+     into the middle of nowhere. */
+  const [previewOrigin, setPreviewOrigin] = useState<{
+    cx: number;
+    cy: number;
+  } | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
 
-  function openPreview(index: number) {
+  function openPreview(index: number, el?: HTMLElement | null) {
+    const rect = el?.getBoundingClientRect();
+    if (rect && el) {
+      triggerRef.current = el;
+      setPreviewOrigin({
+        cx: rect.left + rect.width / 2,
+        cy: rect.top + rect.height / 2,
+      });
+    }
     setPreviewIndex(index);
   }
 
   function closePreview() {
+    const trigger = triggerRef.current;
     setPreviewIndex(null);
+    setPreviewOrigin(null);
+    triggerRef.current = null;
+    /* Focus goes back exactly where the preview came from, after
+       the pop-up unmounts. */
+    window.setTimeout(() => trigger?.focus(), 0);
   }
 
   function stepPreview(delta: number) {
@@ -180,11 +294,54 @@ export default function Walkthrough() {
         stepPreview(1);
       } else if (event.key === "ArrowLeft") {
         stepPreview(-1);
+      } else if (event.key === "Tab") {
+        /* Persistent focus: Tab cycles the pop-up's own controls
+           and can never wander into the page behind it. */
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const focusables = Array.from(
+          dialog.querySelectorAll<HTMLElement>("button"),
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     }
 
+    /* Focus lands inside the pop-up the instant it appears... */
+    const seat = window.setTimeout(() => {
+      dialogRef.current?.focus();
+    }, 0);
+    /* ...and the page behind it holds still. */
+    const block = (event: Event) => event.preventDefault();
+    const keepFocus = () => {
+      const dialog = dialogRef.current;
+      if (dialog && !dialog.contains(document.activeElement)) {
+        dialog.focus();
+      }
+    };
+    /* Blur-redirecting too: once seated, focus can never leave. */
+    const onFocusOut = () => window.setTimeout(keepFocus, 0);
+    window.addEventListener("wheel", block, { passive: false });
+    window.addEventListener("touchmove", block, { passive: false });
+    document.addEventListener("focusin", keepFocus);
+    document.addEventListener("focusout", onFocusOut);
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(seat);
+      window.removeEventListener("wheel", block);
+      window.removeEventListener("touchmove", block);
+      document.removeEventListener("focusin", keepFocus);
+      document.removeEventListener("focusout", onFocusOut);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [previewIndex]);
 
   return (
@@ -261,6 +418,7 @@ export default function Walkthrough() {
                 then explains what that element does.
               </p>
             </WikiSub>
+            <TopicShots topic="overview" open={openPreview} />
           </WikiSection>
 
           <WikiSection id="recommendations" title="Walkthrough: Recommendations">
@@ -314,8 +472,10 @@ export default function Walkthrough() {
                 ])}
               />
             </WikiSub>
+            <TopicShots topic="search" open={openPreview} />
           </WikiSection>
 
+          {/* topic shots appended to the previous section */}
           <WikiSection id="repository" title="Walkthrough: Repository">
             <p className="text-sm leading-6 text-ink">
               The repository is the browse-and-manage face of the stored
@@ -352,6 +512,7 @@ export default function Walkthrough() {
               ]}
             />
             <WikiCite ids={["arxiv-source"]} />
+            <TopicShots topic="repository" open={openPreview} />
           </WikiSection>
 
           <WikiSection id="upload" title="Walkthrough: Upload">
@@ -393,6 +554,7 @@ export default function Walkthrough() {
                 ],
               ]}
             />
+            <TopicShots topic="upload" open={openPreview} />
           </WikiSection>
 
           <WikiSection id="my-library" title="Walkthrough: My Library">
@@ -414,6 +576,7 @@ export default function Walkthrough() {
                 ],
               ]}
             />
+            <TopicShots topic="my-library" open={openPreview} />
           </WikiSection>
 
           <WikiSection id="arena" title="Walkthrough: Arena">
@@ -457,6 +620,7 @@ export default function Walkthrough() {
               ]}
             />
             <WikiCite ids={["web-battles", "battle-records"]} />
+            <TopicShots topic="arena" open={openPreview} />
           </WikiSection>
 
           <WikiSection id="pet" title="The pixel pet & scavenger hunt">
@@ -564,6 +728,81 @@ export default function Walkthrough() {
                 ])}
               />
             </WikiSub>
+            <TopicShots topic="pet" open={openPreview} />
+          </WikiSection>
+
+          <WikiSection id="garden" title="The Garden & Tree of Knowledge">
+            <p className="text-sm leading-6 text-ink">
+              The Lab's Garden grows a pixel tree from a winged seed
+              to an ancient giant over a march of 3,000 fertilizer
+              packets, bought with sun in the tree's own Sun Shop.
+              Five species — the Crimson Maple, Royal Oak, Silver
+              Birch, Water Elm, and Giant Redwood — each mature on
+              their own curve and speak their own stage lines as
+              the milestones clear.
+            </p>
+            <WikiSub id="garden-march" title="The march and the feet">
+              <p className="text-sm leading-5 text-ink">
+                Seven stages are equally divided: Seed, Seedling,
+                Sapling, Young, Mature, Giant, Ancient. Every ft
+                label is the tree's ACTUAL painted height — the
+                canopy top measured against the ancient tree, so
+                1,000 ft is always a fully grown crown. Stage chips
+                above the meadow preview each milestone, stay
+                pressed to preview, and pressing again morphs the
+                tree smoothly back down.
+              </p>
+            </WikiSub>
+            <WikiSub id="garden-view" title="The viewing window">
+              <p className="text-sm leading-5 text-ink">
+                The tree lives in the references' own 128 x 128
+                window. Once it outgrows the box, the viewer
+                unlocks: drag (pointer or touch), scroll to climb
+                and descend, and the bottom-right arrows — every
+                motion pans up and down the trunk.
+              </p>
+            </WikiSub>
+            <WikiSub id="garden-cheats" title="Cheats">
+              <p className="text-sm leading-5 text-ink">
+                The tree blooms a cheat word at 250, 650, and 1,000
+                feet — each species offers its own three with their
+                own effects. The first bloom is announced once with
+                a golden burst; typing the word anywhere arms it and
+                the foliage drifts over the pages. Type it again to
+                disarm.
+              </p>
+              <WikiTable
+                headers={["Species", "250 ft", "650 ft", "1,000 ft"]}
+                rows={[
+                  ["Crimson Maple", "syrup", "blaze", "amber"],
+                  ["Royal Oak", "daisies", "dance", "pinata"],
+                  ["Silver Birch", "paper", "silver", "ribbon"],
+                  ["Water Elm", "vase", "ridge", "shade"],
+                  ["Giant Redwood", "grove", "mist", "elder"],
+                ]}
+              />
+            </WikiSub>
+            <WikiSub id="garden-themes" title="Backdrop themes">
+              <p className="text-sm leading-5 text-ink">
+                The meadow behind the tree is one of seven scenes —
+                Meadow, Winter, Desert, Shore, Violet Keep, Rose
+                Ruins, and Frost Spire — adopted with growth tokens
+                from the Theme shop. The scene follows your local
+                time zone: night when it is night, dawn at dawn,
+                and the canopy rising past it sinks the world away
+                in perspective while the haze thickens and birds
+                and leaves pass by.
+              </p>
+            </WikiSub>
+            <WikiSub id="garden-speech" title="Speech">
+              <p className="text-sm leading-5 text-ink">
+                The tree whispers every purchase and milestone into
+                its speech bubble, offset right of the crown, and
+                the bubble rests on a random 4-7 second cooldown —
+                the pet's own bubble does the same.
+              </p>
+            </WikiSub>
+            <TopicShots topic="garden" open={openPreview} />
           </WikiSection>
 
           <WikiSection id="engine" title="The recommendation engine">
@@ -597,6 +836,7 @@ export default function Walkthrough() {
               rebuilt after repository changes. The banner in the header
               tracks staleness.
             </p>
+            <TopicShots topic="engine" open={openPreview} />
           </WikiSection>
 
           <WikiSection id="api" title="Data & API reference">
@@ -628,7 +868,7 @@ export default function Walkthrough() {
                 >
                   <button
                     type="button"
-                    onClick={() => openPreview(index)}
+                    onClick={(event) => openPreview(index, event.currentTarget)}
                     aria-label={`Preview ${title}`}
                     title="Click to preview"
                     className="block w-full cursor-zoom-in border-b-[3px] border-gray-900 transition-colors pixel-ease focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-gray-900 group-hover:bg-accentSoft"
@@ -699,11 +939,16 @@ export default function Walkthrough() {
       </div>
 
       {/* ------------------------------------------------ LIGHTBOX */}
-      {previewIndex !== null && (() => {
+      {previewIndex !== null && createPortal((() => {
         const [src, title, caption] = GALLERY[previewIndex];
+        const dx = previewOrigin ? previewOrigin.cx - window.innerWidth / 2 : 0;
+        const dy = previewOrigin ? previewOrigin.cy - window.innerHeight / 2 : 0;
 
         return (
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${title} — enlarged screenshot`}
             className="fixed inset-0 z-[9990] flex items-center justify-center bg-canvas p-6"
             onMouseDown={(event) => {
               if (event.target === event.currentTarget) {
@@ -711,7 +956,15 @@ export default function Walkthrough() {
               }
             }}
           >
-            <div className="relative flex h-[92vh] w-[95vw] max-w-[1600px] flex-col">
+            <div
+              ref={dialogRef}
+              tabIndex={-1}
+              style={{
+                "--pop-x": `${dx}px`,
+                "--pop-y": `${dy}px`,
+              } as React.CSSProperties}
+              className="lightbox-pop relative flex h-[92vh] w-[95vw] max-w-[1600px] flex-col outline-none"
+            >
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0 translate-x-2 translate-y-2 rounded bg-gray-900"
@@ -779,7 +1032,7 @@ export default function Walkthrough() {
             </div>
           </div>
         );
-      })()}
+      })(), document.body)}
     </div>
   );
 }
