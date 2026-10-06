@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   DEFAULT_SPECIES,
   KNOWLEDGE_STAGES,
+  SPECIES_GROWTH_MARKERS,
   knowledgePoints,
   knowledgeStageFromHeight,
   nextKnowledgeHeight,
@@ -30,14 +31,15 @@ import type { Trivia } from "../../data/trivia";
 import { useHunt } from "../../state/hunt";
 import { useAchievements } from "../../state/achievements";
 import { readSeenTipCount, useSun } from "../../state/sun";
+import { addOwnedSkin, SKINS_KEY, useOwnedSkins } from "../../state/skins";
 import {
-  TREE_GROWTH_MARKERS,
   TREE_GROWTH_TARGET,
   TREE_IDLE_LINES,
   TREE_SKIN_PRICES,
 } from "../../data/knowledge";
 import KnowledgeTree from "./KnowledgeTree";
 import PixelGrowthTree from "./PixelGrowthTree";
+import GardenBackdrop from "./GardenBackdrop";
 import SunShop from "./SunShop";
 import SparkleGlyph from "./SparkleGlyph";
 import SunGlyph from "./SunGlyph";
@@ -46,7 +48,6 @@ import TokenGlyph from "./TokenGlyph";
 const TRIVIA_KEY = "paperrec_knowledge_trivia";
 const LEGACY_TRIVIA_KEY = "paperrec_wisdom_trivia";
 const SPECIES_KEY = "paperrec_knowledge_species";
-const SKINS_KEY = "paperrec_tree_skins";
 const ASKS_KEY = "paperrec_tree_asks";
 
 const LAWN_COLS = 5;
@@ -94,29 +95,6 @@ function writeSpecies(id: TreeSpeciesId) {
   }
 }
 
-function readOwnedSkins(): TreeSpeciesId[] {
-  try {
-    const raw = window.localStorage.getItem(SKINS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(parsed)) {
-      const valid = parsed.filter((value) =>
-        TREE_SPECIES.some((species) => species.id === value),
-      ) as TreeSpeciesId[];
-      if (valid.length > 0) return valid;
-    }
-  } catch {
-    // best-effort
-  }
-  return [DEFAULT_SPECIES];
-}
-
-function writeOwnedSkins(ids: TreeSpeciesId[]) {
-  try {
-    window.localStorage.setItem(SKINS_KEY, JSON.stringify(ids));
-  } catch {
-    // best-effort
-  }
-}
 
 function readAskCount(): number {
   try {
@@ -172,8 +150,7 @@ export default function TreeOfKnowledge({
     useState<TreeSpeciesId>(readSpecies);
   const [current, setCurrent] = useState<Trivia | null>(null);
   const [tipsSeen] = useState<number>(readSeenTipCount);
-  const [ownedSkins, setOwnedSkins] =
-    useState<TreeSpeciesId[]>(readOwnedSkins);
+  const ownedSkins = useOwnedSkins();
 
   /* The tree's growth: sun consumed by fertilizer, then extra sun
      zooms into the world tree. */
@@ -182,7 +159,8 @@ export default function TreeOfKnowledge({
      extra packets beyond that rise into the world tree. */
   const growth = Math.min(1, fertilizer / TREE_GROWTH_TARGET);
 
-  const activeMarker = [...TREE_GROWTH_MARKERS]
+  const growthMarkers = SPECIES_GROWTH_MARKERS[speciesId];
+  const activeMarker = [...growthMarkers]
     .reverse()
     .find((marker) => fertilizer >= marker.fert);
   function resetTreeProgress() {
@@ -190,7 +168,7 @@ export default function TreeOfKnowledge({
       !window.confirm(
         "Reset the TREE completely — trivia, fertilizer, growth, " +
           "species, and skins? Sun and tokens stay; the tree " +
-          "returns to the starter oak at its seed.",
+          "returns to the starter maple at its seed.",
       )
     ) {
       return;
@@ -292,9 +270,7 @@ export default function TreeOfKnowledge({
       return;
     }
 
-    const next = [...ownedSkins, id];
-    setOwnedSkins(next);
-    writeOwnedSkins(next);
+    addOwnedSkin(id);
     setSpeciesId(id);
     writeSpecies(id);
     spawnSparkles(6);
@@ -527,15 +503,12 @@ export default function TreeOfKnowledge({
         </span>
       </div>
 
-      {/* ---------------- garden bed ---------------- */}
-      <div className="relative overflow-hidden bg-gradient-to-b from-[#eaf4db] via-[#dcebc6] to-[#cfe3b0] px-3 pb-1.5 pt-6">
-        {/* a soft soil slope marks the ground */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent via-[#6f4426]/25 to-[#5c3920]/40"
-        />
+      {/* ---------------- garden bed: the animated landscape ------ */}
+      <div className="relative overflow-hidden px-3 pb-1.5 pt-6">
+        {/* the completed landscape rests behind the tree */}
+        <GardenBackdrop />
 
-      <div className="flex flex-col items-center">
+      <div className="relative z-10 flex flex-col items-center">
           <div
             className={`relative transition-all duration-200 pixel-ease ${
               dropActive
@@ -659,11 +632,11 @@ export default function TreeOfKnowledge({
               {/* growth markers: the tree visibly grows at each sun value */}
               {!hideMarkers && (
               <div className="mt-2 flex flex-wrap items-center justify-center gap-1">
-                {TREE_GROWTH_MARKERS.map((marker, index) => {
+                {growthMarkers.map((marker, index) => {
                   const reached = fertilizer >= marker.fert;
                   const active = activeMarker?.label === marker.label;
                   const nextFert =
-                    TREE_GROWTH_MARKERS[index + 1]?.fert ?? marker.fert;
+                    growthMarkers[index + 1]?.fert ?? marker.fert;
 
                   return (
                     <span
@@ -679,7 +652,7 @@ export default function TreeOfKnowledge({
                       <span aria-hidden="true" className="text-[8px]">
                         {reached
                           ? "\u2713"
-                          : index === TREE_GROWTH_MARKERS.length - 1
+                          : index === growthMarkers.length - 1
                             ? "\u2605"
                             : "\u25CB"}
                       </span>

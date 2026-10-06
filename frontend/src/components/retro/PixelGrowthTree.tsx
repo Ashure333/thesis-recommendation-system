@@ -654,7 +654,10 @@ export default function PixelGrowthTree({
     moved: number;
     pointerId: number;
   } | null>(null);
-  const panEnabled = growth >= 0.75;
+  /* Panning returns once the tree grows large: from the Mature
+     stage onward (two-thirds of the 3,000-packet march) the viewer
+     unlocks and drag-to-pan / 1x-2x zoom take over. */
+  const panEnabled = growth >= 0.66;
 
   /* Relative size: the 128x128 window scales up or down to taste,
      remembered between visits. */

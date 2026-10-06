@@ -26,7 +26,6 @@ import {
 import {
   ACHIEVEMENT_BOUNTY,
   ASK_SUN_CAP,
-  CHEAT_MILESTONES,
   DAILY_BONUS,
   FEET_PER_FERTILIZER,
   GROWTH_PER_FERTILIZER,
@@ -40,6 +39,8 @@ import {
 } from "../../state/sun";
 import { useHunt } from "../../state/hunt";
 import { useAchievements } from "../../state/achievements";
+import { addOwnedSkin, useOwnedSkins } from "../../state/skins";
+import { CHEAT_HEIGHTS } from "../../data/knowledge";
 import KnowledgeTree from "./KnowledgeTree";
 import SparkleGlyph from "./SparkleGlyph";
 import SunGlyph from "./SunGlyph";
@@ -67,7 +68,6 @@ const TREE_SPECIES_CARDS: {
 ];
 
 const SPECIES_KEY = "paperrec_knowledge_species";
-const SKINS_KEY = "paperrec_tree_skins";
 
 function readSpecies(): TreeSpeciesId {
   try {
@@ -81,21 +81,7 @@ function readSpecies(): TreeSpeciesId {
   return "oak";
 }
 
-function readOwnedSkins(): TreeSpeciesId[] {
-  try {
-    const raw = window.localStorage.getItem(SKINS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(parsed)) {
-      const valid = parsed.filter((value) =>
-        ["crimson", "oak", "birch", "elm", "redwood"].includes(value),
-      ) as TreeSpeciesId[];
-      if (valid.length > 0) return valid;
-    }
-  } catch {
-    // best-effort
-  }
-  return ["oak"];
-}
+
 
 function FertilizerIcon() {
   return (
@@ -155,14 +141,14 @@ export default function SunShop({
     tokens,
     spendTokens,
     testTopUp,
+    cheatSet,
   } = useSun();
   const { count: treasures } = useHunt();
   const { unlocked } = useAchievements();
 
   const [tips] = useState<number>(readSeenTipCount);
   const [species] = useState<TreeSpeciesId>(readSpecies);
-  const [ownedSkins, setOwnedSkins] =
-    useState<TreeSpeciesId[]>(readOwnedSkins);
+  const ownedSkins = useOwnedSkins();
   const [cheatWord, setCheatWord] = useState("");
   const [message, setMessage] = useState<{
     ok: boolean;
@@ -238,13 +224,7 @@ export default function SunShop({
       return;
     }
 
-    const next = [...ownedSkins, id];
-    setOwnedSkins(next);
-    try {
-      window.localStorage.setItem(SKINS_KEY, JSON.stringify(next));
-    } catch {
-      // best-effort
-    }
+    addOwnedSkin(id);
     spawnSparkles(6);
   }
 
@@ -533,37 +513,42 @@ export default function SunShop({
           Cheat words
         </p>
 
-        {cheats.length === 0 ? (
+        {cheatSet.length === 0 ? (
           <p className="mt-1 text-xs leading-5 text-muted">
-            The tree keeps its cheats until it grows taller — the
-            first blooms at 100 feet.
+            The tree keeps its cheats until it grows taller.
           </p>
         ) : (
           <ul className="mt-1 space-y-1">
-            {cheats.map((word) => {
-              const milestone = CHEAT_MILESTONES.find(
-                (entry) => entry.word === word,
-              );
-              const armed = activeCheats.includes(word);
-
+            {cheatSet.map((entry, index) => {
+              const unlocked = cheats.includes(entry.word);
+              const armed = activeCheats.includes(entry.word);
               return (
-                <li key={word} className="flex items-start gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMessage(redeemCheat(word))}
-                    title={armed ? "Disarm this cheat" : "Arm this cheat"}
-                    className={`shrink-0 rounded border-[2px] border-gray-900 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase transition-colors pixel-ease ${
-                      armed
-                        ? "bg-[#d3f9d8] text-[#2b8a3e]"
-                        : "bg-white text-ink hover:bg-accentSoft"
-                    }`}
-                  >
-                    {word}
-                    {armed ? " \u2713" : ""}
-                  </button>
-                  <span className="text-xs leading-5 text-muted">
-                    {milestone?.effect}
+                <li key={entry.word} className="flex items-start gap-2">
+                  <span className={`shrink-0 rounded border-[2px] border-gray-900 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase transition-colors pixel-ease ${
+                    unlocked
+                      ? "bg-[#d3f9d8] text-[#2b8a3e]"
+                      : "bg-white/60 text-gray-400"
+                  }`}>
+                    {entry.word}
+                    {armed
+                      ? " \u2713"
+                      : unlocked
+                        ? ""
+                        : ` (${CHEAT_HEIGHTS[index]} ft)`}
                   </span>
+                  <span className="text-xs leading-5 text-muted">
+                    {entry.effect}
+                  </span>
+                  {unlocked && (
+                    <button
+                      type="button"
+                      onClick={() => setMessage(redeemCheat(entry.word))}
+                      title={armed ? "Disarm this cheat" : "Arm this cheat"}
+                      className="ml-auto shrink-0 rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase transition-colors pixel-ease hover:bg-accentSoft"
+                    >
+                      {armed ? "on" : "arm"}
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -597,7 +582,7 @@ export default function SunShop({
             {popup === "skins" && (
               <>
         <p className="mb-1 text-xs leading-5 text-muted">
-          Oak is your free starter tree. Every other species is a skin
+          Maple is your free starter tree. Every other species is a skin
           you keep for good — buy them here or from the tree panel's
           seed bank.
         </p>

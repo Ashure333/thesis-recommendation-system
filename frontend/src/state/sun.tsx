@@ -29,10 +29,30 @@ import {
 import { useHunt } from "./hunt";
 import { useAchievements } from "./achievements";
 
+const SPECIES_KEY_CHEAT = "paperrec_knowledge_species";
+
+/** Each tree offers its own three cheat words. */
+function currentCheatSet(): { word: string; effect: string }[] {
+  try {
+    const id = window.localStorage.getItem(SPECIES_KEY_CHEAT);
+    if (id && CHEAT_SETS[id as TreeSpeciesId]) {
+      return CHEAT_SETS[id as TreeSpeciesId];
+    }
+  } catch {
+    // best-effort
+  }
+  return CHEAT_SETS.oak;
+}
+
 const STORAGE_KEY = "paperrec_sun";
 const SEEN_TIPS_KEY = "paperrec_tips_seen";
 
-import { treeHeightByFertilizer } from "../data/knowledge";
+import {
+  CHEAT_HEIGHTS,
+  CHEAT_SETS,
+  treeHeightByFertilizer,
+  type TreeSpeciesId,
+} from "../data/knowledge";
 
 export const DAILY_BONUS = 10;
 export const PETS_PER_SUN = 10;
@@ -270,9 +290,10 @@ function unlockCheats(
   achievementCount: number,
 ): SunState {
   const height = treeHeight(state, treasureCount, achievementCount);
-  const reached = CHEAT_MILESTONES.filter(
-    (milestone) => height >= milestone.height,
-  ).map((milestone) => milestone.word);
+  const set = currentCheatSet();
+  const reached = set
+    .filter((_, index) => height >= CHEAT_HEIGHTS[index])
+    .map((milestone) => milestone.word);
 
   const cheats = new Set(state.cheats);
   const before = cheats.size;
@@ -360,6 +381,8 @@ interface SunContextValue {
   /** Reset the tree's growth progress (fertilizer + spent sun). */
   resetTree: () => void;
   /** TEMPORARY: dev top-up for shop/tree testing. */
+  /** The planted tree's own cheat words. */
+  cheatSet: { word: string; effect: string }[];
   testTopUp: (sunAmount: number, tokenAmount: number) => void;
 }
 
@@ -381,9 +404,12 @@ export function SunProvider({ children }: { children: ReactNode }) {
   }, [found, unlocked]);
 
   const height = treeHeight(state, found.length, unlocked.length);
-  const nextMilestone = CHEAT_MILESTONES.find(
-    (milestone) => height < milestone.height,
-  );
+  const set = currentCheatSet();
+  const nextMilestone = CHEAT_HEIGHTS.map((heightFt, index) => ({
+    height: heightFt,
+    word: set[index]?.word ?? "",
+    effect: set[index]?.effect ?? "",
+  })).find((milestone) => height < milestone.height);
 
   function grantTokens(
     amount: number,
@@ -479,10 +505,14 @@ export function SunProvider({ children }: { children: ReactNode }) {
     const before = height;
     const after =
       before + count * FEET_PER_FERTILIZER;
-    const crossed = CHEAT_MILESTONES.filter(
-      (milestone) =>
-        milestone.height > before && milestone.height <= after,
-    );
+    const set = currentCheatSet();
+    const crossed = CHEAT_HEIGHTS.filter(
+      (heightFt) => heightFt > before && heightFt <= after,
+    ).map((heightFt, index) => ({
+      height: heightFt,
+      word: set[index]?.word ?? "",
+      effect: set[index]?.effect ?? "",
+    }));
 
     let wisdom: string;
 
@@ -613,6 +643,7 @@ export function SunProvider({ children }: { children: ReactNode }) {
         bonusGrowth: state.fertilizer * GROWTH_PER_FERTILIZER,
         height,
         nextMilestone,
+        cheatSet: currentCheatSet(),
         cheats: state.cheats,
         activeCheats: state.activeCheats,
         packs: SUN_PACKS,

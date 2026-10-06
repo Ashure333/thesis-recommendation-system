@@ -101,7 +101,7 @@ export const TREE_SPECIES: TreeSpecies[] = [
   },
 ];
 
-export const DEFAULT_SPECIES: TreeSpeciesId = "oak";
+export const DEFAULT_SPECIES: TreeSpeciesId = "crimson";
 
 export function treeSpecies(id: string | null | undefined): TreeSpecies {
   return (
@@ -199,8 +199,8 @@ export function nextTrivia(
 /** Growth token prices for tree skins; crimson is the free
  *  default (the reference's tree). */
 export const TREE_SKIN_PRICES: Record<TreeSpeciesId, number> = {
-  oak: 0,
-  crimson: 25,
+  crimson: 0,
+  oak: 25,
   birch: 25,
   elm: 40,
   redwood: 60,
@@ -283,3 +283,93 @@ export const TREE_IDLE_LINES: { text: string; topic: string }[] = [
   { text: "The deeper the root, the higher the crown.", topic: "Grove lore" },
   { text: "A quiet tree still counts the sun.", topic: "Grove lore" },
 ];
+
+/* ---------- per-species cheats and growth progress ---------- */
+
+/** Cheat unlock heights, shared by every species. */
+export const CHEAT_HEIGHTS = [100, 500, 1000];
+
+/** Each tree offers its own three cheat words. */
+export const CHEAT_SETS: Record<
+  TreeSpeciesId,
+  { word: string; effect: string }[]
+> = {
+  oak: [
+    { word: "daisies", effect: "Papers the pet eats leave little daisies behind." },
+    { word: "dance", effect: "The pet dances on the spot." },
+    { word: "pinata", effect: "Every paper the pet eats bursts into candy." },
+  ],
+  crimson: [
+    { word: "syrup", effect: "The pet drips maple syrup from its whiskers." },
+    { word: "blaze", effect: "The pet blazes autumn-orange for a while." },
+    { word: "amber", effect: "Every paper the pet eats bursts into amber confetti." },
+  ],
+  birch: [
+    { word: "paper", effect: "The pet wraps papers in thin papery sheets." },
+    { word: "silver", effect: "The pet's trail silvers like birch bark." },
+    { word: "ribbon", effect: "The pet unfurls a pale birch ribbon." },
+  ],
+  elm: [
+    { word: "vase", effect: "The pet sweeps a vase-crown shadow." },
+    { word: "ridge", effect: "The pet's fur grows deep elm ridges." },
+    { word: "shade", effect: "The pet rests in an elm's shade." },
+  ],
+  redwood: [
+    { word: "grove", effect: "The pet hums from a redwood grove." },
+    { word: "mist", effect: "The pet gives off coastal mist." },
+    { word: "elder", effect: "The pet stands tall as an elder redwood." },
+  ],
+};
+
+/** Each species matures on its own curve: the seven stage fert
+ *  positions differ per tree while the march stays 3,000. */
+export const SPECIES_GROWTH_MARKERS: Record<
+  TreeSpeciesId,
+  { label: string; fert: number }[]
+> = {
+  oak: [
+    { label: "Seed", fert: 0 },
+    { label: "Seedling", fert: 450 },
+    { label: "Sapling", fert: 950 },
+    { label: "Young maple", fert: 1500 },
+    { label: "Mature maple", fert: 2050 },
+    { label: "Giant", fert: 2550 },
+    { label: "Ancient maple", fert: TREE_GROWTH_TARGET },
+  ],
+  crimson: [
+    { label: "Seed", fert: 0 },
+    { label: "Seedling", fert: 400 },
+    { label: "Sapling", fert: 900 },
+    { label: "Young maple", fert: 1450 },
+    { label: "Mature maple", fert: 2000 },
+    { label: "Giant", fert: 2580 },
+    { label: "Ancient maple", fert: TREE_GROWTH_TARGET },
+  ],
+  birch: [
+    { label: "Seed", fert: 0 },
+    { label: "Seedling", fert: 480 },
+    { label: "Sapling", fert: 1000 },
+    { label: "Young maple", fert: 1580 },
+    { label: "Mature maple", fert: 2100 },
+    { label: "Giant", fert: 2600 },
+    { label: "Ancient maple", fert: TREE_GROWTH_TARGET },
+  ],
+  elm: [
+    { label: "Seed", fert: 0 },
+    { label: "Seedling", fert: 500 },
+    { label: "Sapling", fert: 1050 },
+    { label: "Young maple", fert: 1600 },
+    { label: "Mature maple", fert: 2150 },
+    { label: "Giant", fert: 2650 },
+    { label: "Ancient maple", fert: TREE_GROWTH_TARGET },
+  ],
+  redwood: [
+    { label: "Seed", fert: 0 },
+    { label: "Seedling", fert: 380 },
+    { label: "Sapling", fert: 850 },
+    { label: "Young maple", fert: 1350 },
+    { label: "Mature maple", fert: 1900 },
+    { label: "Giant", fert: 2450 },
+    { label: "Ancient maple", fert: TREE_GROWTH_TARGET },
+  ],
+};
