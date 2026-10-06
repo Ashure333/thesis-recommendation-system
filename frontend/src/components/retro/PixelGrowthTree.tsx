@@ -207,26 +207,27 @@ const SHAPES: Record<TreeSpeciesId, TreeShape> = {
   birch: {
     topFoliage: 8,
     trunk: [
-      [400, 742], [397, 690], [394, 640], [392, 590], [391, 540],
-      [390, 480], [389, 420], [388, 360], [386, 300], [384, 245],
+      [395, 742], [392, 690], [396, 630], [404, 570], [412, 510],
+      [416, 450], [414, 390], [408, 330], [404, 285], [404, 245],
     ],
-    trunkW: [40, 36, 32, 28, 24, 21, 18, 15, 12, 9],
+    trunkW: [62, 56, 52, 48, 44, 40, 36, 32, 28, 24],
     branches: [
-      { pts: [[390,520],[355,485],[320,440],[295,390],[280,335]], ws: [10,8,6,4,3], b0: .14, dur: .2 },
-      { pts: [[391,500],[430,465],[465,420],[495,370],[515,315]], ws: [10,8,6,4,3], b0: .16, dur: .2 },
-      { pts: [[387,400],[365,340],[350,285],[345,230]], ws: [7,5,4,3], b0: .26, dur: .16 },
-      { pts: [[390,395],[415,335],[435,280],[448,225]], ws: [7,5,4,3], b0: .28, dur: .16 },
-      { pts: [[386,320],[386,270],[384,220]], ws: [5,4,3], b0: .36, dur: .12 },
-      { pts: [[262,420],[235,445],[205,450]], ws: [6,4,2], b0: .4, dur: .12 },
-      { pts: [[522,420],[548,445],[578,450]], ws: [6,4,2], b0: .42, dur: .12 },
-      { pts: [[400,735],[360,740],[330,736]], ws: [12,6,3], b0: -.07, dur: .12 },
-      { pts: [[403,735],[445,740],[472,736]], ws: [12,6,3], b0: -.06, dur: .12 },
+      { pts: [[412,520],[440,490],[480,470],[520,470],[548,500]], ws: [18,14,10,6,3], b0: .14, dur: .2 },
+      { pts: [[408,470],[370,440],[330,430],[295,450],[270,490]], ws: [18,14,10,6,3], b0: .15, dur: .2 },
+      { pts: [[414,400],[450,365],[495,350],[535,360],[560,395]], ws: [16,12,9,5,3], b0: .2, dur: .2 },
+      { pts: [[410,380],[370,350],[330,335],[290,350],[265,390]], ws: [16,12,9,5,3], b0: .22, dur: .2 },
+      { pts: [[406,310],[435,270],[470,245],[500,250],[520,280]], ws: [14,10,7,4,2], b0: .28, dur: .16 },
+      { pts: [[404,300],[372,260],[340,235],[310,245],[292,275]], ws: [14,10,7,4,2], b0: .3, dur: .16 },
+      { pts: [[404,260],[404,200],[400,140],[398,90]], ws: [18,13,8,4], b0: .32, dur: .14 },
+      { pts: [[400,730],[372,690],[350,630],[338,560],[334,500],[336,450]], ws: [34,30,26,22,18,12], b0: .1, dur: .2 },
+      { pts: [[336,450],[310,410],[285,370],[270,330]], ws: [12,9,6,3], b0: .24, dur: .15 },
+      { pts: [[395,735],[350,742],[310,738]], ws: [16,9,4], b0: -.07, dur: .12 },
+      { pts: [[398,735],[440,742],[480,738]], ws: [16,9,4], b0: -.06, dur: .12 },
     ],
     clusters: [
-      [300,200,55,40,.6],[400,180,55,40,.62],[500,205,50,40,.58],
-      [330,240,45,32,.5],[470,245,45,32,.5],
-      [270,280,40,30,.55],[530,290,40,30,.55],[380,260,40,28,.45],
-      [340,330,35,25,.5],[450,330,35,25,.5],[250,360,30,22,.55],[550,370,30,22,.55],
+      [400,95,70,40,.78],[330,140,70,40,.72],[470,140,70,40,.72],[260,215,70,45,.66],[400,200,80,45,.66],[540,215,70,45,.68],
+      [205,300,65,45,.6],[330,290,70,45,.6],[470,295,70,45,.6],[590,310,60,45,.62],[180,400,55,45,.55],[290,410,65,45,.52],[400,420,70,40,.5],
+      [520,410,65,45,.52],[610,420,50,45,.56],[250,500,55,40,.5],[330,520,55,40,.48],[560,510,50,40,.52],[470,520,50,40,.48],[400,65,35,22,.85],[290,350,45,40,.55],
     ].map(([cx, cy, rx, ry, tone]) => ({
       cx, cy, rx, ry, tone, lo: 2.2, hi: 3.8,
     })),
@@ -241,28 +242,28 @@ const SHAPES: Record<TreeSpeciesId, TreeShape> = {
   elm: {
     topFoliage: 6,
     trunk: [
-      [400, 742], [399, 700], [397, 650], [395, 600], [394, 555],
-      [393, 510], [392, 465], [391, 420], [390, 375], [389, 330],
-      [388, 285], [388, 245],
+      [400, 742], [399, 690], [399, 640], [400, 590], [401, 540],
+      [402, 490], [402, 440], [403, 380], [403, 320], [404, 270], [404, 245],
     ],
-    trunkW: [110, 100, 92, 84, 76, 68, 60, 52, 44, 36, 28, 20],
+    trunkW: [110, 98, 90, 86, 82, 78, 70, 60, 48, 38, 30],
     branches: [
-      { pts: [[392,600],[330,565],[270,530],[215,480],[170,420],[140,360]], ws: [46,38,30,22,14,8], b0: .12, dur: .26 },
-      { pts: [[393,595],[460,560],[520,520],[575,465],[610,400],[630,340]], ws: [46,38,30,22,14,8], b0: .13, dur: .26 },
-      { pts: [[392,520],[350,470],[315,410],[290,340],[275,270]], ws: [26,20,14,9,5], b0: .24, dur: .2 },
-      { pts: [[393,515],[438,465],[470,405],[492,335],[505,265]], ws: [26,20,14,9,5], b0: .26, dur: .2 },
-      { pts: [[391,430],[385,360],[382,290]], ws: [14,9,5], b0: .34, dur: .14 },
-      { pts: [[392,420],[415,350],[435,280]], ws: [14,9,5], b0: .36, dur: .14 },
-      { pts: [[400,735],[350,741],[310,736]], ws: [22,10,4], b0: -.07, dur: .12 },
-      { pts: [[403,735],[452,741],[495,736]], ws: [22,10,4], b0: -.06, dur: .12 },
+      { pts: [[400,490],[360,440],[310,390],[250,340],[190,300],[150,290]], ws: [46,36,28,20,12,6], b0: .12, dur: .22 },
+      { pts: [[402,480],[385,420],[360,350],[330,280],[300,230]], ws: [38,30,22,14,8], b0: .16, dur: .2 },
+      { pts: [[402,480],[402,410],[404,330],[408,250],[412,170]], ws: [38,30,22,14,6], b0: .18, dur: .2 },
+      { pts: [[404,480],[425,420],[450,350],[480,280],[512,230]], ws: [38,30,22,14,8], b0: .2, dur: .2 },
+      { pts: [[406,490],[448,440],[498,390],[558,340],[618,300],[658,290]], ws: [46,36,28,20,12,6], b0: .13, dur: .22 },
+      { pts: [[150,290],[120,320],[100,370]], ws: [8,5,3], b0: .32, dur: .12 },
+      { pts: [[658,290],[690,320],[710,370]], ws: [8,5,3], b0: .34, dur: .12 },
+      { pts: [[250,340],[230,380],[215,430]], ws: [10,6,3], b0: .3, dur: .12 },
+      { pts: [[558,340],[575,385],[590,430]], ws: [10,6,3], b0: .32, dur: .12 },
+      { pts: [[400,735],[345,742],[295,738]], ws: [22,12,5], b0: -.07, dur: .12 },
+      { pts: [[403,735],[455,742],[505,738]], ws: [22,12,5], b0: -.06, dur: .12 },
     ],
     clusters: [
-      [400,300,130,60,.5],[270,320,95,55,.5],[530,320,95,55,.5],
-      [200,380,80,50,.52],[600,380,80,50,.52],
-      [300,380,90,50,.45],[500,380,90,50,.45],
-      [350,430,85,42,.42],[450,430,85,42,.42],
-      [240,455,70,35,.48],[560,455,70,35,.48],
-      [400,270,80,45,.6],[400,370,80,45,.4],
+      [400,100,100,50,.7],[300,125,90,50,.66],[500,125,90,50,.66],[210,170,90,55,.62],[590,170,90,55,.62],[400,175,100,55,.6],
+      [130,240,80,55,.58],[670,240,80,55,.58],[300,230,90,55,.52],[500,230,90,55,.52],[210,300,80,55,.5],[590,300,80,55,.5],[400,265,100,55,.48],
+      [110,330,60,45,.52],[690,330,60,45,.52],[170,390,55,40,.5],[630,390,55,40,.5],[225,440,50,35,.45],[575,440,50,35,.45],[100,400,40,40,.55],[700,400,40,40,.55],
+      [350,330,70,45,.42],[450,330,70,45,.42],
     ].map(([cx, cy, rx, ry, tone]) => ({
       cx, cy, rx, ry, tone, lo: 2.6, hi: 4.2,
     })),
@@ -372,6 +373,26 @@ interface Art {
   clusterR: number;
   /** Maple leaves use the lobed silhouette and turn autumn. */
   mapleLeaf: boolean;
+  /** Per-reference trunk-texture tuning (verbatim from each source). */
+  trunkCellY: number;
+  trunkCellMul: number;
+  trunkLatJ: number;
+  trunkYJ: number;
+  trunkLatLean: number;
+  trunkNoiseL: number;
+  trunkNoiseY: number;
+  trunkNoiseAmp: number;
+  trunkGateX: number;
+  trunkGateY: number;
+  trunkDash: boolean;
+  trunkFracY: number;
+  trunkCxwAmp: number;
+  trunkLowW: number;
+  /** The source's leaf silhouette (the `e = r*(...)` formula). */
+  leafShape: "maple" | "lobed" | "birch" | "elm" | "redwood";
+  /** The source's four palettes for multi-hue leaves (gold/orange/
+     crimson/green families per tree). */
+  leafRamps?: number[][][];
   /** A single autumn ramp the foliage turns into once grown. */
   turnRamp?: number[][];
 }
@@ -408,7 +429,21 @@ const OAK_ART: Art = {
   clusterCX: 405,
   clusterCY: 360,
   clusterR: 330,
-  mapleLeaf: false,
+  mapleLeaf: false,  trunkCellY: 90,
+  trunkCellMul: 9,
+  trunkLatJ: 7,
+  trunkYJ: 8,
+  trunkLatLean: 0,
+  trunkNoiseL: 0.4,
+  trunkNoiseY: 0.03,
+  trunkNoiseAmp: 0.2,
+  trunkGateX: 0.14,
+  trunkGateY: 0.03,
+  trunkDash: false,
+  trunkFracY: 245,
+  trunkCxwAmp: 38,
+  trunkLowW: 32,
+  leafShape: "lobed",
 };
 
 const CRIMSON_ART: Art = {
@@ -443,7 +478,21 @@ const CRIMSON_ART: Art = {
   clusterCX: 395,
   clusterCY: 300,
   clusterR: 330,
-  mapleLeaf: false,
+  mapleLeaf: false,  trunkCellY: 90,
+  trunkCellMul: 9,
+  trunkLatJ: 7,
+  trunkYJ: 8,
+  trunkLatLean: 0,
+  trunkNoiseL: 0.4,
+  trunkNoiseY: 0.03,
+  trunkNoiseAmp: 0.2,
+  trunkGateX: 0.14,
+  trunkGateY: 0.03,
+  trunkDash: false,
+  trunkFracY: 245,
+  trunkCxwAmp: 38,
+  trunkLowW: 32,
+  leafShape: "lobed",
 };
 
 /* The maple reference's four autumn ramps: leaves pass from green
@@ -462,12 +511,33 @@ const M_GRN = ["#0f2a16", "#1d4a22", "#2f7a2e", "#4fa83e", "#8fd45c"].map(
 );
 const MAPLE_RAMPS = [M_GOLD, M_ORNG, M_CRIM, M_GRN];
 
+/* The birch source's three leaf families plus the turned green. */
+const B_Y1 = ["#7a6a10", "#b8a418", "#e0cf30", "#f4ea5a", "#fffa9a"].map(hexToRgb);
+const B_Y2 = ["#6b4a0a", "#a8740f", "#d9a21b", "#f2c53a", "#ffe16b"].map(hexToRgb);
+const B_Y3 = ["#3b5a10", "#6a8f1c", "#9bc02a", "#c2dc4a", "#e6f27a"].map(hexToRgb);
+const B_GRN = ["#143a1a", "#256a2c", "#46a03e", "#7acb55", "#b6ec80"].map(hexToRgb);
+const BIRCH_RAMPS = [B_Y1, B_Y2, B_Y3, B_GRN];
+
+/* The elm source's three leaf families plus the turned green. */
+const E_1 = ["#6b4a0a", "#a8740f", "#d9a21b", "#f2c53a", "#ffe16b"].map(hexToRgb);
+const E_2 = ["#5a5a10", "#8a8a1a", "#b8b82a", "#d8d848", "#f0f078"].map(hexToRgb);
+const E_3 = ["#7a4a08", "#b87a14", "#e0a028", "#f5c042", "#ffe070"].map(hexToRgb);
+const E_GRN = ["#123418", "#22582a", "#3a8a38", "#62b44e", "#9ce078"].map(hexToRgb);
+const ELM_RAMPS = [E_1, E_2, E_3, E_GRN];
+
+/* The redwood source's three needle families plus the turned green. */
+const R_1 = ["#0a2820", "#12403a", "#1d6a52", "#34966e", "#6ec59a"].map(hexToRgb);
+const R_2 = ["#0c2a1a", "#164a2a", "#276e3c", "#44985a", "#80c88a"].map(hexToRgb);
+const R_3 = ["#10302c", "#1c4e48", "#2f7a6a", "#55a890", "#8fd4bc"].map(hexToRgb);
+const R_GRN = ["#143a1a", "#2a6a2e", "#4a9e3e", "#7acb55", "#b6ec80"].map(hexToRgb);
+const REDWOOD_RAMPS = [R_1, R_2, R_3, R_GRN];
+
 const BIRCH_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.22,
   BX: 64,
   ROOTX: 400,
-  ZM: 3.4,
+  ZM: 4.4,
   DYW: 2600,
   cellY: 36,
   cellW: 6,
@@ -475,15 +545,15 @@ const BIRCH_ART: Art = {
   fyE: 0.04,
   noiseL: 6,
   noiseY: 8,
-  baseW: 22,
-  fillCX: 402,
+  baseW: 24,
+  fillCX: 404,
   baseCX: 400,
-  baseRW: 88,
+  baseRW: 62,
   WP: [
     [742, 150], [600, 132], [400, 118], [245, 106],
     [0, 94], [-1000, 84], [-3000, 70],
   ],
-  wWdef: 64,
+  wWdef: 60,
   acorn: false,
   ground: [
     [120, 84, 62],
@@ -492,25 +562,65 @@ const BIRCH_ART: Art = {
   blinkNear: 2.6,
   blinkWin: 0.1,
   clusterCX: 400,
-  clusterCY: 320,
+  clusterCY: 300,
   clusterR: 330,
-  mapleLeaf: false,
+  mapleLeaf: false,  trunkCellY: 90,
+  trunkCellMul: 9,
+  trunkLatJ: 7,
+  trunkYJ: 8,
+  trunkLatLean: 0,
+  trunkNoiseL: 0.4,
+  trunkNoiseY: 0.03,
+  trunkNoiseAmp: 0.2,
+  trunkGateX: 0.14,
+  trunkGateY: 0.03,
+  trunkDash: true,
+  trunkFracY: 245,
+  trunkCxwAmp: 38,
+  trunkLowW: 24,
+  leafShape: "birch",
+  leafRamps: BIRCH_RAMPS,
 };
 
 const BIRCH_GOLD = ["#fff4b0", "#f2d14e", "#e2b811", "#c99700", "#8a6d00"].map(
   hexToRgb,
 );
 const BIRCH_SPL: number[][] = [
-  [47, 53, 66],
-  [30, 36, 43],
+  [164, 166, 172],
+  [90, 92, 98],
 ];
+
+/* The three sources' bark tables, verbatim. */
+const BIRCH_WORLD = {
+  BK: ["#2a2725", "#8d8a86", "#bcb9b3", "#d8d5cf", "#ebe8e2", "#f7f5ef"].map(hexToRgb),
+  MS: ["#3a5030", "#4f7040", "#6a9c4c"].map(hexToRgb),
+  LICH: hexToRgb("#d8b896"),
+  AMB: ["#2a2624", "#4a443f", "#6a625a"].map(hexToRgb),
+  FUN: [],
+};
+
+const ELM_WORLD = {
+  BK: ["#16120f", "#272019", "#3a3128", "#4f443a", "#675a4d", "#82746a"].map(hexToRgb),
+  MS: ["#26401f", "#3f6a2c", "#6a9c3c"].map(hexToRgb),
+  LICH: hexToRgb("#aebf9c"),
+  AMB: ["#6a3c12", "#c27a1c", "#f0b43c"].map(hexToRgb),
+  FUN: [],
+};
+
+const REDWOOD_WORLD = {
+  BK: ["#1c0e08", "#321810", "#4f2616", "#6e3620", "#8c4a2c", "#aa6240"].map(hexToRgb),
+  MS: ["#1f4a2a", "#2f6a34", "#4a8a3c"].map(hexToRgb),
+  LICH: hexToRgb("#a9b86a"),
+  AMB: ["#4a1608", "#9a3a14", "#e07a3a"].map(hexToRgb),
+  FUN: [],
+};
 
 const ELM_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.24,
   BX: 64,
   ROOTX: 400,
-  ZM: 3.5,
+  ZM: 3.4,
   DYW: 2600,
   cellY: 88,
   cellW: 8,
@@ -518,15 +628,15 @@ const ELM_ART: Art = {
   fyE: 0.05,
   noiseL: 10,
   noiseY: 16,
-  baseW: 34,
-  fillCX: 403,
+  baseW: 22,
+  fillCX: 402,
   baseCX: 400,
-  baseRW: 110,
+  baseRW: 130,
   WP: [
     [742, 175], [600, 152], [400, 136], [245, 124],
     [0, 110], [-1000, 98], [-3000, 84],
   ],
-  wWdef: 88,
+  wWdef: 90,
   acorn: false,
   ground: [
     [120, 84, 62],
@@ -535,33 +645,48 @@ const ELM_ART: Art = {
   blinkNear: 3.0,
   blinkWin: 0.12,
   clusterCX: 400,
-  clusterCY: 310,
+  clusterCY: 330,
   clusterR: 330,
-  mapleLeaf: false,
+  mapleLeaf: false,  trunkCellY: 55,
+  trunkCellMul: 7,
+  trunkLatJ: 7,
+  trunkYJ: 8,
+  trunkLatLean: 0.3,
+  trunkNoiseL: 0.4,
+  trunkNoiseY: 0.03,
+  trunkNoiseAmp: 0.2,
+  trunkGateX: 0.15,
+  trunkGateY: 0.07,
+  trunkDash: false,
+  trunkFracY: 245,
+  trunkCxwAmp: 38,
+  trunkLowW: 30,
+  leafShape: "elm",
+  leafRamps: ELM_RAMPS,
 };
 
 const REDWOOD_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.26,
-  BX: 70.4,
-  ROOTX: 440,
-  ZM: 4.2,
-  DYW: 2800,
+  BX: 64,
+  ROOTX: 400,
+  ZM: 2.8,
+  DYW: 3400,
   cellY: 52,
   cellW: 7,
   fxE: 0.13,
   fyE: 0.05,
   noiseL: 8,
   noiseY: 12,
-  baseW: 56,
-  fillCX: 403,
+  baseW: 22,
+  fillCX: 402,
   baseCX: 400,
-  baseRW: 120,
+  baseRW: 110,
   WP: [
-    [742, 150], [600, 128], [400, 108], [245, 92],
-    [0, 76], [-1000, 64], [-3000, 50],
+    [742, 260], [600, 230], [400, 200], [245, 180],
+    [0, 160], [-1000, 140], [-3000, 110],
   ],
-  wWdef: 30,
+  wWdef: 110,
   acorn: false,
   ground: [
     [120, 84, 62],
@@ -572,7 +697,22 @@ const REDWOOD_ART: Art = {
   clusterCX: 400,
   clusterCY: 340,
   clusterR: 330,
-  mapleLeaf: false,
+  mapleLeaf: false,  trunkCellY: 220,
+  trunkCellMul: 5,
+  trunkLatJ: 10,
+  trunkYJ: 5,
+  trunkLatLean: 0,
+  trunkNoiseL: 0.9,
+  trunkNoiseY: 0.008,
+  trunkNoiseAmp: 0.35,
+  trunkGateX: 0.2,
+  trunkGateY: 0.02,
+  trunkDash: false,
+  trunkFracY: 90,
+  trunkCxwAmp: 20,
+  trunkLowW: 22,
+  leafShape: "redwood",
+  leafRamps: REDWOOD_RAMPS,
 };
 
 const MAPLE_ART: Art = {
@@ -607,7 +747,21 @@ const MAPLE_ART: Art = {
   clusterCX: 402,
   clusterCY: 300,
   clusterR: 340,
-  mapleLeaf: true,
+  mapleLeaf: true,  trunkCellY: 90,
+  trunkCellMul: 9,
+  trunkLatJ: 7,
+  trunkYJ: 8,
+  trunkLatLean: 0,
+  trunkNoiseL: 0.4,
+  trunkNoiseY: 0.03,
+  trunkNoiseAmp: 0.2,
+  trunkGateX: 0.14,
+  trunkGateY: 0.03,
+  trunkDash: false,
+  trunkFracY: 245,
+  trunkCxwAmp: 38,
+  trunkLowW: 32,
+  leafShape: "maple",
 };
 
 /* The oak's exact palettes, verbatim from the reference. */
@@ -619,24 +773,25 @@ const MAPLE_PALETTE: Palette = {
 };
 
 const BIRCH_PALETTE: Palette = {
-  bark: ["#d8d3c8", "#c0baad", "#a69f91", "#8d8578"],
-  foliage: ["#233a2b", "#35533c", "#4c7354", "#709b78", "#9dc6a4"],
-  accent: "#5a6558",
-  cream: ["#e6dcc8", "#cfc2a8", "#b3a586"],
+  bark: ["#5a5652", "#9c9892", "#c8c4bc", "#e6e2da"],
+  foliage: ["#6b4a0a", "#a8740f", "#d9a21b", "#f2c53a", "#ffe16b"],
+  accent: "#2a2624",
+  cream: ["#d9c030", "#b8a418", "#8a7a3a"],
 };
 
 const ELM_PALETTE: Palette = {
-  bark: ["#3f3830", "#575047", "#6f675d", "#877e72"],
-  foliage: ["#17371f", "#26542c", "#3a7438", "#549a4b", "#77c169"],
+  bark: ["#1f1b18", "#35302b", "#4d453d", "#6a6056"],
+  foliage: ["#7a4a08", "#b87a14", "#e0a028", "#f5c042", "#ffe070"],
   accent: "#4a6a34",
-  cream: ["#9a8a6c", "#b3a284", "#c9b998"],
+  cream: ["#d9a21b", "#b8821a", "#8a6a3a"],
 };
 
 const REDWOOD_PALETTE: Palette = {
-  bark: ["#2f1d16", "#4a2c20", "#673e2c", "#85563e"],
-  foliage: ["#12301d", "#1c4930", "#286845", "#3f9460", "#5fc184"],
-  accent: "#3f6a2c",
-  cream: ["#a88a64", "#c2a47c", "#dab998"],
+  bark: ["#2a1208", "#4a2214", "#6e3620", "#8c4a2c"],
+  foliage: ["#0c2a1a", "#164a2a", "#276e3c", "#44985a", "#80c88a"],
+  /* (R_2 — the source's middle needle family, listed verbatim) */
+  accent: "#3f6a30",
+  cream: ["#2f6a34", "#4a8a3c", "#8a4a2a"],
 };
 
 const OAK_PALETTE: Palette = {
@@ -654,26 +809,6 @@ const OAK_WORLD = {
   LICH: hexToRgb("#aebf9c"),
   AMB: ["#6a3c12", "#c27a1c", "#f0b43c"].map(hexToRgb),
   FUN: ["#e2c58a", "#c79a54", "#7a5a30"].map(hexToRgb),
-};
-
-const ELM_WORLD = {
-  BK: ["#2f2a24", "#423c34", "#564f45", "#6b6357", "#837a6c", "#9d9483"].map(
-    hexToRgb,
-  ),
-  MS: ["#243b20", "#3a5c2e", "#5c8a44"].map(hexToRgb),
-  LICH: hexToRgb("#a8b48e"),
-  AMB: ["#5e3c14", "#a8781e", "#dbb13a"].map(hexToRgb),
-  FUN: ["#e0c78e", "#c19d52", "#7a5a30"].map(hexToRgb),
-};
-
-const REDWOOD_WORLD = {
-  BK: ["#241510", "#3a2118", "#52301f", "#6d422b", "#8a5838", "#a8724e"].map(
-    hexToRgb,
-  ),
-  MS: ["#16311f", "#25522c", "#3c7c41"].map(hexToRgb),
-  LICH: hexToRgb("#9aa87a"),
-  AMB: ["#5e2c10", "#9a5218", "#cf8430"].map(hexToRgb),
-  FUN: ["#c2a16e", "#9c7a44", "#6a4c28"].map(hexToRgb),
 };
 
 const MAPLE_WORLD = {
@@ -861,17 +996,12 @@ export default function PixelGrowthTree({
       FUN = REDWOOD_WORLD.FUN;
       SPL = [];
     } else if (speciesId === "birch") {
-      BK = [0, 1, 2, 3, 4, 5].map((i) => mixRgb(BARK[0], BARK[3], i / 5));
-      BK[0] = mixRgb(BK[0], [0, 0, 0], 0.28);
-      MS = [
-        mixRgb(MOSS, [0, 0, 0], 0.4),
-        MOSS,
-        mixRgb(MOSS, [255, 255, 255], 0.3),
-      ];
-      LICH = mixRgb(MOSS, [255, 255, 255], 0.55);
-      AMB = BIRCH_GOLD;
+      BK = BIRCH_WORLD.BK;
+      MS = BIRCH_WORLD.MS;
+      LICH = BIRCH_WORLD.LICH;
+      AMB = BIRCH_WORLD.AMB;
       SPL = BIRCH_SPL;
-      FUN = [];
+      FUN = BIRCH_WORLD.FUN;
     } else {
       BK = [0, 1, 2, 3, 4, 5].map((i) => mixRgb(BARK[0], BARK[3], i / 5));
       BK[0] = mixRgb(BK[0], [0, 0, 0], 0.35);
@@ -1086,9 +1216,10 @@ export default function PixelGrowthTree({
       return art.wWdef;
     };
     const cxw = (y: number) =>
-      y >= 245
+      y >= art.trunkFracY
         ? RX[clamp(Math.round(y), 0, 799)]
-        : art.fillCX + 38 * Math.sin((245 - y) * 0.0023);
+        : art.fillCX +
+          art.trunkCxwAmp * Math.sin((art.trunkFracY - y) * 0.0023);
 
     /* ---- camera anchors shared with the limb painter ---- */
     let AX = art.BX;
@@ -1125,7 +1256,8 @@ export default function PixelGrowthTree({
       const yi = clamp(Math.round(wy), 0, 799);
       const cx = cxw(wy);
       const w =
-        ((wy >= 245 ? RW[yi] : 32) * (1 - e) + wW(wy) * e) *
+        ((wy >= art.trunkFracY ? RW[yi] : art.trunkLowW) * (1 - e) +
+          wW(wy) * e) *
         (1 + 0.8 * Math.exp(-(742 - wy) / 38));
       const lat = wx - cx;
       const half =
@@ -1134,18 +1266,31 @@ export default function PixelGrowthTree({
       if (Math.abs(n) > 1) return null;
       const nz = (a: number, b: number) =>
         hash(Math.floor(a * pq), Math.floor(b * pq));
-      const L = lat + (vn(wy * 0.02, 5) - 0.5) * 7;
-      const Y = wy + (vn(lat * 0.05, 9) - 0.5) * 8;
-      const r = Math.floor(Y / 90);
-      const fxp = (L + hash(r, 3) * 9) / 9;
+      const L = lat + (vn(wy * 0.02, 5) - 0.5) * art.trunkLatJ;
+      const Y =
+        wy +
+        (vn(lat * 0.05, 9) - 0.5) * art.trunkYJ +
+        lat * art.trunkLatLean;
+      const cellY = art.trunkCellY;
+      const cellM = art.trunkCellMul;
+      const r = Math.floor(Y / cellY);
+      const fxp = (L + hash(r, 3) * cellM) / cellM;
       const c = Math.floor(fxp);
       const fx = fxp - c;
-      const fy = Y / 90 - r;
+      const fy = Y / cellY - r;
       const pno = hash(c, r);
       let v =
         0.34 + 0.38 * pno + 0.22 * (1 - fx) * (1 - fy * 0.6) - 0.3 * n +
-        (vn(L * 0.4, Y * 0.03) - 0.5) * 0.2;
-      if (fx < 0.14 || fy < 0.03) v = 0.06 + 0.1 * pno;
+        (vn(L * art.trunkNoiseL, Y * art.trunkNoiseY) - 0.5) *
+          art.trunkNoiseAmp;
+      if (fx < art.trunkGateX || fy < art.trunkGateY) v = 0.06 + 0.1 * pno;
+      if (art.trunkDash) {
+        /* Birch: dark slash marks across the pale bark. */
+        const hr = Math.floor(Y / 9);
+        const hv = hash(hr, Math.floor((L + hash(hr, 1) * 30) / 14));
+        const hf = Y / 9 - hr;
+        if (hv > 0.66 && hf > 0.3 && hf < 0.62) v = -1;
+      }
       let idx = clamp(Math.floor(v * 6), 0, 5);
       if (n < -0.88) idx = Math.min(5, idx + 2);
       else if (n > 0.86) idx = Math.max(0, idx - 2);
@@ -1232,13 +1377,22 @@ export default function PixelGrowthTree({
           const dx = x + 0.5 - X;
           const dy = y + 0.5 - Y;
           const d = Math.hypot(dx, dy);
-          const e = art.mapleLeaf
-            ? r * (0.55 + 0.5 * (1 - Math.abs(Math.sin(2.5 * Math.atan2(dy, dx) + ph))))
-            : r *
-              (1 +
-                art.leafAmp *
-                  Math.cos(art.leafPoints * Math.atan2(dy, dx) + ph)) *
-              0.92;
+          const theta = Math.atan2(dy, dx);
+          const e =
+            art.leafShape === "maple"
+              ? r * (0.55 + 0.5 * (1 - Math.abs(Math.sin(2.5 * theta + ph))))
+              : art.leafShape === "birch"
+                ? r * (0.78 + 0.3 * Math.cos(3 * theta + ph))
+                : art.leafShape === "elm"
+                  ? r *
+                    (0.75 +
+                      0.22 * Math.cos(2 * theta + ph) +
+                      0.07 * Math.cos(13 * theta))
+                  : art.leafShape === "redwood"
+                    ? r * (0.7 + 0.3 * Math.cos(9 * theta + ph))
+                    : r *
+                      (1 + art.leafAmp * Math.cos(art.leafPoints * theta + ph)) *
+                      0.92;
           if (d > e) continue;
           const q = d / e;
           let v =
@@ -1261,13 +1415,15 @@ export default function PixelGrowthTree({
       if (Y + r * 1.3 < 0 || Y - r * 1.3 > H || X + r * 1.3 < 0 || X - r * 1.3 > W) {
         return;
       }
-      const ramp = art.mapleLeaf
-        ? GG > L.sw
-          ? MAPLE_RAMPS[L.pal]
-          : MAPLE_RAMPS[3]
-        : art.turnRamp && GG > L.sw
-          ? art.turnRamp
-          : FOLI;
+      const ramp = art.leafRamps
+        ? art.leafRamps[GG > L.sw ? L.pal : 3]
+        : art.mapleLeaf
+          ? GG > L.sw
+            ? MAPLE_RAMPS[L.pal]
+            : MAPLE_RAMPS[3]
+          : art.turnRamp && GG > L.sw
+            ? art.turnRamp
+            : FOLI;
       leaf(X, Y, r, L.ph, L.tone, ramp);
     };
 
