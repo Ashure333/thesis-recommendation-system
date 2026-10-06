@@ -1145,6 +1145,28 @@ export default function PixelPet() {
     writeSeen([]);
     setCurrentTip(null);
     setOpen(false);
+    /* Zero every cheat and the pet's lifetime progress: the cheat
+       ladder (unlocked, armed, and announced words), the petting
+       counter, and the chat unlock, all back to the start. */
+    try {
+      const KEY = "paperrec_sun";
+      const state = JSON.parse(
+        window.localStorage.getItem(KEY) ?? "{}",
+      );
+      state.cheats = [];
+      state.activeCheats = [];
+      state.announcedCheats = [];
+      state.pets = 0;
+      window.localStorage.setItem(KEY, JSON.stringify(state));
+      window.dispatchEvent(new Event("storage"));
+    } catch {
+      // best-effort
+    }
+    try {
+      window.localStorage.setItem("paperrec_pet_chat_unlocked", "0");
+    } catch {
+      // best-effort
+    }
   }
 
   const charging = hoverTipId !== null && progress > 0;
