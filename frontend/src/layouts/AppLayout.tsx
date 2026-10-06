@@ -17,6 +17,7 @@ import SlimeLogo from "../components/retro/SlimeLogo";
 import MarqueeTicker from "../components/retro/MarqueeTicker";
 import ScrollFollowPopup from "../components/retro/ScrollFollowPopup";
 import PixelPet from "../components/retro/PixelPet";
+import CheatFoliage from "../components/retro/CheatFoliage";
 import { ArrowRight, BlockCursor, Dot, Lock } from "../components/retro/PixelIcons";
 import {
   Cpu,
@@ -286,6 +287,7 @@ export default function AppLayout() {
 
     <div
       data-site-mode={mode}
+      id="app-shell"
       className="flex h-screen w-full flex-col overflow-hidden bg-canvas text-ink"
     >
 
@@ -499,7 +501,7 @@ export default function AppLayout() {
       </main>
 
       <ScrollFollowPopup key={`scroll:${location.pathname}`} target={contentRef} />
-
+      <CheatFoliage />
     </div>
 
   );

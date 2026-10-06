@@ -45,6 +45,7 @@ import KnowledgeTree from "./KnowledgeTree";
 import SparkleGlyph from "./SparkleGlyph";
 import SunGlyph from "./SunGlyph";
 import TokenGlyph from "./TokenGlyph";
+import RetroDialog from "./RetroDialog";
 
 const RAIL_TABS: {
   id: "shop" | "skins" | "wallet";
@@ -120,13 +121,22 @@ export default function SunShop({
   hidePreview = false,
   embedded = false,
   tab,
+  onSelect,
+  hidePicker = false,
+  onWhisper,
 }: {
   /** Hide the "Your tree" preview when the real tree sits beside it. */
   hidePreview?: boolean;
-  /** Embedded in the tree card: no frame, no triggers — the tree's
-      own menu chips drive `tab`. */
+  /** Embedded in the tree card: no frame — the tree's own menu
+      chips drive `tab`; picker events flow through `onSelect`. */
   embedded?: boolean;
   tab?: "shop" | "skins" | "wallet";
+  onSelect?: (id: "shop" | "skins" | "wallet") => void;
+  /** The tree's sidebar draws its own picker rail (with the info
+      card); pass true to skip this bundled one. */
+  hidePicker?: boolean;
+  /** Whisper purchases into the tree's speech bubble. */
+  onWhisper?: (text: string) => void;
 }) {
   const {
     balance,
@@ -150,10 +160,17 @@ export default function SunShop({
   const [species] = useState<TreeSpeciesId>(readSpecies);
   const ownedSkins = useOwnedSkins();
   const [cheatWord, setCheatWord] = useState("");
-  const [message, setMessage] = useState<{
-    ok: boolean;
-    text: string;
+  /* Themed pop-ups: purchase summary, confirmations, notices. */
+  const [purchase, setPurchase] = useState<{
+    title: string;
+    body: string;
   } | null>(null);
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    body: string;
+    onYes: () => void;
+  } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   /* Greenhouse panes: one open at a time, inside the rail. */
   const [popupState, setPopup] = useState<"shop" | "skins" | "wallet">(
@@ -199,41 +216,44 @@ export default function SunShop({
 
   function handleBuy(count: 1 | 5 | 10) {
     const result = buy(count);
-    setMessage(result);
-    if (result.ok) spawnSparkles(6);
+    if (result.ok && typeof onWhisper === "function") {
+      onWhisper(result.text);
+    }
+    if (result.ok) {
+      spawnSparkles(6);
+      /* No pop-up for an ordinary purchase — the inline line below
+         already says it. The pop-up is reserved for the moment the
+         tree crosses a milestone and a cheat blooms. */
+      if (result.unlocked.length > 0) {
+        setPurchase({
+          title: "A cheat bloomed",
+          body: result.text,
+        });
+      }
+    }
   }
 
   function buySkin(id: TreeSpeciesId) {
     const price = TREE_SKIN_PRICES[id];
     if (ownedSkins.includes(id)) return;
 
-    if (
-      !window.confirm(
-        `Buy the ${treeSpecies(id).label} skin for ${price} growth tokens?`,
-      )
-    ) {
-      return;
-    }
-
-    if (!spendTokens(price)) {
-      window.alert(
-        `Not enough growth tokens — ${price - tokens} more needed. ` +
-          "Earn them by using the app: daily visits, battles, asks, " +
-          "treasures, and achievements all pay tokens.",
-      );
-      return;
-    }
-
-    addOwnedSkin(id);
-    spawnSparkles(6);
+    setConfirm({
+      title: "Buy this skin",
+      body: `Adopt the ${treeSpecies(id).label} for ${price} growth tokens? It unlocks in the seed bank and plants right away.`,
+      onYes: () => {
+        if (!spendTokens(price)) {
+          setNotice(
+            `Not enough growth tokens — ${price - tokens} more needed.` +
+              " Earn more by using the app: daily visits, hunts, asks," +
+              " treasures, and achievements all pay tokens.",
+          );
+          return;
+        }
+        addOwnedSkin(id);
+        spawnSparkles(6);
+      },
+    });
   }
-
-  useEffect(() => {
-    if (!message) return;
-
-    const id = window.setTimeout(() => setMessage(null), 3200);
-    return () => window.clearTimeout(id);
-  }, [message]);
 
   const basePoints = knowledgePoints({
     treasures,
@@ -332,33 +352,77 @@ export default function SunShop({
       </section>
       )}
 
-      {/* ---------------- rail triggers: the card's header row ----- */}
-      {!embedded && (
+      {/* ---------------- picker: character-selector cards ------- */}
+      {!hidePicker && (
       <div
         role="group"
         aria-label="Garden shop"
-        className="grid w-full grid-cols-3 border-b-[3px] border-gray-900 bg-[#8a5a2b]"
+        className={`flex w-full gap-2 overflow-x-auto border-b-[3px] border-gray-900 px-2 py-2 ${
+          embedded ? "bg-[#f5e08a]/45 dark:bg-[#2c2413]/70" : "bg-[#8a5a2b]"
+        }`}
+        onKeyDown={(event) => {
+          const index = RAIL_TABS.findIndex((entry) => entry.id === popup);
+          const pick = (id: "shop" | "skins" | "wallet") => {
+            if (embedded && onSelect) onSelect(id);
+            else setPopup(id);
+          };
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            pick(RAIL_TABS[(index + 1) % RAIL_TABS.length].id);
+          } else if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            pick(RAIL_TABS[(index - 1 + RAIL_TABS.length) % RAIL_TABS.length].id);
+          }
+        }}
       >
-        {RAIL_TABS.map((entry, index) => {
+        {RAIL_TABS.map((entry) => {
           const active = popup === entry.id;
           return (
             <button
               key={entry.id}
               type="button"
-              aria-expanded={active}
-              onClick={() => setPopup(entry.id)}
-              className={`flex min-w-0 items-center justify-center gap-1.5 px-2 py-2.5 font-mono text-[10px] font-bold uppercase tracking-wide transition-colors pixel-ease ${
-                index < RAIL_TABS.length - 1
-                  ? "border-r-[3px] border-gray-900"
-                  : ""
-              } ${
+              aria-pressed={active}
+              onClick={() => {
+                if (embedded && onSelect) onSelect(entry.id);
+                else setPopup(entry.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                const index = RAIL_TABS.findIndex(
+                  (tab) => tab.id === popup,
+                );
+                const next =
+                  event.key === "ArrowRight"
+                    ? RAIL_TABS[(index + 1) % RAIL_TABS.length].id
+                    : RAIL_TABS[
+                        (index - 1 + RAIL_TABS.length) % RAIL_TABS.length
+                      ].id;
+                if (embedded && onSelect) onSelect(next);
+                else setPopup(next);
+              }}
+              title={`${entry.label} — press \u2190 \u2192 to switch`}
+              className={`flex min-w-[76px] shrink-0 flex-col items-center gap-1.5 rounded-lg border-[3px] px-2.5 py-2 transition-all duration-150 pixel-ease ${
                 active
-                  ? "bg-[#f5e08a] text-gray-900"
-                  : "text-[#ffe9a8] hover:bg-white/10"
+                  ? "border-gray-900 bg-white text-gray-900 shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
+                  : "border-gray-800/40 bg-white/60 text-gray-700/70 dark:bg-[#262015]/70 hover:border-gray-900 hover:text-gray-900"
               }`}
             >
-              {entry.glyph}
-              {entry.label}
+              <span
+                className={`grid h-9 w-9 place-items-center rounded border-[3px] transition-colors ${
+                  active
+                    ? "border-gray-900 bg-[#f5e08a]"
+                    : "border-gray-700/40 bg-white/70"
+                }`}
+              >
+                {entry.glyph}
+              </span>
+              <span className="font-mono text-[9px] font-bold uppercase tracking-wide">
+                {entry.label}
+              </span>
             </button>
           );
         })}
@@ -456,8 +520,8 @@ export default function SunShop({
                   }
                   className={`flex flex-col items-center gap-0.5 rounded border-[3px] border-gray-900 px-1 py-2 font-mono text-[11px] font-bold transition-colors pixel-ease ${
                     affordable
-                      ? "bg-[#e8b04b] text-gray-900 hover:bg-[#f0c161] active:translate-y-[1px]"
-                      : "cursor-not-allowed bg-[#cbb894] text-gray-600"
+                      ? "bg-[#e8b04b] text-[#2b3347] hover:bg-[#f0c161] active:translate-y-[1px]"
+                      : "cursor-not-allowed bg-[#cbb894] text-[#6a6053]"
                   }`}
                 >
                   <span>{pack.count}×</span>
@@ -477,18 +541,6 @@ export default function SunShop({
             drag a pack onto the tree to feed it
           </p>
 
-          {message && (
-            <p
-              role="status"
-              className={`mt-2 rounded border-[2px] border-gray-900 px-2 py-1 font-mono text-[11px] font-bold ${
-                message.ok
-                  ? "bg-[#d3f9d8] text-[#2b8a3e]"
-                  : "bg-[#ffe3e3] text-[#c92a2a]"
-              }`}
-            >
-              {message.text}
-            </p>
-          )}
         </div>
 
         <p className="mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
@@ -542,7 +594,10 @@ export default function SunShop({
                   {unlocked && (
                     <button
                       type="button"
-                      onClick={() => setMessage(redeemCheat(entry.word))}
+                      onClick={() => {
+                        const out = redeemCheat(entry.word);
+                        if (typeof onWhisper === "function") onWhisper(out.text);
+                      }}
                       title={armed ? "Disarm this cheat" : "Arm this cheat"}
                       className="ml-auto shrink-0 rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase transition-colors pixel-ease hover:bg-accentSoft"
                     >
@@ -558,7 +613,8 @@ export default function SunShop({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            setMessage(redeemCheat(cheatWord));
+            const out = redeemCheat(cheatWord);
+            if (typeof onWhisper === "function") onWhisper(out.text);
             setCheatWord("");
           }}
           className="mt-2 flex gap-1.5"
@@ -572,7 +628,7 @@ export default function SunShop({
           />
           <button
             type="submit"
-            className="rounded border-[2px] border-gray-900 bg-[#e8b04b] px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-gray-900 transition-colors pixel-ease hover:bg-[#f0c161]"
+            className="rounded border-[2px] border-gray-900 bg-[#e8b04b] px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-[#2b3347] transition-colors pixel-ease hover:bg-[#f0c161]"
           >
             Cast
           </button>
@@ -606,7 +662,7 @@ export default function SunShop({
                 key={entry.id}
                 className={`flex flex-col items-center gap-1.5 rounded-lg border-[3px] p-2.5 transition-all duration-150 pixel-ease ${
                   owned
-                    ? "border-[#2b8a3e] bg-[#eef7e6]"
+                    ? "border-[#2b8a3e] bg-[#eef7e6] dark:bg-[#1e2a18]"
                     : "border-gray-900 bg-gradient-to-b from-[#e2c091] to-[#d3a971] hover:-translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.15)]"
                 }`}
               >
@@ -635,8 +691,8 @@ export default function SunShop({
                     }
                     className={`flex items-center gap-1 rounded border-[3px] border-gray-900 px-2 py-0.5 font-mono text-[9px] font-bold uppercase transition-colors pixel-ease ${
                       tokens >= price
-                        ? "bg-[#e8b04b] text-gray-900 hover:bg-[#f0c161] active:translate-y-[1px]"
-                        : "cursor-not-allowed bg-[#cbb894] text-gray-600"
+                        ? "bg-[#e8b04b] text-[#2b3347] hover:bg-[#f0c161] active:translate-y-[1px]"
+                        : "cursor-not-allowed bg-[#cbb894] text-[#6a6053]"
                     }`}
                   >
                     <TokenGlyph className="h-2.5 w-2.5" />
@@ -694,6 +750,38 @@ export default function SunShop({
           </div>
         </div>
       </div>
+
+      <RetroDialog
+        open={purchase !== null}
+        title={purchase?.title ?? ""}
+        onCancel={() => setPurchase(null)}
+        onConfirm={() => setPurchase(null)}
+        confirmLabel="Done"
+      >
+        {purchase?.body}
+      </RetroDialog>
+
+      <RetroDialog
+        open={confirm !== null}
+        title={confirm?.title ?? ""}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          confirm?.onYes();
+          setConfirm(null);
+        }}
+      >
+        {confirm?.body}
+      </RetroDialog>
+
+      <RetroDialog
+        open={notice !== null}
+        title="Heads up"
+        onCancel={() => setNotice(null)}
+        onConfirm={() => setNotice(null)}
+        confirmLabel="OK"
+      >
+        {notice}
+      </RetroDialog>
     </div>
   );
 }

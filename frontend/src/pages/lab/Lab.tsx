@@ -164,6 +164,7 @@ export default function Lab() {
   const [loading, setLoading] = useState(false);
   // A newer simulation cancels the web fetch still in flight.
   const battleAbortRef = useRef<AbortController | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   /* Web mode: battle the pipelines over live OpenAlex/Crossref/
@@ -183,6 +184,20 @@ export default function Lab() {
   const [tab, setTab] = useState<"recipe" | "garden" | "stats">(
     "recipe",
   );
+
+  /* Warn when the window is too narrow for the garden layout. */
+  const gardenPanelRef = useRef<HTMLDivElement | null>(null);
+  const [gardenNarrow, setGardenNarrow] = useState(false);
+  useEffect(() => {
+    const panel = gardenPanelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    const measure = () => setGardenNarrow(panel.clientWidth < 720);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
 
 
@@ -872,7 +887,20 @@ export default function Lab() {
       )}
 
       {tab === "garden" && (
-        <div className="mt-6">
+        <div ref={gardenPanelRef} className="mt-6">
+          {gardenNarrow && (
+            <div
+              role="status"
+              className="mb-4 flex items-start gap-2 rounded-lg border-[3px] border-[#b45309]/60 bg-[#fff7e6] px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-wide text-[#7a4a10]"
+            >
+              <span aria-hidden="true">{"\u26A0"}</span>
+              <span>
+                This window is narrow — the garden and its shops will
+                stack, and the picker rows may scroll. Widen the
+                window for the full layout.
+              </span>
+            </div>
+          )}
           {/* garden heading */}
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>

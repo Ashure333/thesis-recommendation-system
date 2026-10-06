@@ -17,9 +17,12 @@ import {
   type TreeSpeciesId,
 } from "../../data/knowledge";
 
-/* The reference's native window: 128x128, scaled by
-   the 800-unit world just like the original. */
+/* The tall-view window, widened: 172x150 so the mature canopy's
+   side branches sit inside the box; 172/800 scales the world the
+   same way the reference scaled its own window. */
 const W = 128;
+/* "Tall View" window, straight from the reference: 128 x 150 —
+   the crown of the tree and the sky above it both fit. */
 const H = 128;
 const S = W / 800;
 
@@ -110,6 +113,9 @@ interface TreeShape {
     cx: number; cy: number; rx: number; ry: number; tone: number;
     lo: number; hi: number;
   }[];
+  /** How many loosely-scattered clusters bloom above the canopy
+      at the very top of the growth (random positions, seeded). */
+  topFoliage?: number;
   /** Extra clusters (elder stage / ground clumps). */
   elder: {
     cx: number; cy: number; rx: number; ry: number; tone: number;
@@ -127,6 +133,7 @@ const CRIMSON_PALETTE: Palette = {
 
 const SHAPES: Record<TreeSpeciesId, TreeShape> = {
   crimson: {
+    topFoliage: 5,
     trunk: [
       [400, 742], [398, 690], [396, 630], [398, 570], [402, 510],
       [404, 450], [403, 390], [402, 330], [402, 270], [403, 245],
@@ -161,6 +168,7 @@ const SHAPES: Record<TreeSpeciesId, TreeShape> = {
     ],
   },
   oak: {
+    topFoliage: 5,
     trunk: [
       [400, 742], [396, 690], [392, 640], [395, 590], [402, 540],
       [408, 490], [410, 440], [408, 390], [404, 340], [404, 290],
@@ -182,14 +190,12 @@ const SHAPES: Record<TreeSpeciesId, TreeShape> = {
       { pts: [[405,735],[460,742],[510,738]], ws: [24,12,5], b0: -.06, dur: .12 },
     ],
     clusters: [
-      [400,130,120,60,.62],[270,160,110,60,.58],[530,160,110,60,.6],
-      [160,230,100,70,.55],[640,230,100,70,.57],[400,205,140,70,.5],
-      [300,265,110,65,.45],[500,265,110,65,.47],[110,330,80,60,.55],
-      [690,330,80,60,.55],[210,335,100,60,.5],[590,335,100,60,.5],
-      [400,305,120,60,.4],[150,420,60,40,.5],[650,410,65,45,.5],
-      [250,415,70,40,.42],[550,405,70,40,.42],[640,520,70,40,.5],
-      [520,485,60,32,.42],[130,470,50,30,.5],[330,95,55,32,.7],
-      [480,92,55,30,.7],[610,160,60,40,.65],[190,150,60,40,.65],
+      [400,130,120,60,.62],[270,160,110,60,.58],[530,160,110,60,.6],[160,230,100,70,.55],[640,230,100,70,.57],
+      [400,205,140,70,.5],[300,265,110,65,.45],[500,265,110,65,.47],
+      [110,330,80,60,.55],[690,330,80,60,.55],[210,335,100,60,.5],[590,335,100,60,.5],[400,305,120,60,.4],
+      [150,420,60,40,.5],[650,410,65,45,.5],[250,415,70,40,.42],[550,405,70,40,.42],
+      [640,520,70,40,.5],[520,485,60,32,.42],[130,470,50,30,.5],
+      [330,95,55,32,.7],[480,92,55,30,.7],[610,160,60,40,.65],[190,150,60,40,.65],
     ].map(([cx, cy, rx, ry, tone]) => ({
       cx, cy, rx, ry, tone, lo: 2.8, hi: 4.2,
     })),
@@ -199,82 +205,111 @@ const SHAPES: Record<TreeSpeciesId, TreeShape> = {
     ],
   },
   birch: {
+    topFoliage: 8,
     trunk: [
-      [440, 742], [432, 650], [424, 580], [418, 520], [414, 470],
-      [412, 430], [412, 395], [413, 360], [416, 325],
+      [400, 742], [397, 690], [394, 640], [392, 590], [391, 540],
+      [390, 480], [389, 420], [388, 360], [386, 300], [384, 245],
     ],
-    trunkW: [56, 50, 44, 38, 34, 30, 26, 22, 18],
+    trunkW: [40, 36, 32, 28, 24, 21, 18, 15, 12, 9],
     branches: [
-      { pts: [[413,470],[350,455],[300,430],[265,410]], ws: [14,9,5,3], b0: .18, dur: .2 },
-      { pts: [[413,430],[470,420],[510,400]], ws: [14,9,5], b0: .2, dur: .18 },
-      { pts: [[414,380],[360,355],[330,320]], ws: [10,6,3], b0: .26, dur: .16 },
-      { pts: [[415,350],[470,320],[500,290]], ws: [10,6,3], b0: .28, dur: .15 },
+      { pts: [[390,520],[355,485],[320,440],[295,390],[280,335]], ws: [10,8,6,4,3], b0: .14, dur: .2 },
+      { pts: [[391,500],[430,465],[465,420],[495,370],[515,315]], ws: [10,8,6,4,3], b0: .16, dur: .2 },
+      { pts: [[387,400],[365,340],[350,285],[345,230]], ws: [7,5,4,3], b0: .26, dur: .16 },
+      { pts: [[390,395],[415,335],[435,280],[448,225]], ws: [7,5,4,3], b0: .28, dur: .16 },
+      { pts: [[386,320],[386,270],[384,220]], ws: [5,4,3], b0: .36, dur: .12 },
+      { pts: [[262,420],[235,445],[205,450]], ws: [6,4,2], b0: .4, dur: .12 },
+      { pts: [[522,420],[548,445],[578,450]], ws: [6,4,2], b0: .42, dur: .12 },
+      { pts: [[400,735],[360,740],[330,736]], ws: [12,6,3], b0: -.07, dur: .12 },
+      { pts: [[403,735],[445,740],[472,736]], ws: [12,6,3], b0: -.06, dur: .12 },
     ],
     clusters: [
-      [300,290,55,40,.6],[395,245,45,32,.7],[500,250,55,40,.6],
-      [375,315,40,30,.5],[440,335,35,28,.5],[340,390,40,28,.5],
-      [480,405,42,30,.5],[260,435,40,30,.6],[490,220,40,26,.75],
+      [300,200,55,40,.6],[400,180,55,40,.62],[500,205,50,40,.58],
+      [330,240,45,32,.5],[470,245,45,32,.5],
+      [270,280,40,30,.55],[530,290,40,30,.55],[380,260,40,28,.45],
+      [340,330,35,25,.5],[450,330,35,25,.5],[250,360,30,22,.55],[550,370,30,22,.55],
     ].map(([cx, cy, rx, ry, tone]) => ({
-      cx, cy, rx, ry, tone, lo: 2.2, hi: 4.2,
+      cx, cy, rx, ry, tone, lo: 2.2, hi: 3.8,
     })),
     elder: [
-      { cx: 420, cy: 400, rx: 36, ry: 26, tone: .45 },
-      { cx: 330, cy: 260, rx: 28, ry: 20, tone: .6 },
-      { cx: 520, cy: 300, rx: 30, ry: 22, tone: .55 },
+      { cx: 400, cy: 120, rx: 20, ry: 14, tone: .75 },
+      { cx: 360, cy: 95, rx: 16, ry: 12, tone: .78 },
+      { cx: 450, cy: 100, rx: 18, ry: 12, tone: .75 },
+      { cx: 300, cy: 420, rx: 20, ry: 14, tone: .6 },
+      { cx: 520, cy: 420, rx: 20, ry: 14, tone: .6 },
     ],
   },
   elm: {
+    topFoliage: 6,
     trunk: [
-      [440, 742], [428, 645], [414, 560], [402, 490], [394, 430],
-      [388, 370], [386, 320], [378, 280], [368, 250], [356, 225],
+      [400, 742], [399, 700], [397, 650], [395, 600], [394, 555],
+      [393, 510], [392, 465], [391, 420], [390, 375], [389, 330],
+      [388, 285], [388, 245],
     ],
-    trunkW: [84, 70, 56, 46, 40, 36, 32, 28, 22, 16],
+    trunkW: [110, 100, 92, 84, 76, 68, 60, 52, 44, 36, 28, 20],
     branches: [
-      { pts: [[388,370],[340,340],[300,300],[270,255]], ws: [22,14,8,4], b0: .2, dur: .2 },
-      { pts: [[386,320],[450,300],[510,270],[545,235]], ws: [22,14,8,4], b0: .24, dur: .18 },
-      { pts: [[370,300],[320,250]], ws: [14,7], b0: .32, dur: .14 },
-      { pts: [[300,300],[255,330],[220,380]], ws: [16,10,6], b0: .28, dur: .18 },
+      { pts: [[392,600],[330,565],[270,530],[215,480],[170,420],[140,360]], ws: [46,38,30,22,14,8], b0: .12, dur: .26 },
+      { pts: [[393,595],[460,560],[520,520],[575,465],[610,400],[630,340]], ws: [46,38,30,22,14,8], b0: .13, dur: .26 },
+      { pts: [[392,520],[350,470],[315,410],[290,340],[275,270]], ws: [26,20,14,9,5], b0: .24, dur: .2 },
+      { pts: [[393,515],[438,465],[470,405],[492,335],[505,265]], ws: [26,20,14,9,5], b0: .26, dur: .2 },
+      { pts: [[391,430],[385,360],[382,290]], ws: [14,9,5], b0: .34, dur: .14 },
+      { pts: [[392,420],[415,350],[435,280]], ws: [14,9,5], b0: .36, dur: .14 },
+      { pts: [[400,735],[350,741],[310,736]], ws: [22,10,4], b0: -.07, dur: .12 },
+      { pts: [[403,735],[452,741],[495,736]], ws: [22,10,4], b0: -.06, dur: .12 },
     ],
     clusters: [
-      [300,180,70,50,.6],[410,150,70,48,.65],[500,190,60,45,.55],
-      [270,250,50,40,.5],[360,240,55,40,.45],[470,245,55,40,.5],
-      [545,300,65,50,.5],[230,340,55,42,.6],[330,315,45,35,.42],
-      [420,330,48,36,.42],[560,370,55,42,.5],[250,420,40,30,.5],
-      [480,410,45,32,.5],[600,430,50,38,.55],
+      [400,300,130,60,.5],[270,320,95,55,.5],[530,320,95,55,.5],
+      [200,380,80,50,.52],[600,380,80,50,.52],
+      [300,380,90,50,.45],[500,380,90,50,.45],
+      [350,430,85,42,.42],[450,430,85,42,.42],
+      [240,455,70,35,.48],[560,455,70,35,.48],
+      [400,270,80,45,.6],[400,370,80,45,.4],
     ].map(([cx, cy, rx, ry, tone]) => ({
-      cx, cy, rx, ry, tone, lo: 2.5, hi: 4.6,
+      cx, cy, rx, ry, tone, lo: 2.6, hi: 4.2,
     })),
     elder: [
-      { cx: 600, cy: 460, rx: 30, ry: 24, tone: .5 },
-      { cx: 220, cy: 440, rx: 32, ry: 24, tone: .55 },
-      { cx: 410, cy: 100, rx: 34, ry: 24, tone: .7 },
+      { cx: 400, cy: 150, rx: 60, ry: 40, tone: .7 },
+      { cx: 300, cy: 120, rx: 50, ry: 36, tone: .72 },
+      { cx: 500, cy: 120, rx: 50, ry: 36, tone: .72 },
     ],
   },
   redwood: {
+    topFoliage: 10,
     trunk: [
-      [440, 742], [430, 600], [422, 480], [416, 380], [412, 300],
-      [409, 240], [407, 190],
+      [440, 742], [428, 690], [405, 640], [385, 600], [372, 565],
+      [345, 525], [318, 490], [312, 450], [335, 410], [365, 372],
+      [388, 330], [402, 285], [403, 245],
     ],
-    trunkW: [70, 58, 46, 38, 32, 26, 20],
+    trunkW: [100, 92, 78, 66, 58, 52, 46, 44, 40, 34, 28, 20, 12],
     branches: [
-      { pts: [[414,470],[340,455],[300,445]], ws: [18,10,6], b0: .2, dur: .15 },
-      { pts: [[409,380],[520,370],[560,360]], ws: [18,10,6], b0: .24, dur: .14 },
-      { pts: [[407,300],[330,285]], ws: [16,8], b0: .3, dur: .12 },
-      { pts: [[408,240],[510,230]], ws: [16,8], b0: .34, dur: .12 },
+      { pts: [[380,560],[420,535],[470,515],[510,470],[535,440]], ws: [28,20,12,8,5], b0: .13, dur: .22 },
+      { pts: [[318,490],[285,502],[255,490],[245,455],[232,420]], ws: [22,16,10,7,5], b0: .18, dur: .2 },
+      { pts: [[372,378],[345,330],[330,270],[320,225]], ws: [14,10,7,5], b0: .27, dur: .14 },
+      { pts: [[395,300],[430,280],[470,255],[500,230]], ws: [14,10,7,4], b0: .3, dur: .14 },
+      { pts: [[418,462],[450,440],[490,420],[540,425]], ws: [10,8,6,4], b0: .25, dur: .18 },
+      { pts: [[500,470],[520,430],[560,410]], ws: [6,5,3], b0: .3, dur: .15 },
+      { pts: [[620,285],[630,245],[640,210]], ws: [4,3,2], b0: .4, dur: .15 },
+      { pts: [[440,735],[390,742],[350,738]], ws: [18,10,4], b0: -.07, dur: .12 },
+      { pts: [[445,735],[490,742],[530,738]], ws: [16,9,4], b0: -.06, dur: .12 },
     ],
     clusters: [
-      [440,480,120,34,.6],[440,410,108,30,.64],[440,345,96,28,.68],
-      [440,285,84,26,.72],[440,235,70,24,.76],[440,195,52,22,.8],
-      [440,160,38,18,.84],
+      [230,150,70,55,.55],[310,125,70,55,.6],[385,105,50,40,.65],[200,175,45,40,.55],
+      [330,195,75,55,.5],[420,155,50,45,.5],[280,215,55,35,.42],
+      [170,335,60,45,.62],[250,325,60,45,.6],[325,345,50,40,.5],
+      [135,410,45,40,.6],[215,385,60,40,.5],[290,400,40,30,.4],
+      [450,275,65,50,.5],[540,300,65,55,.58],[615,330,60,50,.62],
+      [500,375,65,50,.5],[585,415,60,50,.55],[650,420,40,40,.6],
+      [420,345,55,45,.42],[555,235,45,35,.65],[610,260,40,30,.65],[470,420,40,30,.42],
+      [360,62,25,18,.7],[640,205,18,16,.7],
     ].map(([cx, cy, rx, ry, tone]) => ({
-      cx, cy, rx, ry, tone, lo: 3, hi: 5.2,
+      cx, cy, rx, ry, tone, lo: 2.8, hi: 4.2,
     })),
     elder: [
-      { cx: 440, cy: 520, rx: 126, ry: 36, tone: .55 },
-      { cx: 440, cy: 452, rx: 112, ry: 32, tone: .62 },
-      { cx: 440, cy: 320, rx: 90, ry: 28, tone: .7 },
+      { cx: 500, cy: 612, rx: 38, ry: 28, tone: 0.6, lo: 2.6, hi: 4, start: 0.86 },
+      { cx: 330, cy: 565, rx: 13, ry: 12, tone: 0.7, lo: 2, hi: 3, start: 0.7 },
+      { cx: 555, cy: 722, rx: 14, ry: 12, tone: 0.55, lo: 2, hi: 3.2, start: 0.93 },
+      { cx: 262, cy: 690, rx: 14, ry: 8, tone: 0.6, lo: 1.8, hi: 2.8, start: 0.95 },
     ],
-  },
+  }
 };
 
 /* ---------- palettes ---------- */
@@ -379,10 +414,10 @@ const OAK_ART: Art = {
 const CRIMSON_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.26,
-  BX: 70.4,
-  ROOTX: 440,
-  ZM: 4.2,
-  DYW: 2800,
+  BX: 64,
+  ROOTX: 400,
+  ZM: 3.6,
+  DYW: 2600,
   cellY: 24,
   cellW: 10,
   fxE: 0.13,
@@ -508,10 +543,10 @@ const ELM_ART: Art = {
 const REDWOOD_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.26,
-  BX: 64,
-  ROOTX: 400,
-  ZM: 3.2,
-  DYW: 2600,
+  BX: 70.4,
+  ROOTX: 440,
+  ZM: 4.2,
+  DYW: 2800,
   cellY: 52,
   cellW: 7,
   fxE: 0.13,
@@ -583,6 +618,27 @@ const MAPLE_PALETTE: Palette = {
   cream: ["#c9741a", "#a8481a", "#d9a21b"],
 };
 
+const BIRCH_PALETTE: Palette = {
+  bark: ["#d8d3c8", "#c0baad", "#a69f91", "#8d8578"],
+  foliage: ["#233a2b", "#35533c", "#4c7354", "#709b78", "#9dc6a4"],
+  accent: "#5a6558",
+  cream: ["#e6dcc8", "#cfc2a8", "#b3a586"],
+};
+
+const ELM_PALETTE: Palette = {
+  bark: ["#3f3830", "#575047", "#6f675d", "#877e72"],
+  foliage: ["#17371f", "#26542c", "#3a7438", "#549a4b", "#77c169"],
+  accent: "#4a6a34",
+  cream: ["#9a8a6c", "#b3a284", "#c9b998"],
+};
+
+const REDWOOD_PALETTE: Palette = {
+  bark: ["#2f1d16", "#4a2c20", "#673e2c", "#85563e"],
+  foliage: ["#12301d", "#1c4930", "#286845", "#3f9460", "#5fc184"],
+  accent: "#3f6a2c",
+  cream: ["#a88a64", "#c2a47c", "#dab998"],
+};
+
 const OAK_PALETTE: Palette = {
   bark: ["#1e1610", "#32261b", "#4a3a2a", "#66523b"],
   foliage: ["#0f2a16", "#1d4a22", "#2f7a2e", "#4fa83e", "#8fd45c"],
@@ -598,6 +654,26 @@ const OAK_WORLD = {
   LICH: hexToRgb("#aebf9c"),
   AMB: ["#6a3c12", "#c27a1c", "#f0b43c"].map(hexToRgb),
   FUN: ["#e2c58a", "#c79a54", "#7a5a30"].map(hexToRgb),
+};
+
+const ELM_WORLD = {
+  BK: ["#2f2a24", "#423c34", "#564f45", "#6b6357", "#837a6c", "#9d9483"].map(
+    hexToRgb,
+  ),
+  MS: ["#243b20", "#3a5c2e", "#5c8a44"].map(hexToRgb),
+  LICH: hexToRgb("#a8b48e"),
+  AMB: ["#5e3c14", "#a8781e", "#dbb13a"].map(hexToRgb),
+  FUN: ["#e0c78e", "#c19d52", "#7a5a30"].map(hexToRgb),
+};
+
+const REDWOOD_WORLD = {
+  BK: ["#241510", "#3a2118", "#52301f", "#6d422b", "#8a5838", "#a8724e"].map(
+    hexToRgb,
+  ),
+  MS: ["#16311f", "#25522c", "#3c7c41"].map(hexToRgb),
+  LICH: hexToRgb("#9aa87a"),
+  AMB: ["#5e2c10", "#9a5218", "#cf8430"].map(hexToRgb),
+  FUN: ["#c2a16e", "#9c7a44", "#6a4c28"].map(hexToRgb),
 };
 
 const MAPLE_WORLD = {
@@ -627,6 +703,8 @@ export default function PixelGrowthTree({
   speciesId,
   growth,
   onTreeClick,
+  viewerMax,
+  viewResetKey = 0,
 }: {
   speciesId: TreeSpeciesId;
   /** 0..1 — the fertilizer position on the reference's timeline
@@ -634,9 +712,18 @@ export default function PixelGrowthTree({
   growth: number;
   /** A plain click on the tree (no drag, no zoom gesture). */
   onTreeClick?: () => void;
+  /** The stage height in px: the tall window fits its bounding
+     box (128:150 aspect), filling the box without overflowing. */
+  viewerMax?: number;
+  /** Bump to recentre the pan after a stage-chip navigation. */
+  viewResetKey?: number;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const offRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    setView((v) => ({ ...v, x: 0, y: 0 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewResetKey]);
   const dispRef = useRef(0);
   const [reduced] = useState(
     () =>
@@ -659,24 +746,11 @@ export default function PixelGrowthTree({
      unlocks and drag-to-pan / 1x-2x zoom take over. */
   const panEnabled = growth >= 0.66;
 
-  /* Relative size: the 128x128 window scales up or down to taste,
-     remembered between visits. */
-  const SIZE_KEY = "paperrec_tree_size";
-  const [canvasPx, setCanvasPx] = useState<number>(() => {
-    try {
-      const raw = Number(window.localStorage.getItem(SIZE_KEY));
-      if (raw >= 96 && raw <= 336) return raw;
-    } catch {
-      // best-effort
-    }
-    return 176;
-  });
-  const resizeRef = useRef<{
-    px: number;
-    py: number;
-    start: number;
-    pointerId: number;
-  } | null>(null);
+  /* The tall-view window fills its bounding box: its height is the
+     stage's height (the 128:150 aspect gives the width), so the
+     tree reads big and planted, and there is no grip and no saved
+     size to fight the layout. */
+  const boxH = Math.max(150, Math.min(viewerMax ?? 420, 760));
 
   const shape = SHAPES[speciesId];
   const species = treeSpecies(speciesId);
@@ -685,7 +759,13 @@ export default function PixelGrowthTree({
       ? MAPLE_PALETTE
       : speciesId === "oak"
         ? OAK_PALETTE
-        : ramps(species.leafLight, species.leaf, species.leafDeep);
+        : speciesId === "birch"
+          ? BIRCH_PALETTE
+          : speciesId === "elm"
+            ? ELM_PALETTE
+            : speciesId === "redwood"
+              ? REDWOOD_PALETTE
+              : ramps(species.leafLight, species.leaf, species.leafDeep);
   const art = speciesId === "oak"
     ? OAK_ART
     : speciesId === "crimson"
@@ -766,6 +846,20 @@ export default function PixelGrowthTree({
       LICH = MAPLE_WORLD.LICH;
       AMB = MAPLE_WORLD.AMB;
       SPL = MAPLE_WORLD.SPL;
+    } else if (speciesId === "elm") {
+      BK = ELM_WORLD.BK;
+      MS = ELM_WORLD.MS;
+      LICH = ELM_WORLD.LICH;
+      AMB = ELM_WORLD.AMB;
+      FUN = ELM_WORLD.FUN;
+      SPL = [];
+    } else if (speciesId === "redwood") {
+      BK = REDWOOD_WORLD.BK;
+      MS = REDWOOD_WORLD.MS;
+      LICH = REDWOOD_WORLD.LICH;
+      AMB = REDWOOD_WORLD.AMB;
+      FUN = REDWOOD_WORLD.FUN;
+      SPL = [];
     } else if (speciesId === "birch") {
       BK = [0, 1, 2, 3, 4, 5].map((i) => mixRgb(BARK[0], BARK[3], i / 5));
       BK[0] = mixRgb(BK[0], [0, 0, 0], 0.28);
@@ -801,6 +895,7 @@ export default function PixelGrowthTree({
     };
 
     const R2 = rng(11);
+
 
     /* ---- pollen dust (the reference's own sprinkle) ---- */
     const SP: [number, number, number[], number][] = [];
@@ -871,6 +966,26 @@ export default function PixelGrowthTree({
     });
     for (const c of shape.elder) {
       cluster(c.cx, c.cy, c.rx, c.ry, c.tone, c.start ?? 0.9, c.lo ?? 2.2, c.hi ?? 3.6);
+    }
+    /* Loose foliage above the crown: a handful of small clusters
+       scattered at random around the canopy's top, real late so
+       the tree keeps dressing up as it finishes. */
+    const topN = shape.topFoliage ?? 5;
+    for (let i = 0; i < topN; i += 1) {
+      const ang = R2() * 6.283;
+      const rad = art.clusterR * (0.22 + R2() * 0.3);
+      const tcxx = art.clusterCX + Math.cos(ang) * rad;
+      const tcy = art.clusterCY - 150 - R2() * 110;
+      cluster(
+        tcxx,
+        tcy,
+        22 + R2() * 20,
+        14 + R2() * 12,
+        0.55 + R2() * 0.3,
+        0.72 + R2() * 0.26,
+        1.8,
+        3.2,
+      );
     }
     leaves.sort((a, b) => a.y - b.y);
 
@@ -1163,7 +1278,7 @@ export default function PixelGrowthTree({
     const LAND: { x: number; y: number; a: boolean; p: number[][] }[] = [];
     let spawn = 0;
 
-    const fall = (dt: number, shower: boolean) => {
+    const fall = (dt: number, shower: boolean, tm: number) => {
       spawn += dt;
       if (spawn > (shower ? 0.3 : 0.45) && FALL.length < (shower ? 22 : 14)) {
         spawn = 0;
@@ -1188,7 +1303,8 @@ export default function PixelGrowthTree({
         const f = FALL[i];
         f.y += f.v * dt;
         f.ph += dt * 2.5;
-        f.x += Math.sin(f.ph) * 7 * dt;
+        const gust = 0.5 + 0.5 * Math.sin(tm * 0.5);
+        f.x += (Math.sin(f.ph) * 7 + gust * 15) * dt;
         if (f.y >= (DY > 0 ? H + 3 : f.gy)) {
           if (DY <= 0) {
             LAND.push({
@@ -1231,8 +1347,11 @@ export default function PixelGrowthTree({
     const easeInOut = (u: number) => u * u * (3 - 2 * u);
 
     const render = (P: number, dt: number, tm: number) => {
-      buf.fill(0);
       cov.fill(0);
+      /* Transparent window: wipe the alpha channel only, so the
+         landscape behind the tree shows through everywhere the
+         tree has not painted (no black slab). */
+      for (let i = 3; i < buf.length; i += 4) buf[i] = 0;
 
       const g = clamp(P / PA, 0, 1);
       GG = g;
@@ -1368,7 +1487,7 @@ export default function PixelGrowthTree({
         }
       }
 
-      if (g >= 1) fall(dt, ux > 0);
+      if (g >= 1) fall(dt, ux > 0, tm);
 
       if (speciesId === "crimson") {
         let n = 0;
@@ -1381,13 +1500,20 @@ export default function PixelGrowthTree({
 
       off.putImageData(img, 0, 0);
 
-      /* Blit: the viewer's pan (screen px) and zoom (1x-2x). */
+      /* Blit: the viewer's pan (screen px) and manual zoom (1x-2x).
+
+         The grown tree keeps the reference's proportions — sky and
+         canopy together, trunk centred — until the user zooms in
+         (bottom-right controls or scroll): then the crop rests on
+         the base and dragging the picture climbs the trunk toward
+         the crown. No automatic rescale, ever. */
       ctx.clearRect(0, 0, W, H);
       const Z2 = viewRef.current.s;
       const sw = W / Z2;
       const shh = H / Z2;
-      const cx = 64 - viewRef.current.x / Z2;
-      const cy = 64 - viewRef.current.y / Z2;
+      const cx = art.BX - viewRef.current.x / Z2;
+      const cy0 = H - H / (2 * Z2);
+      const cy = cy0 - viewRef.current.y / Z2;
       const sx = clamp(cx - sw / 2, 0, W - sw);
       const sy = clamp(cy - shh / 2, 0, H - shh);
       ctx.imageSmoothingEnabled = false;
@@ -1457,7 +1583,7 @@ export default function PixelGrowthTree({
     >
       <div
         className="relative"
-        style={{ width: `${canvasPx}px`, maxWidth: "100%" }}
+        style={{ height: `${boxH}px`, aspectRatio: "1 / 1", maxWidth: "100%" }}
       >
       <canvas
         ref={ref}
@@ -1465,7 +1591,7 @@ export default function PixelGrowthTree({
         height={H}
         role="img"
         aria-label="Pixel art tree growing"
-        className={`block h-auto w-full ${
+        className={`block h-full w-full touch-none ${
           panEnabled
             ? "cursor-grab active:cursor-grabbing"
             : "cursor-pointer"
@@ -1473,7 +1599,18 @@ export default function PixelGrowthTree({
         style={{ imageRendering: "pixelated" }}
         onWheel={(event) => {
           if (!panEnabled) return;
-          zoomBy(event.deltaY < 0 ? 0.25 : -0.25);
+          /* Once zoomed, the wheel (and the trackpad) scroll along
+             the tree: push up to climb, pull down to descend. The
+             pinched/ctrl wheel still zooms. */
+          if (event.ctrlKey || view.s <= 1) {
+            zoomBy(event.deltaY < 0 ? 0.25 : -0.25);
+            return;
+          }
+          setView((v) => ({
+            ...v,
+            y: v.y + event.deltaY * 0.55,
+            x: v.x + (event.deltaX ?? 0) * 0.55,
+          }));
         }}
         onPointerDown={(event) => {
           if (!panEnabled) {
@@ -1518,50 +1655,9 @@ export default function PixelGrowthTree({
         }}
       />
 
-        {/* resize grip: drag the corner to scale the window */}
-        <span
-          role="slider"
-          aria-label="Resize tree"
-          aria-valuemin={96}
-          aria-valuemax={336}
-          aria-valuenow={canvasPx}
-          className="absolute -bottom-1.5 -right-1.5 block h-3.5 w-3.5 cursor-nwse-resize border-[2px] border-gray-900 bg-[#f5e08a]"
-          style={{ clipPath: "polygon(100% 0, 100% 100%, 0 100%)" }}
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.currentTarget.setPointerCapture(event.pointerId);
-            resizeRef.current = {
-              px: event.clientX,
-              py: event.clientY,
-              start: canvasPx,
-              pointerId: event.pointerId,
-            };
-          }}
-          onPointerMove={(event) => {
-            const drag = resizeRef.current;
-            if (!drag || event.pointerId !== drag.pointerId) return;
-            const next = Math.round(
-              clamp(drag.start + (event.clientX - drag.px), 96, 336),
-            );
-            setCanvasPx(next);
-            try {
-              window.localStorage.setItem(SIZE_KEY, String(next));
-            } catch {
-              // best-effort
-            }
-          }}
-          onPointerUp={(event) => {
-            const drag = resizeRef.current;
-            if (drag && event.pointerId === drag.pointerId) {
-              resizeRef.current = null;
-            }
-          }}
-        />
-      </div>
-
-      {panEnabled && (
+        {panEnabled && (
         <div
-          className="mt-1 flex items-center gap-1"
+          className="absolute bottom-2 right-2 z-20 flex items-center gap-1 rounded-lg border-[2px] border-gray-900 bg-white/90 px-1.5 py-1 backdrop-blur-[1px]"
           aria-label="Tree viewer controls"
         >
           <button
@@ -1590,11 +1686,34 @@ export default function PixelGrowthTree({
           >
             +
           </button>
-          <span className="ml-1 hidden font-mono text-[9px] font-bold uppercase tracking-wide text-muted sm:inline">
-            drag to pan · scroll to zoom
+
+          <span className="mx-0.5 h-4 w-px bg-gray-900/30" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={() => setView((v) => ({ ...v, y: v.y + 22 }))}
+            disabled={view.s <= 1}
+            aria-label="Climb up the tree"
+            title="Climb up · drag also pans"
+            className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {"\u2191"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setView((v) => ({ ...v, y: v.y - 22 }))}
+            disabled={view.s <= 1}
+            aria-label="Climb down the tree"
+            title="Climb down"
+            className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {"\u2193"}
+          </button>
+          <span className="ml-1 hidden font-mono text-[8px] font-bold uppercase tracking-wide text-muted xl:inline">
+            climb · drag to pan
           </span>
         </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

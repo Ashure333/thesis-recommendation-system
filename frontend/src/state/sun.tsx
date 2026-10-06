@@ -50,6 +50,7 @@ const SEEN_TIPS_KEY = "paperrec_tips_seen";
 import {
   CHEAT_HEIGHTS,
   CHEAT_SETS,
+  DEFAULT_SPECIES,
   treeHeightByFertilizer,
   type TreeSpeciesId,
 } from "../data/knowledge";
@@ -118,6 +119,11 @@ interface SunState {
   balance: number;
   /** Total sun spent on fertilizer (drives tree growth). */
   spent: number;
+  /** The planted species; each tree grows its own garden bed. */
+  species: TreeSpeciesId;
+  /** Growth per species — every tree levels up separately. */
+  gardenProgress: Record<TreeSpeciesId, number>;
+  /** The active tree's fertilizer count (mirrored from the bed). */
   fertilizer: number;
   /** Growth tokens: the Skin Shop currency. */
   tokens: number;
@@ -141,11 +147,23 @@ interface SunState {
   cheats: string[];
   /** Cheat words armed by the user. */
   activeCheats: string[];
+  /** Cheat words whose "bloomed" notice already fired — a cheat
+      is announced once, ever, no matter how many times the tree
+      re-crosses the milestone. */
+  announcedCheats: string[];
 }
 
 const EMPTY_STATE: SunState = {
   balance: 0,
   spent: 0,
+  species: DEFAULT_SPECIES,
+  gardenProgress: {
+    crimson: 0,
+    oak: 0,
+    birch: 0,
+    elm: 0,
+    redwood: 0,
+  },
   fertilizer: 0,
   tokens: 0,
   tokenGrants: [],
@@ -160,6 +178,7 @@ const EMPTY_STATE: SunState = {
   gardenTips: 0,
   cheats: [],
   activeCheats: [],
+  announcedCheats: [],
 };
 
 function today(): string {
@@ -177,10 +196,37 @@ function readState(): SunState {
         ? value.filter((item) => typeof item === "string")
         : [];
 
+    const species = (
+      parsed.species &&
+      ["crimson", "oak", "birch", "elm", "redwood"].includes(parsed.species)
+    )
+      ? (parsed.species as TreeSpeciesId)
+      : DEFAULT_SPECIES;
+
+    const fertilizer = Number(parsed.fertilizer) || 0;
+    const gardenProgress = {
+      crimson: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["crimson"]) || 0,
+      oak: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["oak"]) || 0,
+      birch: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["birch"]) || 0,
+      elm: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["elm"]) || 0,
+      redwood: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["redwood"]) || 0,
+    } as Record<TreeSpeciesId, number>;
+
+    /* Legacy saves: lift the old single count into the planted tree. */
+    if (
+      gardenProgress[species] === 0 &&
+      Object.values(gardenProgress).every((v) => v === 0) &&
+      fertilizer > 0
+    ) {
+      gardenProgress[species] = fertilizer;
+    }
+
     return {
       balance: Number(parsed.balance) || 0,
       spent: Number(parsed.spent) || 0,
-      fertilizer: Number(parsed.fertilizer) || 0,
+      species,
+      gardenProgress,
+      fertilizer: gardenProgress[species],
       tokens: Number(parsed.tokens) || 0,
       tokenGrants: strings(parsed.tokenGrants),
       day: typeof parsed.day === "string" ? parsed.day : "",
@@ -194,6 +240,7 @@ function readState(): SunState {
       gardenTips: Number(parsed.gardenTips) || 0,
       cheats: strings(parsed.cheats),
       activeCheats: strings(parsed.activeCheats),
+      announcedCheats: strings(parsed.announcedCheats),
     };
   } catch {
     return EMPTY_STATE;
@@ -276,11 +323,11 @@ function claimMilestones(
  *  the stage ladder (Seed 0 ft … Ancient maple 1000 ft) as
  *  fertilizer marks progress, instead of a flat 30 ft per packet. */
 export function treeHeight(
-  state: Pick<SunState, "fertilizer" | "tipsSeen">,
+  state: Pick<SunState, "fertilizer" | "tipsSeen" | "species">,
   treasureCount: number,
   achievementCount: number,
 ): number {
-  return treeHeightByFertilizer(state.fertilizer);
+  return treeHeightByFertilizer(state.fertilizer, state.species);
 }
 
 /** Unlock every cheat whose milestone the tree has reached. */
@@ -380,6 +427,8 @@ interface SunContextValue {
   spendTokens: (amount: number) => boolean;
   /** Reset the tree's growth progress (fertilizer + spent sun). */
   resetTree: () => void;
+  /** Plant a species; each tree keeps its own growth. */
+  plantSpecies: (id: TreeSpeciesId) => void;
   /** TEMPORARY: dev top-up for shop/tree testing. */
   /** The planted tree's own cheat words. */
   cheatSet: { word: string; effect: string }[];
@@ -462,13 +511,30 @@ export function SunProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  /* Wipe the tree's own progress: fertilizer and growth spent —
+  /* Wipe every tree's progress: fertilizer and growth spent —
      the wallet, skins, and achievements stay. */
   function resetTree() {
     setState((current) => ({
       ...current,
       fertilizer: 0,
       spent: 0,
+      gardenProgress: {
+        crimson: 0,
+        oak: 0,
+        birch: 0,
+        elm: 0,
+        redwood: 0,
+      },
+    }));
+  }
+
+  /* Plant another species: the garden remembers each tree's own
+     growth, so one tree can be a sapling while others are giants. */
+  function plantSpecies(id: TreeSpeciesId) {
+    setState((current) => ({
+      ...current,
+      species: id,
+      fertilizer: current.gardenProgress[id] ?? 0,
     }));
   }
 
@@ -503,8 +569,10 @@ export function SunProvider({ children }: { children: ReactNode }) {
     }
 
     const before = height;
-    const after =
-      before + count * FEET_PER_FERTILIZER;
+    const after = treeHeightByFertilizer(
+      state.fertilizer + count,
+      state.species,
+    );
     const set = currentCheatSet();
     const crossed = CHEAT_HEIGHTS.filter(
       (heightFt) => heightFt > before && heightFt <= after,
@@ -514,10 +582,18 @@ export function SunProvider({ children }: { children: ReactNode }) {
       effect: set[index]?.effect ?? "",
     }));
 
+    /* A cheat is announced the first time its milestone is really
+       achieved — never on re-crossings, never twice. */
+    const already = new Set(state.announcedCheats);
+    const fresh = crossed.filter(
+      (milestone) =>
+        milestone.word !== "" && !already.has(milestone.word),
+    );
+
     let wisdom: string;
 
-    if (crossed.length > 0) {
-      wisdom = crossed
+    if (fresh.length > 0) {
+      wisdom = fresh
         .map(
           (milestone) =>
             `Cheat unlocked: type "${milestone.word}" — ${milestone.effect}`,
@@ -529,15 +605,24 @@ export function SunProvider({ children }: { children: ReactNode }) {
     }
 
     setState((current) => {
+      const bed: Record<TreeSpeciesId, number> = {
+        ...current.gardenProgress,
+        [current.species]:
+          (current.gardenProgress[current.species] ?? 0) + count,
+      };
       const planted: SunState = {
         ...rollDay(current),
         balance: current.balance - pack.price,
         spent: current.spent + pack.price,
-        fertilizer: current.fertilizer + count,
-        gardenTips:
-          crossed.length > 0
-            ? current.gardenTips
-            : current.gardenTips + 1,
+        gardenProgress: bed,
+        fertilizer: bed[current.species],
+        gardenTips: fresh.length > 0 ? current.gardenTips : current.gardenTips + 1,
+        announcedCheats: fresh.length > 0
+          ? [
+              ...current.announcedCheats,
+              ...fresh.map((milestone) => milestone.word),
+            ]
+          : current.announcedCheats,
       };
 
       return reconcile(planted, found, unlocked);
@@ -548,10 +633,8 @@ export function SunProvider({ children }: { children: ReactNode }) {
       text:
         `Planted ${count} fertilizer${count === 1 ? "" : "s"} — ` +
         `+${count * GROWTH_PER_FERTILIZER} growth — ` +
-        `${treeHeightByFertilizer(state.fertilizer + count)} ft. ${
-          wisdom
-        }`,
-      unlocked: crossed.map((milestone) => milestone.word),
+        `${after} ft. ${wisdom}`,
+      unlocked: fresh.map((milestone) => milestone.word),
     };
   }
 
@@ -656,6 +739,7 @@ export function SunProvider({ children }: { children: ReactNode }) {
         spendTokens,
         testTopUp,
         resetTree,
+        plantSpecies,
       }}
     >
       {children}
