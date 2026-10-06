@@ -9,7 +9,17 @@ import type { PetVariant } from "../../data/petForms";
    image-rendering: pixelated.
    ============================================================ */
 
-export type PetAnimState = "idle" | "wave" | "run" | "run-left" | "run-right" | "jump";
+export type PetAnimState =
+  | "idle"
+  | "wave"
+  | "run"
+  | "run-left"
+  | "run-right"
+  | "jump"
+  | "failed"
+  | "waiting"
+  | "running"
+  | "review";
 
 interface PetBlobProps {
   variant: PetVariant;
@@ -26,7 +36,10 @@ const SPRITE_FRAMES = 6;
 const SPRITE_LOOP_MS = 1100;
 const INK = "#171923";
 
-/* Atlas row for each animation state (Petdex/Codex 8×9 layout). */
+/* Atlas row for each animation state (Petdex/Codex 8×9 layout).
+   Row 5 failed, 6 waiting, 7 running (active working loop — not
+   foot-running), and 8 review (focused / inspecting) round out the
+   contract; "review" is what the pet plays while it eats a paper. */
 const STATE_ROWS: Record<PetAnimState, number> = {
   idle: 0,
   run: 7, // "running"
@@ -34,6 +47,10 @@ const STATE_ROWS: Record<PetAnimState, number> = {
   "run-right": 1, // "running-right"
   wave: 3, // "waving"
   jump: 4, // "jumping"
+  failed: 5, // "failed"
+  waiting: 6, // "waiting"
+  running: 7, // active working loop
+  review: 8, // focused / inspecting (eating a paper)
 };
 
 /* Sheets whose running-left/running-right rows are authored swapped
@@ -43,6 +60,19 @@ const SWAPPED_RUN: Record<string, boolean> = {
   shuna: true,
   diablo: true,
 };
+
+/** Atlas row for a state, honoring the swapped-run sheets. */
+function resolveRow(state: PetAnimState, variant: PetVariant): number {
+  const swapped = SWAPPED_RUN[variant] ?? false;
+
+  if (swapped && (state === "run-left" || state === "run-right")) {
+    return state === "run-left"
+      ? STATE_ROWS["run-right"]
+      : STATE_ROWS["run-left"];
+  }
+
+  return STATE_ROWS[state];
+}
 
 /* Cached per-sheet frame counts (some rows have fewer than 8 frames). */
 const frameCountCache = new Map<string, number[]>();
@@ -266,11 +296,7 @@ export default function PetBlob({
       const img = imgRef.current;
       if (img) {
         const counts = rowFrameCounts(img, SPRITE_SHEETS[variant]);
-        const swapped = SWAPPED_RUN[variant] ?? false;
-        let row = STATE_ROWS[state];
-        if (swapped && (state === "run-left" || state === "run-right")) {
-          row = state === "run-left" ? STATE_ROWS["run-right"] : STATE_ROWS["run-left"];
-        }
+        const row = resolveRow(state, variant);
         const frames = counts[row] ?? SPRITE_FRAMES;
         ctx.imageSmoothingEnabled = false;
         ctx.clearRect(0, 0, FRAME_W, FRAME_H);
@@ -300,6 +326,11 @@ export default function PetBlob({
       ref={ref}
       width={FRAME_W}
       height={FRAME_H}
+      data-sprite-variant={variant}
+      data-sprite-state={state}
+      data-sprite-row={
+        variant === "original" ? undefined : resolveRow(state, variant)
+      }
       className={className}
       style={{
         width: size * (FRAME_W / FRAME_H),

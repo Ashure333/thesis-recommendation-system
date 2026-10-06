@@ -109,3 +109,18 @@ export function Warning({ className = "" }: IconProps) {
     </svg>
   );
 }
+/** 🔒 padlock — locked feature badge in Library Mode */
+export function Lock({ className = "" }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" className={className} aria-hidden="true">
+      <path
+        d="M4.5 7 V5 a3.5 3.5 0 0 1 7 0 V7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <rect x="3" y="7" width="10" height="8" rx="1" fill="currentColor" />
+      <rect x="7.2" y="9.4" width="1.6" height="3.2" fill="rgb(var(--canvas) / 1)" />
+    </svg>
+  );
+}

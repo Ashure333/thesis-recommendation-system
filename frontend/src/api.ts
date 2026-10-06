@@ -578,6 +578,9 @@ export function comparePipelines(params: {
   seedPaperId?: number;
   topK?: number;
   customWeights?: { tfidf: number; sbert: number; metadata: number };
+  /** Lab experiment: diversify every pipeline's list (0..1). */
+  mmrLambda?: number;
+  mmrPool?: number;
   recordBattle?: boolean;
 }): Promise<CompareResponse> {
   return fetch(`${API_URL}/api/recommendations/compare`, {
@@ -590,6 +593,8 @@ export function comparePipelines(params: {
       seed_paper_id: params.seedPaperId ?? null,
       top_k: params.topK ?? 10,
       custom_weights: params.customWeights ?? null,
+      mmr_lambda: params.mmrLambda ?? null,
+      mmr_pool: params.mmrPool ?? 50,
       record_battle: params.recordBattle ?? true,
     }),
   }).then(handle<CompareResponse>);
@@ -779,6 +784,10 @@ export interface SimilarPapersGraph {
   path_lengths: Record<string, number>;
   common_authors: SimilarGraphCommonGroup[];
   common_topics: SimilarGraphCommonGroup[];
+  /** Seminal works most cited by the graph papers (cached OpenAlex). */
+  prior_works: ClusterWork[];
+  /** Works citing the most graph papers (surveys / follow-ups). */
+  derivative_works: ClusterWork[];
 }
 
 export function getSimilarPapersGraph(
@@ -850,4 +859,284 @@ export function researchChat(
       history: params.history ?? [],
     }),
   }).then(handle<ResearchChatResponse>);
+}
+
+// ============================================================
+// LIBRARY MODE & SITE EDITOR
+// ============================================================
+
+export type SiteFeatureState = "shown" | "locked" | "hidden";
+
+export type AnnouncementLevel = "info" | "important" | "event";
+
+export interface LibraryFeatures {
+  features: Record<string, SiteFeatureState>;
+}
+
+export interface Announcement {
+  id: number;
+  title: string;
+  body: string;
+  level: AnnouncementLevel;
+  active: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AnnouncementInput {
+  title: string;
+  body: string;
+  level?: AnnouncementLevel;
+  active?: boolean;
+  position?: number;
+}
+
+export interface AdminSession {
+  token: string;
+  username: string;
+  expires_at: number;
+}
+
+function adminHeaders(token: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+/** Feature states for Library Mode (public — the nav reads it). */
+export function getLibraryFeatures(): Promise<LibraryFeatures> {
+  return fetch(`${API_URL}/api/site/library-features`).then(
+    handle<LibraryFeatures>
+  );
+}
+
+/** Active announcements for the Library Home page (public). */
+export function getAnnouncements(): Promise<Announcement[]> {
+  return fetch(`${API_URL}/api/library/announcements`).then(
+    handle<Announcement[]>
+  );
+}
+
+export function adminLogin(
+  username: string,
+  password: string
+): Promise<AdminSession> {
+  return fetch(`${API_URL}/api/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  }).then(handle<AdminSession>);
+}
+
+export function adminMe(token: string): Promise<{ username: string }> {
+  return fetch(`${API_URL}/api/admin/me`, {
+    headers: adminHeaders(token),
+  }).then(handle<{ username: string }>);
+}
+
+export function adminChangePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: boolean }> {
+  return fetch(`${API_URL}/api/admin/password`, {
+    method: "POST",
+    headers: adminHeaders(token),
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  }).then(handle<{ ok: boolean }>);
+}
+
+export function adminListAnnouncements(
+  token: string
+): Promise<Announcement[]> {
+  return fetch(`${API_URL}/api/admin/announcements`, {
+    headers: adminHeaders(token),
+  }).then(handle<Announcement[]>);
+}
+
+export function adminCreateAnnouncement(
+  token: string,
+  input: AnnouncementInput
+): Promise<Announcement> {
+  return fetch(`${API_URL}/api/admin/announcements`, {
+    method: "POST",
+    headers: adminHeaders(token),
+    body: JSON.stringify(input),
+  }).then(handle<Announcement>);
+}
+
+export function adminUpdateAnnouncement(
+  token: string,
+  id: number,
+  input: Partial<AnnouncementInput>
+): Promise<Announcement> {
+  return fetch(`${API_URL}/api/admin/announcements/${id}`, {
+    method: "PUT",
+    headers: adminHeaders(token),
+    body: JSON.stringify(input),
+  }).then(handle<Announcement>);
+}
+
+export function adminDeleteAnnouncement(
+  token: string,
+  id: number
+): Promise<{ ok: boolean; deleted: number }> {
+  return fetch(`${API_URL}/api/admin/announcements/${id}`, {
+    method: "DELETE",
+    headers: adminHeaders(token),
+  }).then(handle<{ ok: boolean; deleted: number }>);
+}
+
+export function adminGetLibraryFeatures(
+  token: string
+): Promise<LibraryFeatures> {
+  return fetch(`${API_URL}/api/admin/library-features`, {
+    headers: adminHeaders(token),
+  }).then(handle<LibraryFeatures>);
+}
+
+export function adminSetLibraryFeatures(
+  token: string,
+  features: Record<string, SiteFeatureState>
+): Promise<LibraryFeatures> {
+  return fetch(`${API_URL}/api/admin/library-features`, {
+    method: "PUT",
+    headers: adminHeaders(token),
+    body: JSON.stringify({ features }),
+  }).then(handle<LibraryFeatures>);
+}
+
+// ============================================================
+// CONNECTIONS — PRIOR / DERIVATIVE WORKS (local + web)
+// ============================================================
+
+/** One external work clustered across the local graph. */
+export interface ClusterWork {
+  work_id: string;
+  label: string;
+  doi: string | null;
+  is_local: boolean;
+  matched_paper_id: number | null;
+  /** Local graph paper ids that reference (prior) or are cited by
+   *  (derivative) this work. */
+  graph_paper_ids: number[];
+  count: number;
+}
+
+/** One OpenAlex work in the web neighbourhood. */
+export interface WebWork {
+  work_id: string;
+  title: string | null;
+  doi: string | null;
+  publication_year: number | null;
+  cited_by_count: number | null;
+  author: string | null;
+}
+
+export interface WebConnections {
+  ok: boolean;
+  paper_id: number;
+  doi: string | null;
+  work_id: string | null;
+  prior_works: WebWork[];
+  derivative_works: WebWork[];
+  /**
+   * Inter-work connection structure: [source, target, weight, kind].
+   * Kinds: "ref" (center → prior), "cit" (citer → center),
+   * "cites" (citer → prior), "coref" (shared references between
+   * priors), "cocite" (shared references between citers).
+   * The center is the literal "center".
+   */
+  edges?: [string, string, number, string][];
+}
+
+export function getWebConnections(
+  paperId: number
+): Promise<WebConnections> {
+  return fetch(
+    `${API_URL}/api/papers/${paperId}/web-connections`
+  ).then(handle<WebConnections>);
+}
+
+// ============================================================
+// LITERATURE ACTIONS (multi-select context menu)
+// ============================================================
+
+export interface RenameResult {
+  ok: boolean;
+  renamed: { id: number; stored_path: string }[];
+  skipped: { id: number; reason: string }[];
+}
+
+export interface MergeResult {
+  ok: boolean;
+  master_id: number;
+  merged_ids: number[];
+  fields_filled: number;
+  library_moved: number;
+  library_dropped: number;
+  citations_moved: number;
+  citations_dropped: number;
+}
+
+export function refreshPapersMetadata(
+  paperIds: number[]
+): Promise<{ ok: boolean; queued: number[] }> {
+  return fetch(`${API_URL}/api/papers/refresh-metadata`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paper_ids: paperIds }),
+  }).then(handle<{ ok: boolean; queued: number[] }>);
+}
+
+export function revealPapers(
+  paperIds: number[]
+): Promise<{ ok: boolean; paper_id: number; path: string }> {
+  return fetch(`${API_URL}/api/papers/reveal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paper_ids: paperIds }),
+  }).then(handle<{ ok: boolean; paper_id: number; path: string }>);
+}
+
+export function renamePaperFiles(
+  paperIds: number[],
+  pattern: "title" | "author-year" | "author-year-title" | "custom",
+  customName?: string
+): Promise<RenameResult> {
+  return fetch(`${API_URL}/api/papers/rename-files`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      paper_ids: paperIds,
+      pattern,
+      custom_name: customName,
+    }),
+  }).then(handle<RenameResult>);
+}
+
+export function markPapers(
+  paperIds: number[],
+  valid: boolean
+): Promise<{ ok: boolean; updated: number; valid: boolean }> {
+  return fetch(`${API_URL}/api/papers/mark`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paper_ids: paperIds, valid }),
+  }).then(handle<{ ok: boolean; updated: number; valid: boolean }>);
+}
+
+export function mergePapers(
+  paperIds: number[]
+): Promise<MergeResult> {
+  return fetch(`${API_URL}/api/papers/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paper_ids: paperIds }),
+  }).then(handle<MergeResult>);
 }

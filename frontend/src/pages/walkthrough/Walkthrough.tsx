@@ -91,7 +91,7 @@ const SUBJECTS = [
 const INFOBOX_ROWS: [string, string][] = [
   ["Name", "Re:Search"],
   ["Type", "Academic paper repository + recommendation system"],
-  ["Developer", "BSMCS thesis project at Bulacan State University"],
+  ["Developer", "TEMPEST · BSMCS thesis project at Bulacan State University"],
   ["Tech", "FastAPI · SQLAlchemy · SQLite · scikit-learn · sentence-transformers · React · TypeScript · Vite · Tailwind"],
   ["Models", "TF-IDF (scikit-learn) · S-BERT (all-MiniLM-L6-v2)"],
   ["Pipelines", "6 fixed configurations + 1 custom dial"],
@@ -467,15 +467,13 @@ export default function Walkthrough() {
               is draggable, and its position persists.
             </p>
             <p className="text-sm leading-6 text-ink">
-              The pet is a self-aware slime in the spirit of Rimuru Tempest:
-              playful and gluttonous, as a slime it answers dragged-onto
-              papers with its ultimate skills — Beelzebub, Gluttony,
-              Imaginary Space — while every other form disposes of them with
-              a power from its own role. It leans
-              on its inner Great Sage to analyze recommendations, and names
-              everything it likes. It speaks a
-              second voice — Japanese lines always shown with their
-              translation — and each form talks in character: Gojo casts
+              Dragging a paper onto the pet deletes it from your
+              library. The pet reacts with its current form's
+              animation and speech line. It leans on its inner
+              Great Sage to analyze recommendations, and names
+              everything it likes. It speaks a second voice —
+              Japanese lines always shown with their translation —
+              and each form talks in character: Gojo casts
               Ryoiki Tenkai, Kabi asks for apples, Ciel reports
               "calculation complete", and the others speak their own
               signature lines.
@@ -527,7 +525,7 @@ export default function Walkthrough() {
                 ],
                 [
                   "Drag a paper over the pet",
-                  "A translucent, dashed ring marches around the pet — the delete boundary — and the pet readies its power. Dropping destroys the paper with the form's signature move: only the slime forms eat it, Gojo zaps it with Cursed Techniques, Glaucira burns it with Storm Breath, Mashiro Rima punches it flat — and the paper leaves the library.",
+                  "A translucent, dashed ring marks the delete boundary. Dropping the paper deletes it from the library. The pet reacts with its current form's animation.",
                 ],
                 [
                   "Menu CHAT toggle",
@@ -687,12 +685,9 @@ export default function Walkthrough() {
                 BibTeX citations straight into the Upload page.
               </li>
               <li>
-                The pet is a Rimuru-inspired slime: in its slime forms it
-                gobbles library papers with its ultimate skills (eat mode
-                shouts Gluttony or Beelzebub), but the other nine forms
-                never eat — each disposes of a thrown paper with a power
-                from its role (Gojo's Cursed Techniques, Glaucira's Storm
-                Breath, Mashiro Rima's punch). Its Great Sage persona,
+                Dragging a paper onto the pet deletes it from your
+                library. The pet reacts with its current form's
+                animation and a speech line. Its Great Sage persona,
                 Ciel, is one of the forms it can shift into.
               </li>
             </ul>

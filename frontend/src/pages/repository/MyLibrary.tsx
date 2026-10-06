@@ -8,6 +8,7 @@ import {
   Paper,
 } from "../../api";
 import PaperViewerModal from "../../components/PaperViewerModal";
+import LiteratureMenu from "../../components/LiteratureMenu";
 import MathText from "../../components/MathText";
 import PetFigure from "../../components/PetFigure";
 import { Button, EmptyState, PageHeader, PageShell } from "../../components/ui";
@@ -15,6 +16,7 @@ import HuntItem from "../../components/retro/HuntItem";
 import { crumpledBallDataURL } from "../../components/retro/CrumpledPaper";
 import { HUNT_ITEMS } from "../../data/hunt";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
+import { useLongPressFeed } from "../../utils/longPress";
 import { CITATION_FORMATS, downloadCitations } from "../../utils/exportCitations";
 
 /* ============================================================
@@ -81,6 +83,27 @@ export default function MyLibrary() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  // Right-click literature menu + status line for its actions.
+  const [literatureMenu, setLiteratureMenu] = useState<{
+    x: number;
+    y: number;
+    papers: Paper[];
+  } | null>(null);
+  const [actionMessage, setActionMessage] = useState("");
+
+  useEffect(() => {
+    if (!actionMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setActionMessage(""),
+      8000
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [actionMessage]);
 
   useEffect(() => {
     if (!exportOpen) return;
@@ -195,6 +218,28 @@ export default function MyLibrary() {
     }
   }
 
+  // Touch long-press behaves like a right-click on a row.
+  const longPress = useLongPressFeed(openMenuAt);
+
+  function openMenuAt(paperId: number, x: number, y: number) {
+    const paper = selectedPapers.find((entry) => entry.id === paperId);
+
+    if (!paper) {
+      return;
+    }
+
+    const isChecked = selected.has(paperId);
+    const papersForMenu = isChecked
+      ? selectedPapers
+      : [paper];
+
+    if (!isChecked) {
+      setSelected(new Set([paperId]));
+    }
+
+    setLiteratureMenu({ x, y, papers: papersForMenu });
+  }
+
   function handleOpenPaper(paper: Paper) {
     setSelectedPaper(paper);
     setIsViewerOpen(true);
@@ -253,11 +298,8 @@ export default function MyLibrary() {
       ) : (
         <>
         <p className="mb-4 text-xs text-muted">
-          Tip: drag a saved paper onto the pixel pet. Each character
-          disposes of it in its own way — only the slime forms eat
-          papers; Gojo zaps them with Cursed Techniques, Glaucira
-          burns them with Storm Breath, Mashiro Rima punches them
-          flat — and the paper leaves your library.
+          Tip: drag a saved paper onto the pixel pet to remove it
+          from your library.
         </p>
 
         {/* Batch export toolbar: select rows, export one file. */}
@@ -275,6 +317,15 @@ export default function MyLibrary() {
           <span className="text-xs text-muted">
             {selectedCount} selected
           </span>
+
+          {actionMessage && (
+            <span
+              role="status"
+              className="font-mono text-xs text-muted"
+            >
+              {actionMessage}
+            </span>
+          )}
 
           {selectedCount > 0 && (
             <button
@@ -357,6 +408,25 @@ export default function MyLibrary() {
                     48,
                   );
                 }}
+                onPointerDown={(event) => {
+                  if (event.pointerType !== "mouse") {
+                    longPress.start(
+                      paper.id,
+                      event.clientX,
+                      event.clientY
+                    );
+                  }
+                }}
+                onPointerMove={(event) =>
+                  longPress.move(event.clientX, event.clientY)
+                }
+                onPointerUp={longPress.cancel}
+                onPointerCancel={longPress.cancel}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  longPress.cancel();
+                  openMenuAt(paper.id, event.clientX, event.clientY);
+                }}
                 title="Drag me onto the pet to dispose of this paper"
                 className="paper-row border-b border-gray-200 p-4 last:border-b-0"
               >
@@ -384,7 +454,7 @@ export default function MyLibrary() {
                         </span>
                       ) : (
                         <span
-                          title="No subject assigned yet; the classifier couldn't place this one."
+                          title="No subject assigned yet; the classifier could not place this one."
                           className="rounded border-[2px] border-dashed border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-muted"
                         >
                           Unfiled
@@ -475,6 +545,21 @@ export default function MyLibrary() {
           })}
         </section>
         </>
+      )}
+
+      {/* Right-click literature menu */}
+      {literatureMenu && (
+        <LiteratureMenu
+          papers={literatureMenu.papers}
+          x={literatureMenu.x}
+          y={literatureMenu.y}
+          onClose={() => setLiteratureMenu(null)}
+          onOpenFile={(paper) => handleOpenPaper(paper)}
+          onChanged={(message) => {
+            setActionMessage(message);
+            void load();
+          }}
+        />
       )}
 
       {/* PDF Viewer Modal */}

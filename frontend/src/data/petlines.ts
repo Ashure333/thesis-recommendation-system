@@ -35,16 +35,16 @@ export interface PetLine {
 const IDLE_LINES: PetLine[] = [
   { jp: "コンニチハ！", en: "Hello!" },
   { en: "Hover me for tips." },
-  { jp: "ココ ダヨ", en: "I'm right here." },
+  { jp: "ココ ダヨ", en: "I am right here." },
   { jp: "タノシイネ", en: "This is fun." },
   { en: "Click me to chat." },
   { jp: "ガンバレ！", en: "You got this!" },
   { jp: "ナカマ ダ ヨ", en: "We're friends." },
   { jp: "ナマエ オ ツケテ アゲル", en: "Let me name you." },
-  { jp: "イツカ オオキク ナル ゾ", en: "Someday I'll be great." },
+  { jp: "イツカ オオキク ナル ゾ", en: "Someday I will be great." },
   { en: "Searching the archive is my job." },
   { jp: "ナニ オ サガス？", en: "What shall we find?" },
-  { en: "Pick a pipeline and I'll read it." },
+  { en: "Pick a pipeline and I will read it." },
   { jp: "キミ ノ バン ダ", en: "Your move." },
 ];
 
@@ -60,7 +60,7 @@ const HUNT_LINES: PetLine[] = [
 
 const COMPLETE_LINES: PetLine[] = [
   { jp: "ゼンブ ミツケタ！", en: "You found them all!" },
-  { en: "I'm a full help library now." },
+  { en: "I am a full help library now." },
   { jp: "キイテ ミテ！", en: "Ask me anything!" },
   { en: "Your move, partner." },
   { jp: "ゼンブ ナカマ ダ", en: "Everyone's a friend now." },
@@ -71,7 +71,7 @@ const COMPLETE_LINES: PetLine[] = [
  *  matches the form's actual name/identity in petForms.ts. */
 const FORM_LINES: Record<string, PetLine[]> = {
   original: [
-    { jp: "スライム ダ ヨ", en: "I'm a slime." },
+    { jp: "スライム ダ ヨ", en: "I am a slime." },
     { jp: "プルプル…", en: "*jiggle jiggle*" },
     { jp: "モト ノ カオ ダ", en: "Back to my old face." },
   ],
@@ -83,7 +83,7 @@ const FORM_LINES: Record<string, PetLine[]> = {
   ],
   veldora: [
     { jp: "ドラゴン ノ イブキ ダ", en: "A dragon's breath." },
-    { jp: "ソラ オ トブ ゾ", en: "I'll take to the sky." },
+    { jp: "ソラ オ トブ ゾ", en: "I will take to the sky." },
     { jp: "オーロラ ノ ヒカル", en: "Aurora light." },
   ],
   benimaru: [
@@ -116,12 +116,12 @@ const FORM_LINES: Record<string, PetLine[]> = {
   ],
   diablo: [
     { jp: "リョウイキ テンカイ", en: "Ryoiki Tenkai — Domain Expansion." },
-    { jp: "ムゲン ノ ナカ ダ", en: "I'm limitless." },
+    { jp: "ムゲン ノ ナカ ダ", en: "I am limitless." },
     { jp: "サイキョウ ダ", en: "The strongest, of course." },
   ],
   milim: [
     { jp: "ステージ デ マテル", en: "Waiting on stage." },
-    { jp: "アイドル ダ ヨ！", en: "I'm an idol!" },
+    { jp: "アイドル ダ ヨ！", en: "I am an idol!" },
     { jp: "ワンツー バランス", en: "1, 2, 3 — balance!" },
   ],
 };
@@ -152,11 +152,11 @@ export function getPetLines(
 /** Shown while a library paper is being dragged over the pet. */
 const HUNGRY_LINES: PetLine[] = [
   { jp: "クレ クレ！", en: "Gimme!" },
-  { jp: "ハラペコ ダ", en: "I'm starving." },
+  { jp: "ハラペコ ダ", en: "I am starving." },
   { jp: "タベタイ！", en: "Feed me!" },
   { jp: "オレ オ ナメルナヨ", en: "Don't underestimate me." },
   { jp: "ウマイ ウマイ", en: "Yummy, yummy." },
-  { jp: "コウシ デ オシエロ", en: "Feed me, I'll teach you." },
+  { jp: "コウシ デ オシエロ", en: "Feed me, I will teach you." },
   { jp: "ナニカ タベル モノ ハ ナイ カ", en: "Anything edible around?" },
 ];
 
@@ -166,18 +166,18 @@ const HUNGRY_LINES: PetLine[] = [
 const FORM_HUNGRY_LINES: Record<string, PetLine[]> = {
   veldora: [
     { jp: "オレ ニ カケル ナ", en: "Come — taste my storm." },
-    { jp: "クダケナ", en: "I'll blow it away." },
+    { jp: "クダケナ", en: "I will blow it away." },
     { jp: "チョウセン ダ", en: "Challenge accepted." },
   ],
   benimaru: [
     { jp: "ホノオ ガ ヒカル", en: "My flames are hungry." },
     { jp: "キョウカ ナ", en: "Careful — fire answers." },
-    { jp: "イッテン デ ハイ", en: "One spark and it's ash." },
+    { jp: "イッテン デ ハイ", en: "One spark and it is ash." },
   ],
   shion: [
     { jp: "ウゴク ナ", en: "Hold still." },
     { jp: "イチッキリ", en: "One clean cut." },
-    { jp: "キレイ ニ クレル ヨ", en: "I'll tidy this up." },
+    { jp: "キレイ ニ クレル ヨ", en: "I will tidy this up." },
   ],
   ranga: [
     { jp: "ガルルル…", en: "*growl*…" },
@@ -187,7 +187,7 @@ const FORM_HUNGRY_LINES: Record<string, PetLine[]> = {
   shuna: [
     { jp: "シズカ ニ ナレ", en: "Rest quietly." },
     { jp: "オリガミ ニ ナル ヨ", en: "You'll make fine origami." },
-    { jp: "トジコメ テ アゲル", en: "I'll seal you away." },
+    { jp: "トジコメ テ アゲル", en: "I will seal you away." },
   ],
   gobta: [
     { jp: "ネムテル タビニ", en: "Toss it while I nap." },

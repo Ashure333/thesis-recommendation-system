@@ -35,16 +35,31 @@ export function PageHeader({
   title,
   description,
   action,
+  icon,
 }: {
   eyebrow?: string;
   title: string;
   description?: string;
   action?: ReactNode;
+  /** Pixel badge shown before the eyebrow (page identity glyph). */
+  icon?: ReactNode;
 }) {
   return (
     <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        {eyebrow && <p className="mb-2 text-sm font-bold text-gray-600">{eyebrow}</p>}
+        {eyebrow && (
+          <p className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-600">
+            {icon && (
+              <span
+                aria-hidden="true"
+                className="flex h-7 w-7 items-center justify-center rounded border-[3px] border-gray-900 bg-canvas text-ink shadow-[2px_2px_0_rgba(0,0,0,0.2)]"
+              >
+                {icon}
+              </span>
+            )}
+            {eyebrow}
+          </p>
+        )}
         <h1 className="font-pixelify text-3xl font-bold leading-none text-gray-900 sm:text-4xl lg:text-5xl">
           {title}
           <BlockCursor className="animate-blink ml-2 inline-block h-[0.9em] w-[0.55em] text-accent" />

@@ -8,7 +8,7 @@
 
 import os
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.models import Base
@@ -70,9 +70,33 @@ SessionLocal = sessionmaker(
 )
 
 
+def _ensure_columns() -> None:
+    """Additive schema tweaks for databases created before a column existed.
+
+    create_all() only creates missing tables -- it never ALTERs an
+    existing one -- so columns added after the first release are
+    patched in here (SQLite supports ADD COLUMN directly).
+    """
+    with engine.connect() as conn:
+        columns = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(users)"))
+        }
+
+        if "is_admin" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE users "
+                    "ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
+            conn.commit()
+
+
 def init_db() -> None:
     """Create all tables if they don't already exist."""
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
 
 
 def get_session():

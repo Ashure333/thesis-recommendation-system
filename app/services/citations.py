@@ -574,3 +574,124 @@ def citation_stats(db: Session) -> dict:
         "matched": matched,
         "papers_with_doi": papers_with_doi,
     }
+
+
+def clustered_works(
+    db: Session,
+    paper_ids: list[int],
+    *,
+    min_mentions: int = 2,
+    limit: int = 12,
+) -> tuple[list[dict], list[dict]]:
+    """Cluster the cached citations of a paper set into two lists.
+
+    Returns (prior_works, derivative_works):
+
+        prior_works      -- external works most commonly cited BY the
+                            papers in the set ("the seminal works").
+        derivative_works -- external works that cite the most papers
+                            in the set ("surveys / recent follow-ups").
+
+    Only works mentioned by at least `min_mentions` papers are kept
+    (a single mention is not a pattern), sorted by mention count.
+
+    Each entry:
+        {
+          work_id, label, doi, is_local, matched_paper_id,
+          graph_paper_ids: [paper ids that reference (or are cited
+                            by) the work], count,
+        }
+
+    Labels prefer the local paper a work matched to; otherwise the
+    stored DOI; otherwise the raw OpenAlex id. No network calls.
+    """
+    wanted = sorted(set(paper_ids))
+
+    if not wanted:
+        return [], []
+
+    rows = (
+        db.query(PaperCitation)
+        .filter(PaperCitation.paper_id.in_(wanted))
+        .all()
+    )
+
+    grouped: dict[str, dict] = {
+        "cites": {},
+        "cited_by": {},
+    }
+
+    for row in rows:
+        bucket = grouped.get(row.direction)
+
+        if bucket is None:
+            continue
+
+        entry = bucket.setdefault(
+            row.external_work_id,
+            {
+                "work_id": row.external_work_id,
+                "doi": None,
+                "matched_paper_id": None,
+                "graph_paper_ids": set(),
+            },
+        )
+
+        entry["graph_paper_ids"].add(row.paper_id)
+
+        if entry["doi"] is None and row.external_doi:
+            entry["doi"] = row.external_doi
+
+        if entry["matched_paper_id"] is None and row.matched_paper_id:
+            entry["matched_paper_id"] = row.matched_paper_id
+
+    matched_ids = {
+        entry["matched_paper_id"]
+        for bucket in grouped.values()
+        for entry in bucket.values()
+        if entry["matched_paper_id"] is not None
+    }
+
+    titles: dict[int, str] = {}
+
+    if matched_ids:
+        title_rows = (
+            db.query(Paper.id, Paper.title)
+            .filter(Paper.id.in_(sorted(matched_ids)))
+            .all()
+        )
+        titles = {paper_id: title for paper_id, title in title_rows}
+
+    def finalize(bucket: dict) -> list[dict]:
+        entries: list[dict] = []
+
+        for entry in bucket.values():
+            count = len(entry["graph_paper_ids"])
+
+            if count < min_mentions:
+                continue
+
+            matched = entry["matched_paper_id"]
+            label = (
+                titles.get(matched)
+                or (f"DOI {entry['doi']}" if entry["doi"] else None)
+                or entry["work_id"]
+            )
+
+            entries.append(
+                {
+                    "work_id": entry["work_id"],
+                    "label": label,
+                    "doi": entry["doi"],
+                    "is_local": matched is not None,
+                    "matched_paper_id": matched,
+                    "graph_paper_ids": sorted(entry["graph_paper_ids"]),
+                    "count": count,
+                }
+            )
+
+        entries.sort(key=lambda item: (-item["count"], item["label"]))
+
+        return entries[:limit]
+
+    return finalize(grouped["cites"]), finalize(grouped["cited_by"])

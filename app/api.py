@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
@@ -19,8 +19,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.database import engine, init_db, get_session
-from app.models.models import Paper, PersonalLibrary, BattleRun
+from app.database import engine, init_db, get_session, SessionLocal
+from app.models.models import Paper, PersonalLibrary, BattleRun, Announcement, User
 from app.services.catalog import (
     DEFAULT_CATEGORIES,
     DEFAULT_DOCUMENT_TYPES,
@@ -44,7 +44,14 @@ from app.services.duplicate_detection import (
     DuplicatePaperError,
     find_duplicate_paper,
 )
-from app.services.citations import refresh_paper_citations
+from app.services.citations import (
+    clustered_works,
+    refresh_paper_citations,
+)
+from app.services.web_connections import (
+    fetch_web_neighbourhood,
+    resolve_work_titles,
+)
 from app.services.attachment_lock import attachment_lock
 from app.services.enrichment_queue import (
     get_enrichment_status,
@@ -106,6 +113,32 @@ from app.schemas import (
     AttachPdfRequest,
     IdentifierLookupRequest,
     MetadataImportRequest,
+    AdminLoginIn,
+    AdminTokenOut,
+    AdminMeOut,
+    AdminPasswordChange,
+    AnnouncementIn,
+    AnnouncementUpdate,
+    AnnouncementOut,
+    LibraryFeaturesOut,
+    LibraryFeaturesIn,
+    PaperIdsIn,
+    RenameFilesIn,
+    MarkPapersIn,
+)
+
+from app.services.merge_duplicates import merge_group
+
+from app.services.admin_auth import (
+    create_admin_token,
+    ensure_admin_user,
+    hash_password,
+    verify_admin_token,
+    verify_password,
+)
+from app.services.site_config import (
+    get_library_features,
+    set_library_features,
 )
 
 from app.services.research_chat import (
@@ -197,6 +230,10 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
+
+    # Library Mode: make sure the site-editor account and the default
+    # feature states exist before the first request.
+    _seed_library_site()
 
     # P1-A: ranked repository search uses an FTS5 index. It is purely
     # an optimization, so a failure here must never stop the app from
@@ -2422,6 +2459,8 @@ def compare_recommendation_pipelines(
             seed_paper_id=request.seed_paper_id,
             top_k=request.top_k,
             custom_weights=custom_weights,
+            mmr_lambda=request.mmr_lambda,
+            mmr_pool=request.mmr_pool,
         )
 
         # Log the run to the battle history so the frontend can
@@ -2886,6 +2925,36 @@ def get_similar_papers_graph(
     # Return graph data
     # --------------------------------------------------------
 
+    # Prior / derivative works: the external works the graph set
+    # cites most (seminal references) and the works citing the most
+    # graph papers (surveys / follow-ups). Clustered from the cached
+    # OpenAlex neighbourhood; empty when nothing overlaps yet.
+    prior_works, derivative_works = clustered_works(
+        db,
+        [node["id"] for node in nodes],
+    )
+
+    # The local citation store keeps bare OpenAlex ids for unmatched
+    # works; resolve real titles best-effort (cached) so the lists
+    # read like the web scope. Offline -> the ids/DOIs stay.
+    external_ids = [
+        work["work_id"]
+        for work in [*prior_works, *derivative_works]
+        if not work.get("is_local")
+    ]
+
+    try:
+        titles = resolve_work_titles(external_ids)
+    except Exception:
+        titles = {}
+
+    for work in [*prior_works, *derivative_works]:
+        title = titles.get(work["work_id"])
+
+        if title:
+            work["label"] = title
+            work["title"] = title
+
     return {
         "paper_id": paper_id,
         "pipeline": pipeline,
@@ -2902,7 +2971,60 @@ def get_similar_papers_graph(
         "common_topics": graph["common_topics"],
         "common_references": graph["common_references"],
         "common_citers": graph["common_citers"],
+        "prior_works": prior_works,
+        "derivative_works": derivative_works,
     }
+
+
+@app.get("/api/papers/{paper_id}/web-connections")
+def paper_web_connections(
+    paper_id: int,
+    db: Session = Depends(get_session),
+):
+    """WEB scope of the similar-papers pane: OpenAlex neighbourhood.
+
+    Prior works = the paper's references (heavily-cited first);
+    derivative works = the works citing it. Live OpenAlex lookups,
+    no caching -- the endpoint reports a friendly reason when the
+    paper has no DOI or OpenAlex is unreachable.
+    """
+    paper = (
+        db.query(Paper)
+        .filter(Paper.id == paper_id)
+        .first()
+    )
+
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found.",
+        )
+
+    result = fetch_web_neighbourhood(paper)
+
+    if not result.get("ok"):
+        reason = result.get("reason")
+
+        if reason == "no_doi":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This paper has no DOI, so OpenAlex cannot "
+                    "resolve its web connections."
+                ),
+            )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "OpenAlex could not be reached for this paper. "
+                "Try again in a moment."
+            ),
+        )
+
+    result["paper_id"] = paper.id
+
+    return result
 
 
 @app.post("/api/papers/{paper_id}/citations/refresh")
@@ -2954,3 +3076,548 @@ def research_chat(
             status_code=500,
             detail="Research chat failed.",
         ) from error
+
+
+# ============================================================
+# LIBRARY MODE & SITE EDITOR
+# ============================================================
+
+
+def _seed_library_site() -> None:
+    """Create the admin account + persist feature defaults (idempotent)."""
+    db = SessionLocal()
+
+    try:
+        ensure_admin_user(db)
+        # Writes the defaults on first boot; afterwards it only
+        # rewrites the same values, so a missing row can never leave
+        # the public endpoint without a full feature map.
+        set_library_features(db, {})
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Could not seed the library site editor state"
+        )
+    finally:
+        db.close()
+
+
+def require_admin(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_session),
+) -> User:
+    """Bearer-token gate for the site-editor endpoints."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Admin sign-in required.",
+        )
+
+    token = authorization.split(" ", 1)[1].strip()
+    user = verify_admin_token(db, token)
+
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Admin session expired or invalid.",
+        )
+
+    return user
+
+
+def _announcement_or_404(
+    db: Session,
+    announcement_id: int,
+) -> Announcement:
+    row = (
+        db.query(Announcement)
+        .filter(Announcement.id == announcement_id)
+        .first()
+    )
+
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Announcement not found.",
+        )
+
+    return row
+
+
+@app.get(
+    "/api/site/library-features",
+    response_model=LibraryFeaturesOut,
+)
+def public_library_features(db: Session = Depends(get_session)):
+    """Feature states for Library Mode (public: the nav needs it)."""
+    return LibraryFeaturesOut(features=get_library_features(db))
+
+
+@app.get(
+    "/api/library/announcements",
+    response_model=list[AnnouncementOut],
+)
+def public_announcements(db: Session = Depends(get_session)):
+    """Active announcements, in admin-defined order."""
+    return (
+        db.query(Announcement)
+        .filter(Announcement.active.is_(True))
+        .order_by(
+            Announcement.position.asc(),
+            Announcement.id.asc(),
+        )
+        .all()
+    )
+
+
+@app.post("/api/admin/login", response_model=AdminTokenOut)
+def admin_login(
+    payload: AdminLoginIn,
+    db: Session = Depends(get_session),
+):
+    user = (
+        db.query(User)
+        .filter(
+            User.username == payload.username.strip(),
+            User.is_admin.is_(True),
+        )
+        .first()
+    )
+
+    if user is None or not verify_password(
+        payload.password,
+        user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid admin credentials.",
+        )
+
+    token, expires_at = create_admin_token(db, user.id)
+
+    return AdminTokenOut(
+        token=token,
+        username=user.username,
+        expires_at=expires_at,
+    )
+
+
+@app.get("/api/admin/me", response_model=AdminMeOut)
+def admin_me(admin: User = Depends(require_admin)):
+    return AdminMeOut(username=admin.username)
+
+
+@app.post("/api/admin/password")
+def admin_change_password(
+    payload: AdminPasswordChange,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+):
+    if not verify_password(payload.current_password, admin.password_hash):
+        raise HTTPException(
+            status_code=400,
+            detail="Current password is incorrect.",
+        )
+
+    admin.password_hash = hash_password(payload.new_password)
+    db.commit()
+
+    return {"ok": True}
+
+
+@app.get(
+    "/api/admin/announcements",
+    response_model=list[AnnouncementOut],
+)
+def admin_list_announcements(
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+):
+    return (
+        db.query(Announcement)
+        .order_by(
+            Announcement.position.asc(),
+            Announcement.id.asc(),
+        )
+        .all()
+    )
+
+
+@app.post(
+    "/api/admin/announcements",
+    response_model=AnnouncementOut,
+    status_code=201,
+)
+def admin_create_announcement(
+    payload: AnnouncementIn,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+):
+    last_position = db.query(func.max(Announcement.position)).scalar()
+
+    row = Announcement(
+        title=payload.title.strip(),
+        body=payload.body.strip(),
+        level=payload.level,
+        active=payload.active,
+        position=0 if last_position is None else last_position + 1,
+    )
+
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return row
+
+
+@app.put(
+    "/api/admin/announcements/{announcement_id}",
+    response_model=AnnouncementOut,
+)
+def admin_update_announcement(
+    announcement_id: int,
+    payload: AnnouncementUpdate,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+):
+    row = _announcement_or_404(db, announcement_id)
+    data = payload.model_dump(exclude_unset=True)
+
+    if "title" in data:
+        row.title = data["title"].strip()
+
+    if "body" in data:
+        row.body = data["body"].strip()
+
+    if "level" in data:
+        row.level = data["level"]
+
+    if "active" in data:
+        row.active = data["active"]
+
+    if "position" in data:
+        row.position = data["position"]
+
+    db.commit()
+    db.refresh(row)
+
+    return row
+
+
+@app.delete("/api/admin/announcements/{announcement_id}")
+def admin_delete_announcement(
+    announcement_id: int,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+):
+    row = _announcement_or_404(db, announcement_id)
+    db.delete(row)
+    db.commit()
+
+    return {"ok": True, "deleted": announcement_id}
+
+
+@app.get(
+    "/api/admin/library-features",
+    response_model=LibraryFeaturesOut,
+)
+def admin_get_library_features(
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+):
+    return LibraryFeaturesOut(features=get_library_features(db))
+
+
+@app.put(
+    "/api/admin/library-features",
+    response_model=LibraryFeaturesOut,
+)
+def admin_set_library_features(
+    payload: LibraryFeaturesIn,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+):
+    try:
+        features = set_library_features(db, payload.features)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        ) from error
+
+    return LibraryFeaturesOut(features=features)
+
+
+# ============================================================
+# LITERATURE ACTIONS (multi-select context menu)
+# ============================================================
+
+
+def _load_selected_papers(
+    db: Session,
+    paper_ids: list[int],
+) -> list[Paper]:
+    """Fetch the selected papers in the order requested, deduped."""
+    wanted = list(dict.fromkeys(paper_ids))
+
+    papers = (
+        db.query(Paper)
+        .filter(Paper.id.in_(wanted))
+        .all()
+    )
+
+    by_id = {paper.id: paper for paper in papers}
+    ordered = [by_id[paper_id] for paper_id in wanted if paper_id in by_id]
+
+    if not ordered:
+        raise HTTPException(
+            status_code=404,
+            detail="None of the selected papers exist.",
+        )
+
+    return ordered
+
+
+def _sanitize_file_base(value: str, fallback: str) -> str:
+    """Lowercase slug for a document filename (no extension)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+    return (slug[:80].rstrip("-")) or fallback
+
+
+def _rename_base(
+    paper: Paper,
+    pattern: str,
+    custom_name: str | None,
+) -> str:
+    fallback = f"paper-{paper.id}"
+
+    if pattern == "custom":
+        return _sanitize_file_base(
+            (custom_name or "").strip() or (paper.title or ""),
+            fallback,
+        )
+
+    if pattern == "author-year":
+        parts = [
+            paper.author or "",
+            str(paper.publication_year or ""),
+        ]
+        return _sanitize_file_base(" ".join(parts), fallback)
+
+    if pattern == "author-year-title":
+        parts = [
+            paper.author or "",
+            str(paper.publication_year or ""),
+            paper.title or "",
+        ]
+        return _sanitize_file_base(" ".join(parts), fallback)
+
+    return _sanitize_file_base(paper.title or "", fallback)
+
+
+def _reveal_in_file_manager(path: str) -> bool:
+    """Open the OS file manager with the given file selected.
+
+    Runs on the machine hosting the backend -- which is the user's
+    own machine for this local-first app. Returns False when the
+    platform call fails; never raises.
+    """
+    import platform
+
+    try:
+        system = platform.system()
+
+        if system == "Darwin":
+            subprocess.Popen(["open", "-R", path])
+        elif system == "Windows":
+            subprocess.Popen(["explorer", "/select,", path])
+        else:
+            subprocess.Popen(["xdg-open", str(Path(path).parent)])
+
+        return True
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Could not reveal %s in the file manager", path
+        )
+        return False
+
+
+@app.post("/api/papers/refresh-metadata")
+def refresh_papers_metadata(
+    payload: PaperIdsIn,
+    db: Session = Depends(get_session),
+):
+    """Re-run background metadata enrichment for the selected papers.
+
+    Same enrichment pipeline imports use (PDF discovery + field
+    filling + keywords); the frontend polls /enrichment-status and
+    refreshes the rows once each job reports done.
+    """
+    papers = _load_selected_papers(db, payload.paper_ids)
+
+    for paper in papers:
+        enqueue_paper_enrichment(paper.id)
+
+    return {"ok": True, "queued": [paper.id for paper in papers]}
+
+
+@app.post("/api/papers/reveal")
+def reveal_papers(
+    payload: PaperIdsIn,
+    db: Session = Depends(get_session),
+):
+    """Open the containing folder of the first selected paper with
+    a stored file (Finder / Explorer / xdg-open)."""
+    papers = _load_selected_papers(db, payload.paper_ids)
+
+    for paper in papers:
+        if not paper.stored_path:
+            continue
+
+        path = get_paper_file_path(paper.stored_path)
+
+        if not os.path.exists(path):
+            continue
+
+        launched = _reveal_in_file_manager(path)
+
+        if not launched:
+            raise HTTPException(
+                status_code=500,
+                detail="The file manager could not be opened.",
+            )
+
+        return {
+            "ok": True,
+            "paper_id": paper.id,
+            "path": path,
+        }
+
+    raise HTTPException(
+        status_code=404,
+        detail="None of the selected papers has a stored file.",
+    )
+
+
+@app.post("/api/papers/rename-files")
+def rename_paper_files(
+    payload: RenameFilesIn,
+    db: Session = Depends(get_session),
+):
+    """Rename the stored document files of the selected papers.
+
+    Patterns: title | author-year | author-year-title | custom.
+    Files stay in storage/papers/; collisions get a -2, -3 suffix.
+    Papers without a stored file are reported under `skipped`.
+    """
+    papers = _load_selected_papers(db, payload.paper_ids)
+
+    renamed: list[dict] = []
+    skipped: list[dict] = []
+
+    for paper in papers:
+        if not paper.stored_path:
+            skipped.append({"id": paper.id, "reason": "no_file"})
+            continue
+
+        current = Path(get_paper_file_path(paper.stored_path))
+
+        if not current.exists():
+            skipped.append({"id": paper.id, "reason": "file_missing"})
+            continue
+
+        base = _rename_base(paper, payload.pattern, payload.custom_name)
+        suffix = current.suffix.lower()
+        target = current.parent / f"{base}{suffix}"
+
+        if target.name == current.name:
+            skipped.append({"id": paper.id, "reason": "already_named"})
+            continue
+
+        counter = 2
+
+        while target.exists():
+            target = current.parent / f"{base}-{counter}{suffix}"
+            counter += 1
+
+        try:
+            current.rename(target)
+        except OSError:
+            skipped.append({"id": paper.id, "reason": "rename_failed"})
+            continue
+
+        paper.stored_path = str(Path("papers") / target.name)
+
+        renamed.append(
+            {"id": paper.id, "stored_path": paper.stored_path}
+        )
+
+    db.commit()
+
+    return {"ok": True, "renamed": renamed, "skipped": skipped}
+
+
+@app.post("/api/papers/mark")
+def mark_papers(
+    payload: MarkPapersIn,
+    db: Session = Depends(get_session),
+):
+    """Bulk set recommendation validity on the selected papers."""
+    papers = _load_selected_papers(db, payload.paper_ids)
+
+    changed = 0
+
+    for paper in papers:
+        if bool(paper.is_valid_for_recommendation) != payload.valid:
+            paper.is_valid_for_recommendation = payload.valid
+            changed += 1
+
+    db.commit()
+
+    if changed:
+        # Validity gates the recommendation index.
+        set_recommendation_index_stale(True)
+
+    return {"ok": True, "updated": changed, "valid": payload.valid}
+
+
+@app.post("/api/papers/merge")
+def merge_selected_papers(
+    payload: PaperIdsIn,
+    db: Session = Depends(get_session),
+):
+    """Merge the selected records into one master.
+
+    Reuses the duplicate-merge engine: the master keeps the best
+    metadata, library rows and citation rows are repointed, and the
+    other rows are deleted.
+    """
+    papers = _load_selected_papers(db, payload.paper_ids)
+
+    if len(papers) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least two papers to merge.",
+        )
+
+    try:
+        summary = merge_group(db, papers)
+        db.commit()
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
+    except Exception as error:
+        db.rollback()
+        print("MERGE FAILED")
+        print(error)
+        raise HTTPException(
+            status_code=500,
+            detail="The merge failed; nothing was changed.",
+        ) from error
+
+    set_recommendation_index_stale(True)
+
+    return {"ok": True, **summary}

@@ -5,8 +5,11 @@
    every tip (base + deep) plus a few special entries.
 
    Matching is deliberately lightweight: tokenize the question,
-   score each entry by how many of its keywords hit, return the
-   best match. Zero hits falls back to a topic-listing answer.
+   score each entry by how many of its keywords hit with whole-word
+   (plus simple plural) comparison, and return the best match. A
+   total miss returns the canned topic listing — nothing is ever
+   generated. The TREE OF KNOWLEDGE entry only explains the Lab's
+   trivia tree; handing out lore lives there, not in this chat.
    ============================================================ */
 
 import { TIPS, EXTRA_TIPS } from "./tips";
@@ -22,9 +25,10 @@ const FALLBACK: HelpEntry = {
   title: "HELP LIBRARY",
   keywords: [],
   body:
-    "I didn't quite catch that. Try asking about pipelines, TF-IDF, " +
-    "S-BERT, imports, filters, themes, evaluation, or the scavenger " +
-    "hunt, or just ask \"help\".",
+    "I did not find a match for that question. Ask about pipelines, " +
+    "TF-IDF, S-BERT, ranked search, diversification, duplicates, the " +
+    "Tree of Knowledge, the Sun Shop, imports, filters, themes, " +
+    "evaluation, or the scavenger hunt. You can also ask for help.",
 };
 
 /* Special entries that aren't tips. */
@@ -42,18 +46,33 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "chat",
     ],
     body:
-      "I'm the help library for Re:Search. Ask me about any feature: " +
-      "the six pipelines and their math, importing references, " +
-      "filters, themes, evaluation metrics, or the scavenger hunt " +
-      "that unlocked me.",
+      "I am the help library for Re:Search. Ask me about any feature: " +
+      "the six pipelines and their mathematics, ranked search, " +
+      "relevance sorting, duplicates, diversification, importing " +
+      "references, filters, themes, evaluation metrics, or the " +
+      "scavenger hunt that unlocked this chat.",
   },
   {
     title: "WHO AM I",
     keywords: ["who", "your name", "introduce", "yourself", "about you", "pet"],
     body:
-      "I.m the Re:Search pet, the arcade companion of the thesis " +
-      "recommendation system. I started as a tip guide, and after " +
-      "you found every treasure I grew into this help library.",
+      "I am the Re:Search pet. I guide you through the tip hunt. " +
+      "After you find every treasure, I become this help library.",
+  },
+  {
+    title: "THE DEVELOPER",
+    keywords: [
+      "developer",
+      "creator",
+      "who made you",
+      "made you",
+      "maker",
+      "built you",
+      "tempest",
+    ],
+    body:
+      "TEMPEST built this system for the BSMCS thesis project. Ask " +
+      "for Stats for Nerds to see the mathematics behind the ranking.",
   },
   {
     title: "SCAVENGER HUNT",
@@ -69,17 +88,167 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
     ],
     body:
       `There are ${HUNT_ITEMS.length} hidden treasures, one per page. ` +
-      "Each is a small dim sparkle. Spot it and click it. The pet " +
-      "whispers hints for the ones you're missing, and finding all " +
-      `${HUNT_ITEMS.length} unlocks the deep tips and this chat.`,
+      "Each treasure is a small dim sparkle. Click it to collect it. " +
+      "I whisper hints for the treasures that you did not find. When " +
+      `you collect all ${HUNT_ITEMS.length}, the pet tips and this chat unlock.`,
   },
   {
     title: "RESET PROGRESS",
     keywords: ["reset", "restart", "wipe", "clear", "progress"],
     body:
-      "Once the library is unlocked, a tiny RESET appears in the " +
-      "bubble footer. It clears your discovered tips and treasure " +
-      "progress so you can replay the hunt.",
+      "After you unlock the library, a small RESET button appears in " +
+      "the bubble footer. The button clears your tips and treasure " +
+      "progress. Then you can replay the hunt.",
+  },
+  {
+    title: "TREE OF KNOWLEDGE",
+    keywords: [
+      "knowledge",
+      "tree",
+      "trivia",
+      "species",
+      "garden",
+      "lawn",
+    ],
+    body:
+      "The Tree of Knowledge is the Garden in the Lab. Plant the " +
+      "starter Oak; Maple, Birch, Elm, and Redwood are skins from " +
+      "the tree-card menus. The tree grows by feeding: every " +
+      "fertilizer packet nudges it along a 10,000-step march with " +
+      "seven evenly divided stages — Seed, Seedling, Sapling, Young " +
+      "maple, Mature maple, Giant, Ancient maple. Ask the tree for " +
+      "stored trivia; knowledge tiers ride its height, so a taller " +
+      "tree answers deeper questions.",
+  },
+  {
+    title: "SUN SHOP",
+    keywords: [
+      "shop",
+      "sun",
+      "fertilizer",
+      "fertiliser",
+      "tokens",
+      "currency",
+      "packet",
+      "discount",
+      "height",
+      "cheat",
+      "daisies",
+      "dance",
+      "pinata",
+    ],
+    body:
+      "The Sun Shop lives in the tree card's menus in the Garden. It " +
+      "sells fertilizer in packs of 1, 5, or 10 — larger packs cost " +
+      "less — and you can buy a pack or drag it straight onto the " +
+      "tree. Each packet adds 2 growth points and 30 feet; ten " +
+      "thousand packets take the tree from Seed to Ancient maple. At " +
+      "100, 500, and 1000 feet it unlocks a typed cheat word: " +
+      "daisies, dance, or pinata, and a stored garden tip otherwise. " +
+      "You earn sun by using the system: +10 for a daily visit, +1 " +
+      "for 10 pets and for each question (daily caps), +5 for a " +
+      "treasure or achievement, +2 for five tips. The Tree skins " +
+      "menu sells species skins for growth tokens (+3 a day, +1 per " +
+      "battle, +1 per five tree asks, +1 per treasure and " +
+      "achievement).",
+  },
+  {
+    title: "RANKED SEARCH",
+    keywords: [
+      "ranked",
+      "relevance",
+      "bm25",
+      "snippet",
+      "full text",
+      "fulltext",
+      "sort",
+      "match",
+    ],
+    body:
+      "The Repository search ranks papers by relevance with BM25 over " +
+      "the title, author, keywords, and abstract. The best wording " +
+      "match ranks first. Each row shows a snippet with the matched " +
+      "words highlighted. Near-duplicate records leave the list behind " +
+      "a +N badge. If the full-text index is not available, the search " +
+      "uses substring matching.",
+  },
+  {
+    title: "DIVERSIFY (MMR)",
+    keywords: [
+      "diversify",
+      "diversification",
+      "mmr",
+      "variety",
+      "spread",
+      "duplicate results",
+      "redundant",
+    ],
+    body:
+      "The Diversify checkbox on the Search page reranks results with " +
+      "maximal marginal relevance (MMR). Each next paper balances its " +
+      "score against its difference from the papers already listed. " +
+      "Near-identical papers do not stack. The option can reduce " +
+      "precision a small amount. Leave it off for pure score order.",
+  },
+  {
+    title: "DUPLICATES",
+    keywords: [
+      "duplicate",
+      "duplicates",
+      "merge",
+      "merged",
+      "same paper",
+      "already exists",
+      "cannot add twice",
+    ],
+    body:
+      "An import rejects a paper that already exists. The system " +
+      "compares the DOI and the title similarity. A title similarity " +
+      "of 0.85 or higher counts as a duplicate. Duplicate records that " +
+      "existed before this check were merged into one master record " +
+      "per group; a published record wins over its preprint. The merge " +
+      "keeps library saves and citation data. Relevance searches also " +
+      "collapse duplicates. Short or damaged titles never count as " +
+      "duplicates on the title alone.",
+  },
+  {
+    title: "SCORE BREAKDOWN",
+    keywords: [
+      "breakdown",
+      "contribution",
+      "signal bar",
+      "bar",
+      "component",
+      "why ranked",
+      "weighted",
+    ],
+    body:
+      "Each Search result shows a signal bar. The bar shows how much " +
+      "TF-IDF, S-BERT, and metadata each contributed to the score. " +
+      "The three contributions add up to the printed score. You can " +
+      "see if a match is lexical, semantic, or metadata-driven.",
+  },
+  {
+    title: "OFFLINE EVALUATION",
+    keywords: [
+      "offline",
+      "evaluation",
+      "eval",
+      "ndcg",
+      "precision",
+      "recall",
+      "mrr",
+      "map",
+      "qrels",
+      "benchmark",
+      "relevance judgment",
+    ],
+    body:
+      "The Arena reports agreement metrics. An offline evaluation " +
+      "tool also scores the pipelines against a relevance-judgment " +
+      "file: precision, recall, MRR, MAP, and NDCG at a chosen K. The " +
+      "tool can derive judgments from OpenAlex citation links. This " +
+      "makes pipeline tuning measurable outside the Arena.",
   },
 ];
 
@@ -112,6 +281,43 @@ const ALIASES: Record<string, string[]> = {
   meta: ["metadata", "year", "signal"],
 };
 
+/* Question words that carry no topic signal. Dropping them stops
+   filler words from scoring a match on their own ("what is mmr"
+   must not tie between the topic entry and the generic help
+   entry). */
+const STOPWORDS = new Set([
+  "what",
+  "is",
+  "are",
+  "was",
+  "the",
+  "a",
+  "an",
+  "how",
+  "do",
+  "does",
+  "did",
+  "i",
+  "my",
+  "me",
+  "you",
+  "your",
+  "to",
+  "of",
+  "for",
+  "can",
+  "could",
+  "should",
+  "it",
+  "this",
+  "that",
+  "there",
+  "and",
+  "or",
+  "on",
+  "in",
+]);
+
 function tokenize(query: string): string[] {
   return query
     .toLowerCase()
@@ -119,7 +325,26 @@ function tokenize(query: string): string[] {
     // ["tf", "idf"] and still matches the "tfidf" keyword.
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter(Boolean);
+    .filter((token) => token && !STOPWORDS.has(token));
+}
+
+/**
+ * Whole-word keyword match. A keyword hits when it equals the token,
+ * when it is a multi-word phrase containing the token, or when one
+ * side is a simple prefix of the other at four or more characters
+ * ("duplicate" ~ "duplicates"). Raw substring matching is NOT used:
+ * it made "presets" contain "reset" and answer "presets" questions
+ * with the RESET tip.
+ */
+function keywordMatches(keyword: string, alias: string): boolean {
+  const needle = keyword.toLowerCase();
+
+  if (alias === needle) return true;
+  if (needle.split(" ").includes(alias)) return true;
+  if (needle.length >= 4 && alias.startsWith(needle)) return true;
+  if (alias.length >= 4 && needle.startsWith(alias)) return true;
+
+  return false;
 }
 
 export function answerQuestion(query: string): HelpEntry {
@@ -133,14 +358,12 @@ export function answerQuestion(query: string): HelpEntry {
     let score = 0;
 
     for (const keyword of entry.keywords) {
-      const needle = keyword.toLowerCase();
-
       for (const token of tokens) {
         const expanded =
           token.length >= 3 ? [token, ...(ALIASES[token] ?? [])] : [token];
 
         for (const alias of expanded) {
-          if (needle.includes(alias) || alias.includes(needle)) {
+          if (keywordMatches(keyword, alias)) {
             score += 1;
             break;
           }
@@ -153,6 +376,10 @@ export function answerQuestion(query: string): HelpEntry {
       best = entry;
     }
   }
+
+  /* No keyword hit: the canned topic listing is more honest than
+     inventing prose. */
+  if (bestScore === 0) return FALLBACK;
 
   return best;
 }

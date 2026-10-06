@@ -6,6 +6,21 @@ import {
 } from "../../api";
 import { pipelineConfigs, adjustDialAllocation } from "../../data/pipelineConfigs";
 import PixelProgress from "../../components/retro/PixelProgress";
+import FreqBars from "../../components/retro/FreqBars";
+import Pagination from "../../components/retro/Pagination";
+import TreeOfKnowledge from "../../components/retro/TreeOfKnowledge";
+import SunGlyph from "../../components/retro/SunGlyph";
+import TokenGlyph from "../../components/retro/TokenGlyph";
+import {
+  knowledgeStageFromHeight,
+  nextKnowledgeHeight,
+  TREE_GROWTH_MARKERS,
+  TREE_GROWTH_TARGET,
+  KNOWLEDGE_STAGES,
+} from "../../data/knowledge";
+import { useSun } from "../../state/sun";
+import SunShop from "../../components/retro/SunShop";
+import StatsForNerds from "../../components/StatsForNerds";
 import { PageHeader } from "../../components/ui";
 import { ArrowRight } from "../../components/retro/PixelIcons";
 
@@ -21,6 +36,8 @@ interface Recipe {
   id: string;
   name: string;
   weights: { tfidf: number; sbert: number; metadata: number };
+  /** Pre-loaded starter recipe, deletable like any other. */
+  preset?: boolean;
 }
 
 interface LabRun {
@@ -33,6 +50,69 @@ interface LabRun {
 
 const RECIPES_KEY = "paperrec_lab_recipes";
 const BATTLES_KEY = "paperrec_lab_battles";
+const SEEDED_KEY = "paperrec_lab_recipes_seeded";
+
+/* Battle history shows five simulations per page, matching the
+   Arena's records table. */
+const LAB_RUNS_PAGE_SIZE = 5;
+
+/* Pre-loaded recipes: two signal purists, an even split, the
+   learned weights from the citation benchmark, and a
+   metadata-heavy mix. They load into the dials in one click and
+   battle like any saved recipe. */
+const PRESET_RECIPES: Recipe[] = [
+  {
+    id: "preset-lexical",
+    name: "Lexical Purist",
+    weights: { tfidf: 100, sbert: 0, metadata: 0 },
+    preset: true,
+  },
+  {
+    id: "preset-semantic",
+    name: "Semantic Purist",
+    weights: { tfidf: 0, sbert: 100, metadata: 0 },
+    preset: true,
+  },
+  {
+    id: "preset-even",
+    name: "Even Split",
+    weights: { tfidf: 34, sbert: 33, metadata: 33 },
+    preset: true,
+  },
+  {
+    id: "preset-learned",
+    name: "Citation Winner",
+    weights: { tfidf: 10, sbert: 90, metadata: 0 },
+    preset: true,
+  },
+  {
+    id: "preset-biblio",
+    name: "Bibliographer",
+    weights: { tfidf: 20, sbert: 20, metadata: 60 },
+    preset: true,
+  },
+];
+
+/** Seed the starter recipes once per browser. */
+function initialRecipes(): Recipe[] {
+  const stored = readRecipes();
+
+  if (stored.length > 0) return stored;
+
+  try {
+    if (window.localStorage.getItem(SEEDED_KEY)) return stored;
+
+    window.localStorage.setItem(SEEDED_KEY, "1");
+    window.localStorage.setItem(
+      RECIPES_KEY,
+      JSON.stringify(PRESET_RECIPES),
+    );
+  } catch {
+    // best-effort
+  }
+
+  return PRESET_RECIPES;
+}
 
 const LABEL: Record<string, string> = {
   tfidf: "TF-IDF",
@@ -74,7 +154,11 @@ export default function Lab() {
 
   const [dials, setDials] = useState({ tfidf: 40, sbert: 40, metadata: 20 });
   const [recipeName, setRecipeName] = useState("My Recipe");
-  const [recipes, setRecipes] = useState<Recipe[]>(readRecipes);
+  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
+
+  /* Experimental knobs beyond the three signals. */
+  const [diversify, setDiversify] = useState(false);
+  const [diversifyLambda, setDiversifyLambda] = useState(0.7);
 
   const [battle, setBattle] = useState<CompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -92,6 +176,15 @@ export default function Lab() {
   const [openAccess, setOpenAccess] = useState(false);
 
   const [runs, setRuns] = useState<LabRun[]>(readBattles);
+  const [runsPage, setRunsPage] = useState(1);
+
+
+
+  const [tab, setTab] = useState<"recipe" | "garden" | "stats">(
+    "recipe",
+  );
+
+
 
   const total = dials.tfidf + dials.sbert + dials.metadata;
   const normalized = {
@@ -175,6 +268,7 @@ export default function Lab() {
             query: query.trim(),
             topK,
             customWeights,
+            mmrLambda: diversify ? diversifyLambda : undefined,
             recordBattle: false,
           });
 
@@ -200,6 +294,7 @@ export default function Lab() {
         const next = [run, ...runs].slice(0, 60);
         setRuns(next);
         writeBattles(next);
+        setRunsPage(1);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -230,6 +325,17 @@ export default function Lab() {
     .map(([key, wins]) => ({ key, wins }))
     .sort((a, b) => b.wins - a.wins);
 
+  /* Battle history pages five simulations at a time. */
+  const runsPageCount = Math.max(
+    1,
+    Math.ceil(runs.length / LAB_RUNS_PAGE_SIZE),
+  );
+  const safeRunsPage = Math.min(runsPage, runsPageCount);
+  const pagedRuns = runs.slice(
+    (safeRunsPage - 1) * LAB_RUNS_PAGE_SIZE,
+    safeRunsPage * LAB_RUNS_PAGE_SIZE,
+  );
+
   function tallyLabel(key: string): string {
     if (key.startsWith("custom:")) return key.slice("custom:".length);
     const config = pipelineConfigs.find((c) => c.id === key);
@@ -249,10 +355,53 @@ export default function Lab() {
     <div className="mx-auto w-full max-w-[1400px]">
       <PageHeader
         eyebrow="Lab"
-        title="The recipe lab"
-        description="Mix the three signals into your own algorithm recipe, then simulate a battle against the six presets. Wins are tracked on the leaderboard."
+        title="Re:Search Laboratory"
+        description="Combine the three signals into your own recipe, then test it against the six presets. The Tree of Knowledge gives one piece of system trivia per question."
       />
 
+      <div className="mt-5 flex" role="tablist" aria-label="Lab sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "recipe"}
+          onClick={() => setTab("recipe")}
+          className={`rounded-l border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
+            tab === "recipe"
+              ? "bg-accent text-onAccent"
+              : "bg-surface text-ink hover:bg-accentSoft"
+          }`}
+        >
+          Re:Search Laboratory
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "garden"}
+          onClick={() => setTab("garden")}
+          className={`-ml-[3px] border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
+            tab === "garden"
+              ? "bg-accent text-onAccent"
+              : "bg-surface text-ink hover:bg-accentSoft"
+          }`}
+        >
+          Garden
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "stats"}
+          onClick={() => setTab("stats")}
+          className={`-ml-[3px] rounded-r border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
+            tab === "stats"
+              ? "bg-accent text-onAccent"
+              : "bg-surface text-ink hover:bg-accentSoft"
+          }`}
+        >
+          Stats for Nerds
+        </button>
+      </div>
+
+      {tab === "recipe" && (
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* ================= RECIPE BENCH ================= */}
         <section className="rounded border-[3px] border-gray-900 bg-white p-4">
@@ -303,6 +452,63 @@ export default function Lab() {
             </p>
           </div>
 
+          {/* Experimental — extra knobs beyond the three signals */}
+          <div className="mt-4 border-t-[2px] border-gray-200 pt-3">
+            <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+              Experimental
+            </p>
+
+            <label className="flex items-center gap-2 text-sm font-medium text-ink">
+              <input
+                type="checkbox"
+                checked={diversify}
+                onChange={(event) =>
+                  setDiversify(event.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              Diversify every pipeline (MMR)
+            </label>
+
+            <label className="mt-2 flex items-center gap-2 font-mono text-xs text-muted">
+              λ
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={diversifyLambda}
+                disabled={!diversify}
+                onChange={(event) =>
+                  setDiversifyLambda(Number(event.target.value))
+                }
+                aria-label="MMR lambda"
+                className="min-w-0 flex-1 accent-[#f39c18] disabled:opacity-40"
+              />
+              <span className="w-8 shrink-0 text-right font-bold text-ink">
+                {diversifyLambda.toFixed(2)}
+              </span>
+            </label>
+
+            <button
+              type="button"
+              onClick={() =>
+                setDials({ tfidf: 10, sbert: 90, metadata: 0 })
+              }
+              className="mt-2 rounded border-[2px] border-gray-900 bg-white px-2 py-1 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+            >
+              Load learned weights (10/90/0)
+            </button>
+
+            <p className="mt-2 text-[10px] leading-4 text-muted">
+              Learned weights come from an 18-query OpenAlex citation
+              benchmark, where they beat the 40/40/20 hybrid by about
+              0.06 NDCG; they are a research preset, not the deployed
+              default. Diversification applies to repository battles —
+              web battles ignore it.
+            </p>
+          </div>
+
           <div className="mt-4 flex gap-2">
             <input
               type="text"
@@ -336,6 +542,11 @@ export default function Lab() {
                   >
                     {recipe.name}
                   </button>
+                  {recipe.preset && (
+                    <span className="shrink-0 rounded border border-gray-900 px-1 font-mono text-[9px] font-bold uppercase tracking-wide text-muted">
+                      preset
+                    </span>
+                  )}
                   <span className="shrink-0 font-mono text-xs text-muted">
                     {recipe.weights.tfidf}/
                     {recipe.weights.sbert}/
@@ -581,8 +792,8 @@ export default function Lab() {
                 {tallyRows.map((row, index) => (
                   <li
                     key={row.key}
-                    className={`flex items-baseline gap-3 py-2 ${
-                      index === 0 ? "bg-canvas px-2" : ""
+                    className={`flex items-center gap-3 py-2 ${
+                      index === 0 ? "bg-canvas" : ""
                     }`}
                   >
                     <span className="w-5 shrink-0 text-center font-mono text-xs font-bold text-muted">
@@ -604,11 +815,25 @@ export default function Lab() {
                 ))}
               </ol>
 
+              <div className="mt-4 border-t-2 border-gray-200 pt-3">
+                <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+                  Wins by entry
+                </p>
+                <FreqBars
+                  data={tallyRows.map((row) => ({
+                    label: tallyLabel(row.key),
+                    value: row.wins,
+                  }))}
+                  ariaLabel="Win frequency per recipe or preset"
+                />
+              </div>
+
               <p className="mt-3 border-t-2 border-gray-200 pt-2 font-mono text-xs text-muted">
-                Last {Math.min(runs.length, 12)} simulations
+                Battle history · {runs.length} simulations · page{" "}
+                {safeRunsPage} of {runsPageCount}
               </p>
               <ul className="mt-2 space-y-1">
-                {runs.slice(0, 12).map((run, index) => (
+                {pagedRuns.map((run, index) => (
                   <li
                     key={index}
                     className="flex items-center justify-between gap-2 text-xs"
@@ -629,10 +854,60 @@ export default function Lab() {
                   </li>
                 ))}
               </ul>
+
+              {runsPageCount > 1 && (
+                <Pagination
+                  page={safeRunsPage}
+                  pageCount={runsPageCount}
+                  onPageChange={setRunsPage}
+                  total={runs.length}
+                  pageSize={LAB_RUNS_PAGE_SIZE}
+                  className="mt-2 border-t-2 border-gray-200"
+                />
+              )}
             </>
           )}
         </section>
       </div>
+      )}
+
+      {tab === "garden" && (
+        <div className="mt-6">
+          {/* garden heading */}
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="font-pixelify text-xl font-bold leading-none text-ink">
+                The Garden
+              </p>
+              <p className="mt-1 max-w-xl text-xs leading-5 text-muted">
+                The tree carries its own menus: the sun and token
+                chips open the shop, the skins, and the wallet in the
+                card itself. Three thousand packets take it from seed to
+                ancient oak.
+              </p>
+            </div>
+            <div
+              className="flex items-center gap-1.5 rounded-lg border-[3px] border-[#8a5a2b]/45 bg-[#fffdf5] px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-[#6b4c1f] shadow-[2px_2px_0_rgba(0,0,0,0.06)]"
+              title="Three thousand packets take the tree from seed to ancient maple"
+            >
+              <span aria-hidden="true" className="text-[#8a5a2b]">
+                {"\u25CF"}
+              </span>
+              3,000 packets
+            </div>
+          </div>
+
+          {/* the Tree of Knowledge card is the whole garden; its
+              toolbar hosts the menus (shop, skins, wallet). */}
+          <TreeOfKnowledge />
+        </div>
+      )}
+
+      {tab === "stats" && (
+        <div className="mt-6">
+          <StatsForNerds contextNote="Tune the dials in the Recipe bench and watch the pseudocode follow the live weights — the same maths the search runs, ready for your methodology chapter." />
+        </div>
+      )}
     </div>
   );
 }

@@ -55,6 +55,14 @@ class User(Base):
         nullable=False,
     )
 
+    is_admin = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    # Library-side site editor account. The local default user and any
+    # future visitor accounts stay False; only the seeded admin is True.
+
     created_at = Column(
         DateTime,
         default=datetime.utcnow,
@@ -471,3 +479,101 @@ class PaperCitation(Base):
             f"direction={self.direction!r} "
             f"work={self.external_work_id!r}>"
         )
+
+
+class Announcement(Base):
+    """One library-facing announcement, written by the site admin.
+
+    Announcements show on the Library Home page (and only there); the
+    admin toggles them on/off instead of deleting when they go stale,
+    so the history stays around for re-use.
+    """
+
+    __tablename__ = "announcements"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    title = Column(
+        String(200),
+        nullable=False,
+    )
+
+    body = Column(
+        Text,
+        nullable=False,
+    )
+
+    level = Column(
+        String(20),
+        default="info",
+        nullable=False,
+    )
+    # "info" | "important" | "event"
+
+    active = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+    )
+
+    position = Column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    # Lower renders first; the admin moves announcements up/down.
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    def __repr__(self):
+        return (
+            f"<Announcement id={self.id} "
+            f"title={self.title!r} active={self.active}>"
+        )
+
+
+class SiteSetting(Base):
+    """Key/value store for site-wide configuration.
+
+    Today it holds `library_features` (per-feature shown/locked/hidden
+    states for Library Mode) and `admin_token_secret` (the HMAC key
+    behind admin session tokens, generated once on first run).
+    """
+
+    __tablename__ = "site_settings"
+
+    key = Column(
+        String(100),
+        primary_key=True,
+    )
+
+    value = Column(
+        Text,
+        nullable=False,
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    def __repr__(self):
+        return f"<SiteSetting key={self.key!r}>"

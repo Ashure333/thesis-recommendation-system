@@ -68,9 +68,16 @@ export function usePaneWidth(
 export default function PaneHandle({
   label,
   onResize,
+  direction = "left",
 }: {
   label: string;
   onResize: (delta: number) => void;
+  /**
+   * Which side of the pane the handle sits on. A right-side handle
+   * moves the pane's edge the other way, so dragging left must
+   * GROW the pane — without this the resize feels inverted.
+   */
+  direction?: "left" | "right";
 }) {
   const startXRef = useRef<number | null>(null);
   const lastDeltaRef = useRef(0);
@@ -85,8 +92,9 @@ export default function PaneHandle({
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
     if (startXRef.current === null) return;
     const delta = event.clientX - startXRef.current;
-    onResize(delta - lastDeltaRef.current);
-    lastDeltaRef.current = delta;
+    const signed = direction === "right" ? -delta : delta;
+    onResize(signed - lastDeltaRef.current);
+    lastDeltaRef.current = signed;
   }
 
   function handlePointerUp() {

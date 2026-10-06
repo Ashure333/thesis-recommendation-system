@@ -88,6 +88,10 @@ class CompareRequest(BaseModel):
     # Lab battles: a custom recipe joins the six presets as a 7th
     # pipeline (weights must be non-negative, not all zero).
     custom_weights: dict[str, float] | None = None
+    # Lab experiments: diversification applied to EVERY pipeline's
+    # result list before the comparison is assembled.
+    mmr_lambda: float | None = Field(default=None, ge=0, le=1)
+    mmr_pool: int = Field(default=50, ge=1, le=100)
     # Lab simulations should not pollute the Arena's battle history.
     record_battle: bool = True
 
@@ -161,6 +165,8 @@ def _run_one(
     seed_paper_id: int | None,
     top_k: int,
     custom_weights: dict[str, float] | None = None,
+    mmr_lambda: float | None = None,
+    mmr_pool: int = 50,
 ) -> tuple[dict[int, int], dict[int, float], list[RankedPaper]]:
     """Run one pipeline; return (rank_map, score_map, ranked list)."""
 
@@ -171,6 +177,8 @@ def _run_one(
         pipeline=pipeline,
         top_k=top_k,
         custom_weights=custom_weights,
+        mmr_lambda=mmr_lambda,
+        mmr_pool=mmr_pool,
     )
 
     ranked: list[RankedPaper] = []
@@ -203,10 +211,18 @@ def compare_pipelines(
     seed_paper_id: int | None,
     top_k: int,
     custom_weights: dict[str, float] | None = None,
+    mmr_lambda: float | None = None,
+    mmr_pool: int = 50,
 ) -> CompareResponse:
     """Run the six pipelines, plus an optional custom recipe as a
     seventh "custom" pipeline (the Lab's recipes), and assemble the
-    comparison payload."""
+    comparison payload.
+
+    ``mmr_lambda`` (opt-in, 0..1) reranks every pipeline's results
+    with Maximal Marginal Relevance before assembly, so the Lab can
+    battle recipes with diversification on; ``None`` keeps the plain
+    score order.
+    """
 
     rank_maps: dict[str, dict[int, int]] = {}
     score_maps: dict[str, dict[int, float]] = {}
@@ -244,6 +260,8 @@ def compare_pipelines(
             custom_weights=(
                 custom_weights if pipeline == "custom" else None
             ),
+            mmr_lambda=mmr_lambda,
+            mmr_pool=mmr_pool,
         )
 
         rank_maps[pipeline] = rank_map

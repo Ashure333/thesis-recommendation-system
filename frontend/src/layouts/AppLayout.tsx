@@ -15,12 +15,26 @@ import RecommendationIndexAlert from "../components/RecommendationIndexAlert";
 import AccentPicker from "../components/AccentPicker";
 import SlimeLogo from "../components/retro/SlimeLogo";
 import MarqueeTicker from "../components/retro/MarqueeTicker";
-import FitGuard from "../components/retro/FitGuard";
 import ScrollFollowPopup from "../components/retro/ScrollFollowPopup";
 import PixelPet from "../components/retro/PixelPet";
-import { ArrowRight, BlockCursor, Dot } from "../components/retro/PixelIcons";
+import { ArrowRight, BlockCursor, Dot, Lock } from "../components/retro/PixelIcons";
+import {
+  Cpu,
+  Database,
+  FlaskConical,
+  GraduationCap,
+  HelpCircle,
+  Library,
+  ScrollText,
+  Search as SearchIcon,
+  Settings,
+  Swords,
+  Upload,
+  type LucideIcon,
+} from "lucide-react";
 import { pipelineConfigs, customPipelineConfig } from "../data/pipelineConfigs";
 import { usePipelineMode } from "../state/pipelineMode";
+import { useSiteMode } from "../state/siteMode";
 
 
 // ============================================================
@@ -37,40 +51,54 @@ const navItems = [
   {
     to: "/recommendations",
     label: "Search",
+    icon: SearchIcon,
     tip: "nav-search",
+    feature: "search",
   },
   {
     to: "/repository",
     label: "Repository",
+    icon: Database,
     tip: "nav-repository",
+    feature: "repository",
   },
   {
     to: "/upload",
     label: "Upload",
+    icon: Upload,
     tip: "nav-upload",
+    feature: "upload",
   },
   {
     to: "/library",
     label: "My Library",
+    icon: Library,
     badge: true,
     tip: "nav-library",
+    feature: "library",
   },
   {
     to: "/evaluation",
     label: "Arena",
+    icon: Swords,
     tip: "nav-evaluation",
+    feature: "arena",
   },
   {
     to: "/lab",
     label: "Lab",
+    icon: FlaskConical,
     tip: "nav-lab",
+    feature: "lab",
   },
   ...(SHOW_WALKTHROUGH_TAB
     ? [
         {
           to: "/walkthrough",
           label: "Walkthrough",
+          icon: GraduationCap,
           tip: "nav-walkthrough",
+          feature: "walkthrough",
         },
       ]
     : []),
@@ -79,16 +107,41 @@ const navItems = [
         {
           to: "/walkthrough-engine",
           label: "Engine",
+          icon: Cpu,
           tip: "nav-engine",
+          feature: "engine",
         },
       ]
     : []),
   {
+    to: "/faq",
+    label: "FAQ",
+    icon: HelpCircle,
+    tip: "nav-faq",
+    feature: "faq",
+  },
+  {
+    to: "/settings",
+    label: "Settings",
+    icon: Settings,
+    tip: "nav-settings",
+    feature: "settings",
+  },
+  {
     to: "/changelog",
     label: "Changelog",
+    icon: ScrollText,
     tip: "nav-changelog",
+    feature: "changelog",
   },
-];
+] as {
+  to: string;
+  label: string;
+  icon?: LucideIcon;
+  tip: string;
+  feature: string;
+  badge?: boolean;
+}[];
 
 
 const NAV_LINK =
@@ -108,6 +161,7 @@ export default function AppLayout() {
   const contentRef = useRef<HTMLElement | null>(null);
 
   const { pipelineId, customWeights } = usePipelineMode();
+  const { mode, setMode, stateFor } = useSiteMode();
 
   // ----------------------------------------------------------
   // Live library count for the nav badge
@@ -230,7 +284,10 @@ export default function AppLayout() {
 
   return (
 
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-canvas text-ink">
+    <div
+      data-site-mode={mode}
+      className="flex h-screen w-full flex-col overflow-hidden bg-canvas text-ink"
+    >
 
 
       {/* ======================================================
@@ -249,7 +306,10 @@ export default function AppLayout() {
 
           {/* Logo — the animated slime mark + glitching pixel title */}
 
-          <Link to="/recommendations" className="flex shrink-0 items-center gap-2.5">
+          <Link
+            to="/recommendations"
+            className="flex shrink-0 items-center gap-2.5"
+          >
 
             <SlimeLogo />
 
@@ -265,27 +325,50 @@ export default function AppLayout() {
 
           <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
 
-            {navItems.map((item) => (
+            {navItems.map((item) => {
+              const state = stateFor(item.feature);
 
+              if (state === "hidden") {
+                return null;
+              }
+
+              const locked = state === "locked";
+
+              return (
               <NavLink
                 key={item.to}
                 to={item.to}
                 data-tips={item.tip}
+                data-feature-state={state}
+                title={
+                  locked
+                    ? "Available in Researcher mode."
+                    : undefined
+                }
                 className={({ isActive }) =>
                   [
                     NAV_LINK,
-                    isActive
-                      ? "border-gray-900 bg-accent text-onAccent"
-                      : "border-transparent hover:bg-accentSoft",
+                    locked
+                      ? "opacity-55 hover:bg-transparent"
+                      : isActive
+                        ? "border-gray-900 bg-accent text-onAccent"
+                        : "border-transparent hover:bg-accentSoft",
                   ].join(" ")
                 }
               >
 
                 {({ isActive }) => (
                   <>
-                    {isActive && (
-                      <ArrowRight className="animate-blink h-2.5 w-2.5" />
-                    )}
+                    {locked ? (
+                      <Lock className="h-3.5 w-3.5 shrink-0" />
+                    ) : isActive ? (
+                      <ArrowRight className="animate-blink h-2.5 w-2.5 shrink-0" />
+                    ) : item.icon ? (
+                      <item.icon
+                        className="h-3.5 w-3.5 shrink-0 text-muted"
+                        aria-hidden="true"
+                      />
+                    ) : null}
 
                     {item.label}
 
@@ -303,8 +386,8 @@ export default function AppLayout() {
                 )}
 
               </NavLink>
-
-            ))}
+              );
+            })}
 
           </nav>
 
@@ -316,6 +399,47 @@ export default function AppLayout() {
             ---------------------------------------------------- */}
 
         <div className="flex shrink-0 items-center gap-2.5">
+
+          {/* Site mode toggle — Library (visitor) vs Researcher (pro) */}
+
+          <div
+            role="radiogroup"
+            aria-label="Site mode"
+            data-tips="site-mode"
+            className="font-pixelify flex rounded border-[3px] border-gray-900 bg-white p-0.5 text-[11px] font-bold tracking-[0.08em]"
+          >
+
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === "library"}
+              aria-label="Library mode"
+              onClick={() => setMode("library")}
+              className={`rounded px-2 py-1 transition-colors pixel-ease ${
+                mode === "library"
+                  ? "bg-accent text-onAccent"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              LIBRARY
+            </button>
+
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === "researcher"}
+              aria-label="Researcher mode"
+              onClick={() => setMode("researcher")}
+              className={`rounded px-2 py-1 transition-colors pixel-ease ${
+                mode === "researcher"
+                  ? "bg-accent text-onAccent"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              RESEARCHER
+            </button>
+
+          </div>
 
           <div
             title={`Pipeline: ${activePipelineConfig.label}`}
@@ -367,14 +491,13 @@ export default function AppLayout() {
       <main
         ref={contentRef}
         key={`page:${location.pathname}`}
-        className="animate-route-in mx-auto w-full max-w-[1400px] overflow-y-auto px-4 py-8 sm:px-6"
+        className="animate-route-in mx-auto w-full max-w-[1560px] overflow-y-auto px-3 py-5 sm:px-5"
       >
 
         <Outlet />
 
       </main>
 
-      <FitGuard key={`fit:${location.pathname}`} target={contentRef} />
       <ScrollFollowPopup key={`scroll:${location.pathname}`} target={contentRef} />
 
     </div>

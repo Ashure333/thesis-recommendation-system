@@ -56,8 +56,9 @@ export default function Login() {
       setLoading(false);
 
       /*
-       * Go to the existing Re:Search application.
-       * The repository/database is NOT changed.
+       * Go to the library search page (Library mode is the
+       * default). The page carries the staff announcements above
+       * the search. The repository/database is NOT changed.
        */
       navigate("/recommendations");
     }, 500);

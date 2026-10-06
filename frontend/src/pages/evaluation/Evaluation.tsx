@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { History, Trophy } from "lucide-react";
+import {
+  ArrowLeftRight,
+  BarChart3,
+  History,
+  Layers,
+  Quote,
+  Table,
+  Trophy,
+} from "lucide-react";
 
 import {
   comparePipelines,
@@ -13,7 +21,11 @@ import {
 import { pipelineConfigs } from "../../data/pipelineConfigs";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 import PixelProgress from "../../components/retro/PixelProgress";
+import { useSun } from "../../state/sun";
 import StaggerIn from "../../components/retro/StaggerIn";
+import PageTabs from "../../components/PageTabs";
+import StatsForNerds from "../../components/StatsForNerds";
+import FreqBars from "../../components/retro/FreqBars";
 import Pagination from "../../components/retro/Pagination";
 import { ArrowRight, Star } from "../../components/retro/PixelIcons";
 import { Button, PageHeader, PageShell } from "../../components/ui";
@@ -69,20 +81,22 @@ function PipelineChip({
 
   return (
     <span
-      className={`inline-flex flex-col items-start gap-1 ${
-        grow ? "w-full max-w-full" : ""
-      }`}
+      className={
+        grow
+          ? "flex w-full max-w-full flex-col items-stretch gap-1"
+          : "inline-flex flex-col items-start gap-1"
+      }
     >
       <span
         className={`rounded border-[2px] border-gray-900 bg-surface px-1.5 py-0.5 font-mono text-xs font-bold tracking-[0.12em] text-ink ${
-          grow ? "max-w-full truncate" : ""
+          grow ? "max-w-full truncate" : "max-w-[150px] truncate"
         }`}
       >
         {config?.codename ?? pipelineId}
       </span>
       <span
         className={`font-mono text-xs text-muted ${
-          grow ? "w-full truncate" : ""
+          grow ? "w-full truncate" : "max-w-[150px] truncate"
         }`}
       >
         {pipelineId}
@@ -92,6 +106,8 @@ function PipelineChip({
 }
 
 export default function Evaluation() {
+  const { grantTokens } = useSun();
+
   const [queryText, setQueryText] = useState("");
   const [topK, setTopK] = useState(10);
   const [battle, setBattle] = useState<CompareResponse | null>(null);
@@ -106,7 +122,17 @@ export default function Evaluation() {
   const [serverTally, setServerTally] = useState<
     { pipeline_id: string; wins: number }[]
   >([]);
+  const [copiedCitation, setCopiedCitation] = useState<string | null>(null);
+
+  /* Page-level view: the battle, or the ranking math. */
+  const [pageTab, setPageTab] = useState<"battle" | "stats">("battle");
+
   const [recordsTab, setRecordsTab] = useState<"tally" | "history">("tally");
+
+  /* Arena results are tab-separated instead of one long stack. */
+  const [resultsTab, setResultsTab] = useState<
+    "overview" | "consensus" | "pairwise" | "grid" | "scores" | "cite" | "records"
+  >("overview");
 
   /* Web mode: battle the pipelines over live OpenAlex/Crossref/arXiv
      hits instead of the repository. */
@@ -117,7 +143,7 @@ export default function Evaluation() {
   const [webSort, setWebSort] = useState("relevance");
   const [openAccess, setOpenAccess] = useState(false);
 
-  const HISTORY_PAGE_SIZE = 20;
+  const HISTORY_PAGE_SIZE = 5;
 
   async function loadHistory(page: number = historyPage) {
     try {
@@ -202,6 +228,8 @@ export default function Evaluation() {
       // Web battles never touch the tally/history.
       if (!webMode) {
         void loadHistory();
+        // Every finished local battle pays a growth token (3/day).
+        grantTokens(1, undefined, "battle");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -232,6 +260,28 @@ export default function Evaluation() {
 
   const leader = tally[0];
   const totalRuns = historyTotal;
+
+  /* Winner-score histogram over the loaded history page: buckets
+     in 10-point steps from 50% up (battle winners below 50% are
+     rare and pooled into the first bucket by the clamp). */
+  const scoreBuckets = [0, 1, 2, 3, 4].map((bucket) => ({
+    label: `${50 + bucket * 10}-${59 + bucket * 10}%`,
+    value: history.filter((run) => {
+      if (run.winner_value == null) return false;
+
+      const pct =
+        run.winner_metric === "independence_weighted_consensus"
+          ? run.winner_value * 100
+          : null;
+
+      if (pct === null) return false;
+
+      return (
+        Math.min(4, Math.max(0, Math.floor((pct - 50) / 10))) ===
+        bucket
+      );
+    }).length,
+  }));
   const currentStreak =
     leader && leader.wins > 0
       ? (() => {
@@ -310,6 +360,7 @@ export default function Evaluation() {
   useEffect(() => {
     setGridPage(1);
     setPairPage(1);
+    setResultsTab("overview");
   }, [battle]);
 
   const gridPageStart = (gridPage - 1) * GRID_PAGE_SIZE;
@@ -324,14 +375,203 @@ export default function Evaluation() {
     pairPageStart + PAIR_PAGE_SIZE,
   );
 
+  /* Citation-ready write-ups of the current battle, one per style,
+     for copy-paste into a manuscript. Every figure comes straight
+     from this run. */
+  const citations = (() => {
+    if (!battle) return null;
+
+    const today = new Date();
+    const monthLong = today.toLocaleString("en-US", { month: "long" });
+    const monthShort = today.toLocaleString("en-US", { month: "short" });
+    const day = today.getDate();
+    const year = today.getFullYear();
+
+    const mlaDate = `${day} ${monthShort}. ${year}`;
+    const chicagoDate = `${monthLong} ${day}, ${year}`;
+    const ieeeDate = `${monthShort}. ${day}, ${year}`;
+
+    const subject = battle.query
+      ? `"${battle.query}"`
+      : `seed paper #${battle.seed_paper_id}`;
+
+    const winnerId = battle.winner?.pipeline_id ?? "n/a";
+    const winnerChip = configById.get(winnerId)?.codename ?? winnerId;
+    const winnerPct = battle.winner
+      ? Math.round(battle.winner.value * 100)
+      : 0;
+
+    const leader = battle.consensus[0];
+    const leaderText =
+      leader?.title != null
+        ? ` Top consensus paper: "${leader.title}"` +
+          (leader.year ? ` (${leader.year})` : "") +
+          "."
+        : "";
+
+    /* Pairwise extremes for the verbose APA interpretation. */
+    const resultCount = (id: string) =>
+      battle.pipelines.find((pipeline) => pipeline.id === id)?.results
+        .length ?? 0;
+
+    const normalizedOverlap = (pair: (typeof battle.pairwise)[number]) =>
+      pair.overlap / Math.max(1, Math.min(resultCount(pair.a), resultCount(pair.b)));
+
+    const rankedPairs = [...battle.pairwise].sort(
+      (first, second) => normalizedOverlap(second) - normalizedOverlap(first),
+    );
+    const closest = rankedPairs[0];
+    const farthest = rankedPairs[rankedPairs.length - 1];
+    const nameOf = (id: string) => configById.get(id)?.codename ?? id;
+    const pairText = (pair: (typeof battle.pairwise)[number] | undefined) =>
+      pair
+        ? `${nameOf(pair.a)} and ${nameOf(pair.b)}, which shared ` +
+          `${pair.overlap} of ${Math.min(resultCount(pair.a), resultCount(pair.b))} ` +
+          `returned papers (mean rank gap ` +
+          `${
+            pair.mean_rank_gap != null
+              ? pair.mean_rank_gap.toFixed(2)
+              : "n/a"
+          })`
+        : null;
+
+    const pipelineNames = battle.pipelines
+      .map((pipeline) => nameOf(pipeline.id))
+      .join(", ");
+
+    /* Verbose APA-style interpretation: a full paragraph a reader
+       can drop into a manuscript, not a reference-list entry. */
+    const apaText =
+      `On ${monthLong} ${day}, ${year}, the Re:Search prototype ` +
+      `compared ${battle.pipelines.length} content-based recommendation ` +
+      `pipelines on the ${battle.query ? "query" : "seed paper"} ` +
+      `${subject} at a depth of ${battle.top_k} results per pipeline: ` +
+      `${pipelineNames}. The winner was ${winnerChip} ` +
+      `(${winnerId}), which captured ${winnerPct}% of the available ` +
+      "independence-weighted consensus" +
+      (battle.winner?.avg_consensus_rank != null
+        ? ` at an average consensus rank of #${battle.winner.avg_consensus_rank}`
+        : "") +
+      ". Agreement was strongest between " +
+      (pairText(closest) ?? "n/a") +
+      ", while the least agreement occurred between " +
+      (pairText(farthest) ?? "n/a") +
+      "." +
+      (leader?.title != null
+        ? ` Across all pipelines, the paper with the broadest consensus ` +
+          `was "${leader.title}"` +
+          (leader.year ? ` (${leader.year})` : "") +
+          (leader.votes != null
+            ? `, ranked by ${leader.votes} of ${battle.pipelines.length} pipelines`
+            : "") +
+          "."
+        : "") +
+      " Agreement is interpreted with independence weighting, so a " +
+      "pipeline's consensus is discounted when the agreeing pipeline " +
+      "shares its signals, which prevents a hybrid from being " +
+      "confirmed by its own components.";
+
+    return [
+      {
+        id: "apa",
+        label: "APA 7 (interpretation)",
+        text: apaText,
+      },
+      {
+        id: "mla",
+        label: "MLA 9",
+        text:
+          `"Comparative Pipeline Battle for ${subject}." ` +
+          "Re:Search Arena, local Re:Search recommendation " +
+          `prototype, ${mlaDate}. Software battle report. Winner: ` +
+          `${winnerChip}, ${winnerPct}% independence-weighted ` +
+          `consensus at top-${battle.top_k}.${leaderText}`,
+      },
+      {
+        id: "chicago",
+        label: "Chicago",
+        text:
+          `Re:Search Arena. "Comparative Pipeline Battle for ` +
+          `${subject}." Software battle report, local Re:Search ` +
+          `recommendation prototype, ${chicagoDate}. Winner: ` +
+          `${winnerChip} at ${winnerPct} percent independence-` +
+          `weighted consensus.${leaderText}`,
+      },
+      {
+        id: "ieee",
+        label: "IEEE",
+        text:
+          `Re:Search Arena, "Comparative pipeline battle for ` +
+          `${subject}," software battle report, local Re:Search ` +
+          `recommendation prototype, ${ieeeDate}. Winner: ` +
+          `${winnerChip}, ${winnerPct}% independence-weighted ` +
+          `consensus.${leaderText}`,
+      },
+    ];
+  })();
+
+  async function copyCitation(id: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCitation(id);
+      window.setTimeout(
+        () =>
+          setCopiedCitation((current) =>
+            current === id ? null : current,
+          ),
+        1600,
+      );
+    } catch {
+      setCopiedCitation(null);
+    }
+  }
+
+  /* Result tabs: an arcade cartridge rail — numbered, icon-led
+     chips on an ink rail, active tab pressed in accent. */
+  const RESULT_TABS = [
+    { id: "overview", label: "Winner", icon: Trophy },
+    { id: "consensus", label: "Consensus", icon: Layers },
+    { id: "pairwise", label: "Pairwise", icon: ArrowLeftRight },
+    { id: "grid", label: "Battle grid", icon: Table },
+    { id: "scores", label: "Scores", icon: BarChart3 },
+    { id: "cite", label: "Interpretation", icon: Quote },
+    { id: "records", label: "Records", icon: History },
+  ] as const;
+
   return (
     <PageShell>
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-key")!} />
       <PageHeader
         eyebrow="Arena"
         title="Pipeline battle"
-        description="Run all six configurations against one query and watch them compete: consensus ranking, per-pipeline ranks, and pairwise agreement."
+        description="Run all six pipelines on one query. Compare the consensus ranking, the per-pipeline ranks, and the pairwise agreement."
       />
+
+      <div className="mt-6">
+        <PageTabs
+          label="Arena view"
+          active={pageTab}
+          onChange={setPageTab}
+          options={[
+            { id: "battle", label: "Battle" },
+            { id: "stats", label: "Stats for Nerds" },
+          ]}
+        />
+      </div>
+
+      {pageTab === "stats" ? (
+        <section className="mt-4">
+          <StatsForNerds
+            inputs={{
+              mode: "keyword",
+              query: queryText,
+              topK,
+            }}
+            contextNote="Every battle runs the six presets on the same query; this is the shared math behind their scores — expand the live trace to walk the current query through one pipeline."
+          />
+        </section>
+      ) : (
+        <>
 
       {/* ======================================================
           QUERY BAR
@@ -513,18 +753,17 @@ export default function Evaluation() {
       {!battle && !loading && !error && (
         <section className="rounded border-[3px] border-dashed border-gray-900 bg-white p-10 text-center">
           <p className="text-sm font-bold text-ink">
-            6 modes enter. 1 leaves.
+            Run the first battle.
           </p>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
-            The score distribution compares all six pipelines at
-            each rank, the consensus ranking shows the papers voted
-            in by the most pipelines, and the battle grid details
-            every rank. The pipeline that captures the largest
-            share of independence-weighted consensus is crowned the
-            winner. Agreement with a rival counts only as much as
-            that rival is built from different signals, so no
-            pipeline can win through its own hybrids. The raw
-            numbers for the evaluation chapter.
+            A battle runs all six pipelines on one query. The score
+            distribution compares the pipelines at each rank. The
+            consensus ranking shows the papers that the most
+            pipelines selected. The battle grid lists every rank.
+            The winner takes the largest share of
+            independence-weighted consensus. A vote from a rival
+            counts as much as that rival differs from the others.
+            No pipeline can win with votes from its own hybrids.
           </p>
         </section>
       )}
@@ -552,10 +791,57 @@ export default function Evaluation() {
       {battle && !loading && (
         <div className="space-y-6">
           {/* ------------------------------------------------
+              RESULT TABS — one panel per result type, the first
+              one is the summary, the last the recorded history
+              ------------------------------------------------ */}
+
+          <div className="overflow-x-auto rounded border-[3px] border-gray-900 bg-gray-900 p-1.5">
+            <div
+              role="tablist"
+              aria-label="Arena results"
+              className="flex min-w-max gap-1.5"
+            >
+              {RESULT_TABS.map(({ id, label, icon: Icon }, index) => {
+                const active = resultsTab === id;
+
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    aria-label={label}
+                    onClick={() => setResultsTab(id)}
+                    className={`relative flex items-center gap-1.5 rounded border-[2px] px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.12em] transition-colors pixel-ease ${
+                      active
+                        ? "border-gray-900 bg-accent text-onAccent shadow-[inset_0_-3px_0_rgba(0,0,0,0.3)]"
+                        : "border-gray-700 bg-gray-800 text-onInk/75 hover:border-accent hover:text-accent"
+                    }`}
+                  >
+                    <span
+                      className={`text-[9px] leading-none ${
+                        active ? "text-onAccent/70" : "text-onInk/40"
+                      }`}
+                    >
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+
+                    <Icon className="h-3.5 w-3.5" />
+
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div key={resultsTab} className="animate-step-in space-y-6">
+
+          {/* ------------------------------------------------
               WINNER BANNER
               ------------------------------------------------ */}
 
-          {battle.winner && (
+          {resultsTab === "overview" && battle.winner && (
             <section className="rounded border-[3px] border-gray-900 bg-gray-900 p-5 text-onInk">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0">
@@ -603,6 +889,7 @@ export default function Evaluation() {
               SCORE DISTRIBUTION — GROUPED BY RANK
               ------------------------------------------------ */}
 
+          {resultsTab === "scores" && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
             <div className="border-b border-gray-200 px-5 py-4">
               <p className="text-sm font-bold text-ink">
@@ -739,17 +1026,14 @@ export default function Evaluation() {
               );
             })()}
           </section>
-
-          {/* ------------------------------------------------
-              CONSENSUS PODIUM + PAIRWISE AGREEMENT
-              ------------------------------------------------ */}
-
-          <div className="grid gap-6 lg:grid-cols-5">
-            <div className="lg:col-span-2">
+          )}
 
           {/* ------------------------------------------------
               CONSENSUS PODIUM
               ------------------------------------------------ */}
+
+          {resultsTab === "consensus" && (
+          <div>
 
           <section className="rounded border-[3px] border-gray-900 bg-white">
             <div className="border-b border-gray-200 px-5 py-4">
@@ -796,13 +1080,15 @@ export default function Evaluation() {
               ))}
             </div>
           </section>
-            </div>
+          </div>
+          )}
 
-            <div className="lg:col-span-3">
-              {/* ------------------------------------------------
-                  PAIRWISE AGREEMENT
-                  ------------------------------------------------ */}
+          {/* ------------------------------------------------
+              PAIRWISE AGREEMENT
+              ------------------------------------------------ */}
 
+          {resultsTab === "pairwise" && (
+          <div>
               <section className="rounded border-[3px] border-gray-900 bg-white">
                 <div className="border-b border-gray-200 px-5 py-4">
                   <p className="text-sm font-bold text-ink">
@@ -834,13 +1120,13 @@ export default function Evaluation() {
                       index={pairPageStart + index}
                     >
                       <div className="rounded border-[2px] border-gray-900 bg-canvas p-3">
-                        <div className="mb-2 flex items-center gap-2">
+                        <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                           <PipelineChip pipelineId={pair.a} />
                           <span className="font-mono text-xs text-muted">vs</span>
                           <PipelineChip pipelineId={pair.b} />
                         </div>
 
-                        <div className="flex gap-4 font-mono text-xs text-ink">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-ink">
                           <span>
                             overlap{" "}
                             <span className="font-bold">
@@ -870,12 +1156,13 @@ export default function Evaluation() {
                 />
               </section>
             </div>
-          </div>
+          )}
 
           {/* ------------------------------------------------
               BATTLE GRID
               ------------------------------------------------ */}
 
+          {resultsTab === "grid" && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
             <div className="border-b border-gray-200 px-5 py-4">
               <p className="text-sm font-bold text-ink">
@@ -962,11 +1249,13 @@ export default function Evaluation() {
               />
             </div>
           </section>
+          )}
 
           {/* ------------------------------------------------
               SCORE BARS
               ------------------------------------------------ */}
 
+          {resultsTab === "scores" && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
             <div className="border-b border-gray-200 px-5 py-4">
               <p className="text-sm font-bold text-ink">
@@ -1065,12 +1354,61 @@ export default function Evaluation() {
               })()}
             </div>
           </section>
+          )}
+
+          {/* ------------------------------------------------
+              INTERPRETATION — citation-ready result summaries
+              ------------------------------------------------ */}
+
+          {resultsTab === "cite" && citations && (
+            <section className="rounded border-[3px] border-gray-900 bg-white">
+              <div className="border-b border-gray-200 px-5 py-4">
+                <p className="text-sm font-bold text-ink">
+                  Result interpretation
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  The current battle written up citation-style. Copy a
+                  whole block into a manuscript, then fit it to your
+                  sentence; every figure comes straight from this run.
+                </p>
+              </div>
+
+              <div className="space-y-4 px-5 py-4">
+                {citations.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="rounded border-[2px] border-gray-900 bg-canvas p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
+                        {entry.label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void copyCitation(entry.id, entry.text)
+                        }
+                        className="rounded border-[2px] border-gray-900 bg-white px-2 py-0.5 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+                      >
+                        {copiedCitation === entry.id
+                          ? "Copied \u2713"
+                          : "Copy"}
+                      </button>
+                    </div>
+                    <p className="select-all whitespace-pre-wrap font-mono text-xs leading-5 text-ink">
+                      {entry.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* ------------------------------------------------
               BATTLE RECORDS — WIN TALLY / HISTORY TABS
               ------------------------------------------------ */}
 
-          {history.length > 0 && (
+          {resultsTab === "records" && history.length > 0 && (
             <section className="rounded border-[3px] border-gray-900 bg-white">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b-[3px] border-gray-900 px-5 py-4">
                 <p className="text-sm font-bold text-ink">
@@ -1121,13 +1459,28 @@ export default function Evaluation() {
                       one win per run; the current champion wears
                       the crown.
                     </p>
+
+                    <div className="mt-4">
+                      <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+                        Wins by pipeline
+                      </p>
+                      <FreqBars
+                        data={tally.map((entry) => ({
+                          label:
+                            configById.get(entry.id)?.codename ??
+                            entry.id,
+                          value: entry.wins,
+                        }))}
+                        ariaLabel="Win frequency per pipeline"
+                      />
+                    </div>
                   </div>
 
                   <div className="divide-y divide-gray-200">
                     {tally.map((entry, index) => (
                       <StaggerIn key={entry.id} index={index}>
                         <div
-                          className={`flex items-baseline gap-4 px-5 py-3 ${
+                          className={`flex items-center gap-4 px-5 py-3 ${
                             index === 0 && entry.wins > 0
                               ? "bg-canvas"
                               : ""
@@ -1153,10 +1506,10 @@ export default function Evaluation() {
                           )}
 
                           <span className="ml-auto flex shrink-0 items-baseline gap-2">
-                            <span className="font-mono text-lg font-bold leading-none text-ink">
+                            <span className="w-10 text-right font-mono text-lg font-bold leading-none text-ink">
                               {entry.wins}
                             </span>
-                            <span className="font-mono text-xs text-muted">
+                            <span className="w-20 font-mono text-xs text-muted">
                               win{entry.wins === 1 ? "" : "s"}
                               {totalRuns > 0
                                 ? ` · ${Math.round(
@@ -1185,10 +1538,20 @@ export default function Evaluation() {
                       Recorded runs, newest first. Page {historyPage} of{" "}
                       {historyPages} ({historyTotal} total).
                     </p>
+
+                    <div className="mt-4">
+                      <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+                        Winner score distribution (this page)
+                      </p>
+                      <FreqBars
+                        data={scoreBuckets}
+                        ariaLabel="Winner score frequency distribution"
+                      />
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[560px] text-left text-xs">
+                    <table className="w-full min-w-[560px] text-left text-xs [&_th]:align-middle [&_td]:align-middle">
                       <thead>
                         <tr className="border-b-[3px] border-gray-900">
                           <th className="px-5 py-3 uppercase tracking-wide text-muted">
@@ -1197,7 +1560,7 @@ export default function Evaluation() {
                           <th className="px-3 py-3 uppercase tracking-wide text-muted">
                             Query
                           </th>
-                          <th className="px-3 py-3 text-center uppercase tracking-wide text-muted">
+                          <th className="px-3 py-3 text-left uppercase tracking-wide text-muted">
                             Winner
                           </th>
                           <th className="px-5 py-3 text-right uppercase tracking-wide text-muted">
@@ -1222,8 +1585,10 @@ export default function Evaluation() {
                                 {run.query ?? `Seed paper #${run.seed_paper_id}`}
                               </p>
                             </td>
-                            <td className="px-3 py-3 text-center">
-                              <PipelineChip pipelineId={run.winner_pipeline_id} />
+                            <td className="px-3 py-3 text-left">
+                              <div className="w-full">
+                                <PipelineChip pipelineId={run.winner_pipeline_id} grow />
+                              </div>
                             </td>
                             <td className="whitespace-nowrap px-5 py-3 text-right font-mono text-muted">
                               {run.winner_value != null
@@ -1251,7 +1616,10 @@ export default function Evaluation() {
               )}
             </section>
           )}
+          </div>
         </div>
+      )}
+        </>
       )}
     </PageShell>
   );

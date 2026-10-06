@@ -124,7 +124,7 @@ export default function BootSplash() {
         CLICK ANYWHERE OR PRESS ANY KEY
       </p>
       <p className="mt-6 font-mono text-xs tracking-[0.15em] text-gray-600">
-        © 2026 BULSU BSMCS · DEPARTMENT OF COMPUTER SCIENCE
+        © 2026 BULSU BSMCS · DEPARTMENT OF COMPUTER SCIENCE · BUILT BY TEMPEST
       </p>
     </div>
   );
