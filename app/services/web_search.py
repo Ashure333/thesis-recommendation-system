@@ -72,7 +72,6 @@ SOURCES = ("openalex", "crossref", "arxiv")
 
 OPENALEX_TYPE_FILTER = "type:article|book-chapter"
 
-REQUEST_LIMIT_CAP = 30
 _ABSTRACT_MAX_CHARS = 4000
 
 CACHE_TTL_SECONDS = 10 * 60

@@ -1,10 +1,5 @@
 import { useEffect, useState } from "react";
 import { getCatalog, type Catalog } from "../api";
-import {
-  SUBJECTS,
-  CATEGORIES,
-  DOCUMENT_TYPES,
-} from "../data/catalog";
 
 /* ============================================================
    USE CATALOG
@@ -50,18 +45,4 @@ export function useCatalog(): Catalog | null {
   }, []);
 
   return catalog;
-}
-
-/** Seed fallbacks used until the backend catalog arrives. */
-export function catalogSeed(): Catalog {
-  const subjectCategories = Object.fromEntries(
-    SUBJECTS.map((subject) => [subject, [...CATEGORIES]]),
-  );
-
-  return {
-    subjects: [...SUBJECTS],
-    categories: [...CATEGORIES],
-    document_types: [...DOCUMENT_TYPES],
-    subject_categories: subjectCategories,
-  };
 }

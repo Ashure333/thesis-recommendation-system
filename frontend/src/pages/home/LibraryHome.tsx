@@ -36,8 +36,8 @@ export default function LibraryHome() {
       return;
     }
 
-    navigate("/recommendations", {
-      state: { mode: "keyword", query: trimmed },
+    navigate("/repository", {
+      state: { mode: "recommend", query: trimmed },
     });
   }
 

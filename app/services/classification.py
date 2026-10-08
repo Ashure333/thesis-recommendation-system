@@ -141,7 +141,6 @@ _GENERIC_CATEGORY_WORDS = {
     "effect",
     "impact",
     "new",
-    "toward",
 }
 
 

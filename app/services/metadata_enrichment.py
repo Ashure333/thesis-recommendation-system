@@ -207,12 +207,11 @@ def enrich_paper_metadata(
             getattr(paper, "id", None), changed,
         )
 
-        if hasattr(paper, "enrichment_notes"):
-            existing = (paper.enrichment_notes or "").strip()
-            new_note = "; ".join(notes)
-            paper.enrichment_notes = (
-                f"{existing}; {new_note}" if existing else new_note
-            )
+        existing = (paper.enrichment_notes or "").strip()
+        new_note = "; ".join(notes)
+        paper.enrichment_notes = (
+            f"{existing}; {new_note}" if existing else new_note
+        )
 
     return changed
 
@@ -249,11 +248,10 @@ def generate_keywords_if_missing(paper: Paper) -> bool:
     paper.keywords_source = result["keywords_source"]
     paper.keywords_generated = result["keywords_generated"]
 
-    if hasattr(paper, "enrichment_notes"):
-        existing = (paper.enrichment_notes or "").strip()
-        new_note = "keywords <- yake (title+abstract)"
-        paper.enrichment_notes = (
-            f"{existing}; {new_note}" if existing else new_note
-        )
+    existing = (paper.enrichment_notes or "").strip()
+    new_note = "keywords <- yake (title+abstract)"
+    paper.enrichment_notes = (
+        f"{existing}; {new_note}" if existing else new_note
+    )
 
     return True

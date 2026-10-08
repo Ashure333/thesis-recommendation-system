@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -18,7 +18,9 @@ import MarqueeTicker from "../components/retro/MarqueeTicker";
 import ScrollFollowPopup from "../components/retro/ScrollFollowPopup";
 import PixelPet from "../components/retro/PixelPet";
 import CheatFoliage from "../components/retro/CheatFoliage";
-import { ArrowRight, BlockCursor, Dot, Lock } from "../components/retro/PixelIcons";
+import CheatConsole from "../components/CheatConsole";
+import LiveBackground from "../components/LiveBackground";
+import { ArrowRight, BlockCursor, Lock } from "../components/retro/PixelIcons";
 import {
   Cpu,
   Database,
@@ -27,15 +29,16 @@ import {
   HelpCircle,
   Library,
   ScrollText,
-  Search as SearchIcon,
   Settings,
+  Sigma,
   Swords,
   Upload,
   type LucideIcon,
 } from "lucide-react";
-import { pipelineConfigs, customPipelineConfig } from "../data/pipelineConfigs";
-import { usePipelineMode } from "../state/pipelineMode";
 import { useSiteMode } from "../state/siteMode";
+import { useLayoutPrefs } from "../state/layoutPrefs";
+import { useStatsDrawer } from "../state/statsDrawer";
+import StatsDrawer from "../components/StatsDrawer";
 
 
 // ============================================================
@@ -49,13 +52,6 @@ const SHOW_WALKTHROUGH_TAB = true;
 const SHOW_ENGINE_TAB = true;
 
 const navItems = [
-  {
-    to: "/recommendations",
-    label: "Search",
-    icon: SearchIcon,
-    tip: "nav-search",
-    feature: "search",
-  },
   {
     to: "/repository",
     label: "Repository",
@@ -161,8 +157,9 @@ export default function AppLayout() {
   const location = useLocation();
   const contentRef = useRef<HTMLElement | null>(null);
 
-  const { pipelineId, customWeights } = usePipelineMode();
-  const { mode, setMode, stateFor } = useSiteMode();
+  const { mode, stateFor } = useSiteMode();
+  const { prefs: layoutPrefs } = useLayoutPrefs();
+  const { open: statsOpen, toggle: toggleStats } = useStatsDrawer();
 
   // ----------------------------------------------------------
   // Live library count for the nav badge
@@ -187,16 +184,6 @@ export default function AppLayout() {
     window.addEventListener("library-changed", handleLibraryChange);
     return () => window.removeEventListener("library-changed", handleLibraryChange);
   }, []);
-
-  const activePipelineConfig =
-    pipelineId === "custom"
-      ? customPipelineConfig(customWeights)
-      : pipelineConfigs.find(
-          (config) => config.id === pipelineId,
-        ) ?? pipelineConfigs[pipelineConfigs.length - 1];
-
-  const activePipelineLabel =
-    activePipelineConfig.codename;
 
 
   // ----------------------------------------------------------
@@ -290,6 +277,7 @@ export default function AppLayout() {
       id="app-shell"
       className="flex h-screen w-full flex-col overflow-hidden bg-canvas text-ink"
     >
+      <LiveBackground />
 
 
       {/* ======================================================
@@ -309,7 +297,7 @@ export default function AppLayout() {
           {/* Logo — the animated slime mark + glitching pixel title */}
 
           <Link
-            to="/recommendations"
+            to="/repository"
             className="flex shrink-0 items-center gap-2.5"
           >
 
@@ -372,7 +360,11 @@ export default function AppLayout() {
                       />
                     ) : null}
 
-                    {item.label}
+                    {layoutPrefs.navLabels ? (
+                      item.label
+                    ) : (
+                      <span className="sr-only">{item.label}</span>
+                    )}
 
 
                     {item.badge && libraryCount > 0 && (
@@ -402,59 +394,22 @@ export default function AppLayout() {
 
         <div className="flex shrink-0 items-center gap-2.5">
 
-          {/* Site mode toggle — Library (visitor) vs Researcher (pro) */}
-
-          <div
-            role="radiogroup"
-            aria-label="Site mode"
-            data-tips="site-mode"
-            className="font-pixelify flex rounded border-[3px] border-gray-900 bg-white p-0.5 text-[11px] font-bold tracking-[0.08em]"
+          {/* Universal Statistics toggle — the top-bar Σ switch */}
+          <button
+            type="button"
+            aria-pressed={statsOpen}
+            data-tips="stats-toggle"
+            onClick={toggleStats}
+            title="Statistics, computations, and process interpretations"
+            className={`inline-flex items-center gap-1.5 rounded border-[3px] border-gray-900 px-2.5 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] transition-colors pixel-ease ${
+              statsOpen
+                ? "bg-accent text-onAccent"
+                : "bg-white text-ink hover:bg-accentSoft"
+            }`}
           >
-
-            <button
-              type="button"
-              role="radio"
-              aria-checked={mode === "library"}
-              aria-label="Library mode"
-              onClick={() => setMode("library")}
-              className={`rounded px-2 py-1 transition-colors pixel-ease ${
-                mode === "library"
-                  ? "bg-accent text-onAccent"
-                  : "text-muted hover:text-ink"
-              }`}
-            >
-              LIBRARY
-            </button>
-
-            <button
-              type="button"
-              role="radio"
-              aria-checked={mode === "researcher"}
-              aria-label="Researcher mode"
-              onClick={() => setMode("researcher")}
-              className={`rounded px-2 py-1 transition-colors pixel-ease ${
-                mode === "researcher"
-                  ? "bg-accent text-onAccent"
-                  : "text-muted hover:text-ink"
-              }`}
-            >
-              RESEARCHER
-            </button>
-
-          </div>
-
-          <div
-            title={`Pipeline: ${activePipelineConfig.label}`}
-            data-tips="pipeline-chip"
-            className="font-pixelify hidden rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 text-xs font-bold tracking-[0.15em] text-ink xl:block"
-          >
-
-            <span className="flex items-center gap-1.5">
-              <Dot className="animate-rec h-2 w-2 text-accent" />
-              MODE: {activePipelineLabel}
-            </span>
-
-          </div>
+            <Sigma className="h-3.5 w-3.5" />
+            STATS
+          </button>
 
           <AccentPicker />
 
@@ -496,14 +451,19 @@ export default function AppLayout() {
         className="animate-route-in mx-auto w-full max-w-[1560px] overflow-y-auto px-3 py-5 sm:px-5"
       >
 
-        <Outlet />
+        {/* Pages are lazy chunks; the shell (nav, ticker, pet) stays mounted
+            while one loads because <main> is keyed per route. */}
+        <Suspense fallback={null}>
+          <Outlet />
+        </Suspense>
 
       </main>
 
       <ScrollFollowPopup key={`scroll:${location.pathname}`} target={contentRef} />
       <CheatFoliage />
+      <CheatConsole />
+      <StatsDrawer />
     </div>
-
   );
 
 }

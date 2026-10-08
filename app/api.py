@@ -12,11 +12,11 @@ from pathlib import Path
 import requests
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.database import engine, init_db, get_session, SessionLocal
@@ -36,6 +36,10 @@ from app.services.upload_paper import (
     complete_paper_manually,
 )
 from app.services.bib_extraction import extract_metadata_from_bib
+from app.services.ris_enw_extraction import (
+    extract_metadata_from_enw,
+    extract_metadata_from_ris,
+)
 from app.services.extraction import extract_metadata_from_pdf
 from app.services.latex_extraction import extract_metadata_from_tex
 from app.services.classification import classify_paper
@@ -80,10 +84,7 @@ from app.services.local_user import get_or_create_default_user
 from app.services.recommendation.search_service import (
     search_papers as run_search,
 )
-from app.services.recommendation.pipeline_config import (
-    PIPELINE_CONFIGS,
-    build_custom_weights,
-)
+from app.services.recommendation.pipeline_config import build_custom_weights
 
 from app.services.recommendation.trace_service import (
     RecommendationTraceRequest,
@@ -145,6 +146,11 @@ from app.services.research_chat import (
     ResearchChatRequest,
     ResearchChatResponse,
     answer_research_question,
+)
+from app.services.chat_suggestions import (
+    SuggestionRequest,
+    SuggestionResponse,
+    suggest_followups,
 )
 
 app = FastAPI(title="Re:Search API")
@@ -426,16 +432,21 @@ def list_papers(
 def get_repository_stats(
     db: Session = Depends(get_session),
 ):
-    papers = db.query(Paper).all()
+    subject_expr = func.coalesce(
+        func.nullif(Paper.subject_category, ""),
+        "Uncategorized",
+    )
+    rows = (
+        db.query(subject_expr, func.count(Paper.id))
+        .group_by(subject_expr)
+        .order_by(func.min(Paper.id))
+        .all()
+    )
 
-    by_subject: dict[str, int] = {}
-
-    for paper in papers:
-        subject = paper.subject_category or "Uncategorized"
-        by_subject[subject] = by_subject.get(subject, 0) + 1
+    by_subject: dict[str, int] = {subject: count for subject, count in rows}
 
     return RepositoryStats(
-        total_papers=len(papers),
+        total_papers=sum(by_subject.values()),
         by_subject=by_subject,
         category_count=len(by_subject),
     )
@@ -488,66 +499,6 @@ def get_paper_pdf(
 
 
 # ============================================================
-# ============================================================
-# PDF PREVIEW PROXY
-# ============================================================
-
-@app.get("/api/papers/preview-pdf")
-def preview_pdf(url: str):
-    """
-    Fetch a discovered remote PDF and return it inline so the frontend
-    PDF viewer can render it instead of the remote server forcing a
-    browser download via Content-Disposition: attachment.
-    """
-
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(
-            status_code=400,
-            detail="Only HTTP(S) PDF URLs can be previewed.",
-        )
-
-    try:
-        response = requests.get(
-            url,
-            headers={
-                "User-Agent": "Re:Search/1.0 PDF Preview",
-                "Accept": "application/pdf,*/*;q=0.8",
-            },
-            timeout=30,
-            allow_redirects=True,
-        )
-        response.raise_for_status()
-
-    except requests.RequestException as error:
-        print()
-        print("PDF PREVIEW PROXY FAILED")
-        print(error)
-        raise HTTPException(
-            status_code=502,
-            detail="Could not fetch the PDF for preview.",
-        )
-
-    content_type = (response.headers.get("content-type") or "").lower()
-    content = response.content
-
-    # Some OA providers omit or mislabel the content type. Accept it when
-    # the downloaded payload has the normal PDF signature.
-    if not content.startswith(b"%PDF") and "application/pdf" not in content_type:
-        raise HTTPException(
-            status_code=415,
-            detail="The selected source did not return a PDF file.",
-        )
-
-    return Response(
-        content=content,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": "inline",
-            "Cache-Control": "private, max-age=300",
-        },
-    )
-
-
 # FIND PDF ONLINE
 # ============================================================
 
@@ -1066,12 +1017,13 @@ def preview_paper(
 
     suffix = os.path.splitext(file.filename)[1].lower()
 
-    if suffix not in (".pdf", ".bib", ".tex"):
+    if suffix not in (".pdf", ".bib", ".tex", ".ris", ".enw"):
         raise HTTPException(
             status_code=400,
             detail=(
-                "Only PDF, BibTeX (.bib), and "
-                "LaTeX (.tex) files are accepted."
+                "Only PDF, BibTeX (.bib), RIS (.ris), "
+                "EndNote (.enw), and LaTeX (.tex) files "
+                "are accepted."
             ),
         )
 
@@ -1087,6 +1039,10 @@ def preview_paper(
             metadata = extract_metadata_from_pdf(tmp_path)
         elif suffix == ".tex":
             metadata = extract_metadata_from_tex(tmp_path)
+        elif suffix == ".ris":
+            metadata = extract_metadata_from_ris(tmp_path)
+        elif suffix == ".enw":
+            metadata = extract_metadata_from_enw(tmp_path)
         else:
             metadata = extract_metadata_from_bib(tmp_path)
 
@@ -1110,9 +1066,17 @@ def preview_paper(
                 "latex"
                 if suffix == ".tex"
                 else (
-                    "bibtex"
-                    if suffix == ".bib"
-                    else "pdf"
+                    "ris"
+                    if suffix == ".ris"
+                    else (
+                        "endnote"
+                        if suffix == ".enw"
+                        else (
+                            "bibtex"
+                            if suffix == ".bib"
+                            else "pdf"
+                        )
+                    )
                 )
             ),
         )
@@ -1562,30 +1526,42 @@ def rebuild_recommendations():
 
 
 # ============================================================
-# GOOGLE SCHOLAR BIBTEX IMPORT
+# GOOGLE SCHOLAR CITATION IMPORT
 # ============================================================
 
-SCHOLAR_BIB_URL_PATTERN = re.compile(
-    r"^https://scholar\.googleusercontent\.com/scholar\.bib",
+SCHOLAR_EXPORT_URL_PATTERN = re.compile(
+    r"^https://(?:scholar\.googleusercontent\.com|scholar\.google\.com)"
+    r"/scholar\.(bib|enw|ris)",
     re.IGNORECASE,
 )
 
+_SCHOLAR_CONTENT_SIGNATURES = {
+    "bib": (r"@\w+\s*\{",),
+    "enw": (r"(?m)^%0\s",),
+    "ris": (r"(?im)^TY\s*-",),
+}
 
-@app.post(
-    "/api/papers/import-url",
-    response_model=PaperOut,
-)
-def import_paper_from_url(
-    url: str,
-    db: Session = Depends(get_session),
-):
-    url = url.strip()
 
-    if not SCHOLAR_BIB_URL_PATTERN.match(url):
+def _fetch_scholar_export(url: str) -> tuple[str, str]:
+    """Fetch a Google Scholar BibTeX / EndNote / RefMan export URL.
+
+    Returns ``(format, text)`` for the ``scholar.bib``, ``scholar.enw``
+    and ``scholar.ris`` links of the Google Scholar Cite dialog.
+    Raises ``HTTPException`` with the established error semantics.
+    """
+
+    match = SCHOLAR_EXPORT_URL_PATTERN.match(url)
+
+    if match is None:
         raise HTTPException(
             status_code=400,
-            detail="Only Google Scholar BibTeX links are accepted.",
+            detail=(
+                "Only Google Scholar BibTeX, EndNote, "
+                "and RefMan links are accepted."
+            ),
         )
+
+    export_format = match.group(1).lower()
 
     try:
         response = requests.get(
@@ -1646,21 +1622,41 @@ def import_paper_from_url(
 
     content = response.text.strip()
 
-    if not re.search(
-        r"@\w+\s*\{",
-        content,
-        re.IGNORECASE,
+    signature_patterns = _SCHOLAR_CONTENT_SIGNATURES[
+        export_format
+    ]
+
+    if not any(
+        re.search(pattern, content, re.IGNORECASE)
+        for pattern in signature_patterns
     ):
         raise HTTPException(
             status_code=400,
             detail=(
                 "The Google Scholar link did not "
-                "return a valid BibTeX citation."
+                f"return a valid {export_format.upper()} citation."
             ),
         )
 
+    return export_format, content
+
+
+@app.post(
+    "/api/papers/import-url",
+    response_model=PaperOut,
+)
+def import_paper_from_url(
+    url: str,
+    db: Session = Depends(get_session),
+):
+    """Import a Google Scholar BibTeX / EndNote / RefMan link directly."""
+
+    url = url.strip()
+
+    export_format, content = _fetch_scholar_export(url)
+
     with tempfile.NamedTemporaryFile(
-        suffix=".bib",
+        suffix=f".{export_format}",
         delete=False,
         mode="w",
         encoding="utf-8",
@@ -1673,7 +1669,7 @@ def import_paper_from_url(
         paper = upload_paper_from_pdf(
             db,
             tmp_path,
-            "google-scholar.bib",
+            f"google-scholar.{export_format}",
         )
 
     except DuplicatePaperError as error:
@@ -1701,6 +1697,28 @@ def import_paper_from_url(
     return paper
 
 
+@app.post("/api/papers/scholar-fetch")
+def fetch_scholar_export_url(url: str):
+    """Fetch a Google Scholar export link and return its text.
+
+    The upload drop zone uses this endpoint for the review flow:
+    nothing is persisted here. The frontend builds a file from
+    ``{"format", "text"}`` and runs it through the normal
+    preview -> review -> save path, exactly like the Chrome
+    extension path.
+    """
+
+    url = url.strip()
+
+    export_format, content = _fetch_scholar_export(url)
+
+    return {
+        "format": export_format,
+        "text": content,
+        "url": url,
+    }
+
+
 # ============================================================
 # DIRECT BIBTEX IMPORT
 # ============================================================
@@ -1714,7 +1732,6 @@ def import_bibtex(
     db: Session = Depends(get_session),
 ):
     bibtex = payload.get("bibtex")
-    source_url = payload.get("source_url")
 
     if not bibtex or not isinstance(
         bibtex,
@@ -1747,9 +1764,6 @@ def import_bibtex(
 
     try:
         filename = "google-scholar.bib"
-
-        if source_url:
-            filename = "google-scholar.bib"
 
         paper = upload_paper_from_pdf(
             db,
@@ -1797,6 +1811,7 @@ def get_library(
 
     entries = (
         db.query(PersonalLibrary)
+        .options(selectinload(PersonalLibrary.paper))
         .filter(
             PersonalLibrary.user_id == user.id
         )
@@ -2375,6 +2390,8 @@ def get_recommendation_trace(
             pipeline=request.pipeline,
             top_k=request.top_k,
             custom_weights=custom_weights,
+            mmr_lambda=request.mmr_lambda,
+            mmr_pool=request.mmr_pool,
         )
 
     except ValueError as error:
@@ -2891,6 +2908,7 @@ def get_similar_papers_graph(
             "publication_year": seed_paper.publication_year,
             "abstract": seed_paper.abstract,
             "doi": seed_paper.doi,
+            "citation_count": seed_paper.citation_count,
             "similarity": 1.0,
             "relationship": "current",
             "path": [seed_paper.id],
@@ -2914,6 +2932,7 @@ def get_similar_papers_graph(
                 "publication_year": paper.publication_year,
                 "abstract": paper.abstract,
                 "doi": paper.doi,
+                "citation_count": paper.citation_count,
                 "similarity": result["score"],
                 "relationship": "similar",
                 "path": graph["node_paths"].get(paper.id, []),
@@ -3076,6 +3095,16 @@ def research_chat(
             status_code=500,
             detail="Research chat failed.",
         ) from error
+
+
+@app.post(
+    "/api/research-chat/suggestions",
+    response_model=SuggestionResponse,
+)
+def research_chat_suggestions(request: SuggestionRequest):
+    """Follow-up questions for the chat's suggestion pills."""
+
+    return suggest_followups(request)
 
 
 # ============================================================

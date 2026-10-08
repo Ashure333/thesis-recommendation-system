@@ -10,11 +10,14 @@ import {
   updatePaper,
   previewIdentifier,
   importPaperFromMetadata,
+  fetchScholarCitation,
   notifyRecommendationIndexStale,
   type Paper,
 } from "../../api";
 import FindPdfPanel from "../../components/FindPdfPanel";
 import PixelProgress from "../../components/retro/PixelProgress";
+import RetroDialog from "../../components/retro/RetroDialog";
+import { crumpledBallDataURL } from "../../components/retro/CrumpledPaper";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 import {
   SUBJECTS,
@@ -48,7 +51,8 @@ interface ScholarBibtexMessage {
   source: "paperrec-scholar-extension";
   type: "PAPERREC_SCHOLAR_BIBTEX";
   bibtex: string;
-  sourceUrl?: string;
+  /** Which Google Scholar export the extension retrieved. */
+  format?: "bib" | "enw" | "ris";
 }
 
 interface ScholarErrorMessage {
@@ -111,6 +115,32 @@ function splitBibtexEntries(text: string): string[] {
 function entryKey(bibtex: string, fallback: number): string {
   const keyMatch = /@\w+\s*\{\s*([^,\s]+)/.exec(bibtex);
   return keyMatch?.[1] ?? `entry-${fallback + 1}`;
+}
+
+/**
+ * Splits an RIS export (RefMan / RefWorks, incl. Google Scholar)
+ * into individual records at their "ER  -" endings.
+ */
+function splitRisEntries(text: string): string[] {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/^ER\s*-\s*\n?/im)
+    .map((record) => record.trim())
+    .filter((record) => record.length > 0);
+}
+
+/**
+ * Splits an EndNote export (incl. Google Scholar) into individual
+ * records at each "%0" line start.
+ */
+function splitEnwEntries(text: string): string[] {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/^(?=%0\s)/m)
+    .map((record) => record.trim())
+    .filter((record) => record.length > 0);
 }
 
 interface PaperPreview {
@@ -295,6 +325,31 @@ export default function Upload() {
   const [justSaved, setJustSaved] = useState(false);
 
   const [manualOpen, setManualOpen] = useState(false);
+
+  /* Drop-zone ghost: which kind of payload is hovering over the
+     hotspot ("file" vs "link") so the overlay can say DROP HERE. */
+  const [dragHover, setDragHover] = useState<"file" | "link" | null>(
+    null,
+  );
+
+  function dragKind(
+    event: DragEvent<HTMLDivElement>,
+  ): "file" | "link" | null {
+    const types = event.dataTransfer?.types ?? [];
+
+    if (types.includes("Files")) {
+      return "file";
+    }
+
+    if (
+      types.includes("text/uri-list") ||
+      types.includes("text/plain")
+    ) {
+      return "link";
+    }
+
+    return null;
+  }
   const [manualBibtex, setManualBibtex] = useState("");
 
   // Add-by-identifier flow (DOI / arXiv / link): preview comes from
@@ -394,12 +449,15 @@ export default function Upload() {
       if (data.type === "PAPERREC_SCHOLAR_BIBTEX") {
         if (!data.bibtex?.trim()) {
           setError(
-            "The Google Scholar extension returned an empty BibTeX citation."
+            "The Google Scholar extension returned an empty citation."
           );
           return;
         }
 
-        void handleScholarBibtex(data.bibtex);
+        void handleScholarBibtex(
+          data.bibtex,
+          data.format ?? "bib"
+        );
         return;
       }
 
@@ -516,30 +574,44 @@ export default function Upload() {
         .pop()
         ?.toLowerCase();
 
-      if (suffix !== "pdf" && suffix !== "bib" && suffix !== "tex") {
+      if (
+        suffix !== "pdf" &&
+        suffix !== "bib" &&
+        suffix !== "ris" &&
+        suffix !== "enw" &&
+        suffix !== "tex"
+      ) {
         throw new Error(
-          "Only PDF, BibTeX (.bib), and LaTeX (.tex) files are accepted."
+          "Only PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw), and LaTeX (.tex) files are accepted."
         );
       }
 
       /*
-       * Multi-entry BibTeX files (e.g. a reference-manager
-       * export with many citations) are split client-side and
-       * routed through
-       * the per-entry navigator so every paper can be imported,
-       * not just the first one.
+       * Multi-entry citation exports (a reference manager's whole
+       * selection, journal sites, Google Scholar) are split
+       * client-side and routed through the per-entry navigator so
+       * every paper can be imported, not just the first one.
        */
-      if (suffix === "bib") {
+      if (suffix === "bib" || suffix === "ris" || suffix === "enw") {
         const text = await file.text();
-        const rawEntries = splitBibtexEntries(text);
+        const rawEntries =
+          suffix === "bib"
+            ? splitBibtexEntries(text)
+            : suffix === "ris"
+              ? splitRisEntries(text)
+              : splitEnwEntries(text);
 
         if (rawEntries.length > 1) {
           const entries: ManualEntry[] = rawEntries.map(
-            (bibtex, index) => ({
-              key: entryKey(bibtex, index),
+            (citation, index) => ({
+              key: entryKey(citation, index),
               file: new File(
-                [new Blob([bibtex], { type: "application/x-bibtex" })],
-                `bibtex-export-${index + 1}.bib`,
+                [
+                  new Blob([citation], {
+                    type: "application/x-bibtex",
+                  }),
+                ],
+                `citation-export-${index + 1}.${suffix}`,
                 { type: "application/x-bibtex" }
               ),
               preview: null,
@@ -574,7 +646,10 @@ export default function Upload() {
     }
   }
 
-  async function handleScholarBibtex(bibtex: string) {
+  async function handleScholarBibtex(
+    bibtex: string,
+    format: "bib" | "enw" | "ris" = "bib"
+  ) {
     setUploading(true);
     setError(null);
     setJustSaved(false);
@@ -582,9 +657,18 @@ export default function Upload() {
     try {
       const trimmed = bibtex.trim();
 
-      if (!/@\w+\s*\{/i.test(trimmed)) {
+      const signature =
+        format === "bib"
+          ? /@\w+\s*\{/i
+          : format === "ris"
+            ? /^TY\s*-\s*/im
+            : /^%0\s/m;
+
+      if (!signature.test(trimmed)) {
         throw new Error(
-          "The Google Scholar response does not appear to be valid BibTeX."
+          "The Google Scholar response does not appear to be a valid " +
+            format.toUpperCase() +
+            " citation."
         );
       }
 
@@ -595,7 +679,7 @@ export default function Upload() {
 
       const file = new File(
         [blob],
-        "google-scholar.bib",
+        `google-scholar.${format}`,
         { type: "application/x-bibtex" }
       );
 
@@ -825,7 +909,7 @@ export default function Upload() {
     setError(null);
 
     try {
-      const updated = await persistPaper(entry.file, {
+      await persistPaper(entry.file, {
         title,
         abstract,
         keywords,
@@ -845,7 +929,7 @@ export default function Upload() {
       setManualEntries((current) =>
         current.map((item, i) =>
           i === currentIndex
-            ? { ...item, status: "approved", paper: updated }
+            ? { ...item, status: "approved" }
             : item
         )
       );
@@ -903,7 +987,7 @@ export default function Upload() {
         const preview =
           entry.preview ?? (await previewFile(entry.file));
 
-        const updated = await persistPaper(entry.file, {
+        await persistPaper(entry.file, {
           title: preview.title ?? "",
           abstract: preview.abstract ?? "",
           keywords: preview.keywords ?? "",
@@ -926,7 +1010,7 @@ export default function Upload() {
         setManualEntries((current) =>
           current.map((item, i) =>
             i === index
-              ? { ...item, status: "approved", paper: updated }
+              ? { ...item, status: "approved" }
               : item
           )
         );
@@ -998,13 +1082,53 @@ export default function Upload() {
     return null;
   }
 
-  function isScholarBibtexUrl(url: string): boolean {
+  function isScholarImportUrl(url: string): boolean {
     return (
       /^https?:\/\/(?:scholar\.googleusercontent\.com|scholar\.google\.com)\//i.test(
         url
       ) &&
-      /\/scholar\.bib(?:\?|$)/i.test(url)
+      /\/scholar\.(?:bib|enw|ris)(?:\?|$)/i.test(url)
     );
+  }
+
+  /*
+   * Without the extension the Google Scholar export link is fetched
+   * server-side (the browser cannot call scholar.google.com) and
+   * routed through the same preview -> review -> save flow.
+   */
+  async function importScholarLink(url: string) {
+    setUploading(true);
+    setError(null);
+    setJustSaved(false);
+
+    try {
+      const citation = await fetchScholarCitation(url);
+
+      const file = new File(
+        [
+          new Blob([citation.text], {
+            type: "text/plain",
+          }),
+        ],
+        `google-scholar.${citation.format}`,
+        { type: "text/plain" }
+      );
+
+      const result = await previewFile(file);
+
+      setSelectedFile(file);
+      populatePaper(result);
+    } catch (e) {
+      setSelectedFile(null);
+      setPaper(null);
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Failed to import the Google Scholar link."
+      );
+    } finally {
+      setUploading(false);
+    }
   }
 
   function handleDrop(
@@ -1017,20 +1141,16 @@ export default function Upload() {
     );
 
     /*
-     * If the extension is installed, it intercepts Scholar
-     * BibTeX drops before this handler.
-     *
-     * This fallback is useful for showing a clear message if
-     * the extension is not installed.
+     * If the extension is installed, it intercepts Scholar export
+     * drops before this handler; this fallback covers environments
+     * without it.
      */
     if (url) {
-      if (isScholarBibtexUrl(url)) {
-        setError(
-          "Google Scholar link detected. Make sure the Re:Search Chrome extension is installed and enabled."
-        );
+      if (isScholarImportUrl(url)) {
+        void importScholarLink(url);
       } else {
         setError(
-          "Please drag the BibTeX link from Google Scholar, not the paper's normal URL."
+          "Please drag a Google Scholar BibTeX, EndNote, or RefMan export link, not the paper's normal URL."
         );
       }
 
@@ -1045,7 +1165,7 @@ export default function Upload() {
     }
 
     setError(
-      "Drop a PDF, BibTeX file, or Google Scholar BibTeX link."
+      "Drop a PDF, BibTeX, RIS, or EndNote file, or a Google Scholar export link."
     );
   }
 
@@ -1243,17 +1363,36 @@ export default function Upload() {
             fileInput.current?.click();
           }
         }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          const kind = dragKind(e);
+          if (kind) {
+            setDragHover(kind);
+          }
+        }}
         onDragOver={(e) => {
           e.preventDefault();
+          const kind = dragKind(e);
+          if (kind && dragHover !== kind) {
+            setDragHover(kind);
+          }
         }}
-        onDrop={handleDrop}
-        className="mb-6 flex cursor-pointer flex-col items-center justify-center rounded border-[3px] border-dashed border-gray-900 bg-canvas px-6 py-10 text-center hover:bg-accentSoft"
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setDragHover(null);
+          }
+        }}
+        onDrop={(e) => {
+          setDragHover(null);
+          handleDrop(e);
+        }}
+        className="relative mb-6 flex cursor-pointer flex-col items-center justify-center rounded border-[3px] border-dashed border-gray-900 bg-canvas px-6 py-10 text-center hover:bg-accentSoft"
         data-tips="upload-dropzone"
       >
         <p className="text-sm text-ink">
           {uploading
             ? "Importing…"
-            : "Drop a PDF or BibTeX (.bib) file here"}
+            : "Drop a PDF, BibTeX (.bib), RIS (.ris), or EndNote (.enw) file here"}
         </p>
 
         {uploading && (
@@ -1265,16 +1404,41 @@ export default function Upload() {
         )}
 
         <p className="mt-1 text-xs text-muted">
-          Multi-entry .bib exports (reference managers, journal
-          sites) import every paper. Each entry goes through the
-          review navigator below.
+          Multi-entry exports (reference managers, journal sites,
+          Google Scholar) import every paper. Each entry goes
+          through the review navigator below.
         </p>
 
         <p className="mt-2 text-xs text-muted">
           Or drag a Google Scholar{" "}
-          <strong>BibTeX</strong> link directly into this box, or
-          click to browse.
+          <strong>
+            BibTeX, EndNote, RefMan, or RefWorks
+          </strong>{" "}
+          link directly into this box, or click to
+          browse.
         </p>
+
+        {/* Ghost "DROP HERE" overlay while a file or link hovers */}
+        {dragHover && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded border-[3px] border-gray-900 border-dashed bg-canvas/95">
+            <img
+              src={crumpledBallDataURL(96)}
+              alt=""
+              className="h-16 w-16"
+              draggable={false}
+            />
+
+            <p className="animate-blink font-pixelify text-3xl font-bold uppercase tracking-[0.25em] text-ink">
+              DROP HERE
+            </p>
+
+            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.15em] text-muted">
+              {dragHover === "file"
+                ? "Release to import the file"
+                : "Release to import the citation link"}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Add by identifier (DOI / arXiv / link) */}
@@ -1365,72 +1529,65 @@ export default function Upload() {
           <span className="font-bold text-ink">
             Copy As → BibTeX Citation
           </span>
-          , then use{" "}
+          , then click{" "}
           <span className="font-bold text-ink">
             Paste BibTeX manually
           </span>{" "}
-          below.
+          to open the pop-up.
         </p>
       </div>
 
-      {/* Manual BibTeX entry */}
+      {/* Manual BibTeX entry — pop-up */}
       <div className="mb-6">
         <button
           type="button"
-          onClick={() =>
-            setManualOpen((value) => !value)
-          }
-          aria-expanded={manualOpen}
+          onClick={() => setManualOpen(true)}
           className="inline-flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-white px-3 py-1.5 text-sm font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
         >
-          <span
-            className={`inline-block transition-transform pixel-ease ${
-              manualOpen ? "rotate-90" : ""
-            }`}
-            aria-hidden="true"
-          >
-            <ArrowRight className="h-2.5 w-2.5" />
-          </span>
+          <ArrowRight className="h-2.5 w-2.5" />
           Paste BibTeX manually
         </button>
-
-        {manualOpen && (
-          <div className="animate-step-in mt-3">
-            <textarea
-              id="manual-bibtex"
-              rows={8}
-              value={manualBibtex}
-              onChange={(e) =>
-                setManualBibtex(e.target.value)
-              }
-              placeholder={
-                "@article{smith2024,\n  title = {A Study of Retrieval Pipelines},\n  author = {Smith, J. and Doe, A.},\n  year = {2024},\n  journal = {…}\n}"
-              }
-              className="ui-input font-mono text-xs leading-5"
-            />
-
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={handleParseManualBibtex}
-                disabled={!manualBibtex.trim()}
-                className="rounded border-[3px] border-gray-900 bg-accent px-4 py-2 text-sm font-bold text-onAccent hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Parse citations
-              </button>
-
-              <span className="text-xs text-muted">
-                Paste one or more BibTeX entries (from Google
-                Scholar, a journal, or your own notes) and they
-                will be parsed below. Approve each one, or all
-                at once.
-              </span>
-            </div>
-          </div>
-        )}
       </div>
       </div>
       )}
+
+      {/* Manual BibTeX pop-up */}
+      <RetroDialog
+        open={manualOpen}
+        title="Paste BibTeX manually"
+        size="lg"
+        confirmLabel="Close"
+        onConfirm={() => setManualOpen(false)}
+      >
+        <textarea
+          id="manual-bibtex"
+          rows={10}
+          value={manualBibtex}
+          onChange={(e) => setManualBibtex(e.target.value)}
+          placeholder={
+            "@article{smith2024,\n  title = {A Study of Retrieval Pipelines},\n  author = {Smith, J. and Doe, A.},\n  year = {2024},\n  journal = {…}\n}"
+          }
+          className="ui-input font-mono text-xs leading-5"
+        />
+
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleParseManualBibtex}
+            disabled={!manualBibtex.trim()}
+            className="rounded border-[3px] border-gray-900 bg-accent px-4 py-2 text-sm font-bold text-onAccent hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Parse citations
+          </button>
+
+          <span className="text-xs text-muted">
+            Paste one or more BibTeX entries (from Google
+            Scholar, a journal, or your own notes) and they
+            will be parsed below. Approve each one, or all
+            at once.
+          </span>
+        </div>
+      </RetroDialog>
 
       {/* Parsed entries navigator */}
       {manualEntries.length > 0 && (

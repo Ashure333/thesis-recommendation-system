@@ -1,16 +1,21 @@
-const SCHOLAR_BIB_REGEX =
+const SCHOLAR_EXPORT_REGEX =
   /^https?:\/\/(?:scholar\.googleusercontent\.com|scholar\.google\.com)\//i;
 
-function isScholarBibUrl(url) {
+function isScholarImportUrl(url) {
   if (typeof url !== "string") {
     return false;
   }
 
-  if (!SCHOLAR_BIB_REGEX.test(url)) {
+  if (!SCHOLAR_EXPORT_REGEX.test(url)) {
     return false;
   }
 
-  return /\/scholar\.bib(?:\?|$)/i.test(url);
+  return /\/scholar\.(?:bib|enw|ris)(?:\?|$)/i.test(url);
+}
+
+function scholarFormat(url) {
+  const match = /\/scholar\.(bib|enw|ris)(?:\?|$)/i.exec(url);
+  return match ? match[1] : "bib";
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -22,20 +27,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ? message.url.trim()
     : "";
 
-  if (!isScholarBibUrl(url)) {
+  if (!isScholarImportUrl(url)) {
     sendResponse({
       ok: false,
-      error: "The supplied URL is not a Google Scholar BibTeX URL."
+      error: "The supplied URL is not a Google Scholar export URL."
     });
 
     return;
   }
 
-  fetchScholarBibtex(url)
-    .then((bibtex) => {
+  fetchScholarExport(url)
+    .then((exported) => {
       sendResponse({
         ok: true,
-        bibtex
+        format: exported.format,
+        bibtex: exported.text
       });
     })
     .catch((error) => {
@@ -45,7 +51,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ok: false,
         error: error instanceof Error
           ? error.message
-          : "Failed to retrieve the Google Scholar BibTeX citation."
+          : "Failed to retrieve the Google Scholar citation."
       });
     });
 
@@ -53,7 +59,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-async function fetchScholarBibtex(url) {
+async function fetchScholarExport(url) {
+  const format = scholarFormat(url);
+
   const response = await fetch(url, {
     method: "GET",
     redirect: "follow",
@@ -76,21 +84,27 @@ async function fetchScholarBibtex(url) {
     );
   }
 
-  const text = await response.text();
+  const text = (await response.text()).trim();
 
-  const bibtex = text.trim();
-
-  if (!bibtex) {
+  if (!text) {
     throw new Error(
-      "Google Scholar returned an empty BibTeX response."
+      "Google Scholar returned an empty export."
     );
   }
 
-  if (!/@\w+\s*\{/i.test(bibtex)) {
+  const signature =
+    format === "bib"
+      ? /@\w+\s*\{/i
+      : format === "ris"
+        ? /^TY\s*-\s*/im
+        : /^%0\s/m;
+
+  if (!signature.test(text)) {
     throw new Error(
-      "The response does not appear to contain valid BibTeX."
+      "The response does not appear to be a valid Google Scholar " +
+        format.toUpperCase() + " export."
     );
   }
 
-  return bibtex;
+  return { format, text };
 }

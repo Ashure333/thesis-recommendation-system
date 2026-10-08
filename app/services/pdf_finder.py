@@ -96,7 +96,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from difflib import SequenceMatcher
 from pathlib import Path
 from tempfile import NamedTemporaryFile

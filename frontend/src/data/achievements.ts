@@ -95,10 +95,4 @@ export const ACHIEVEMENTS: Achievement[] = [
   },
 ];
 
-export const ACHIEVEMENT_BY_ID: Record<string, Achievement> =
-  Object.fromEntries(ACHIEVEMENTS.map((item) => [item.id, item]));
-
-/* Sanity check for the Tip Master threshold — keep in sync with
-   the catalogue. */
-export const TIP_COUNT = TIPS.length;
 export const HUNT_TOTAL = HUNT_ITEMS.length;

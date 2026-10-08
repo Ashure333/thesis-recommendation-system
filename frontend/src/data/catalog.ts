@@ -42,7 +42,3 @@ export const DOCUMENT_TYPES = [
 export const SUBJECT_FILTERS = ["All Subjects", ...SUBJECTS] as const;
 export const CATEGORY_FILTERS = ["All Categories", ...CATEGORIES] as const;
 export const DOCUMENT_TYPE_FILTERS = ["All", ...DOCUMENT_TYPES] as const;
-
-export type Subject = (typeof SUBJECTS)[number];
-export type Category = (typeof CATEGORIES)[number];
-export type DocumentType = (typeof DOCUMENT_TYPES)[number];

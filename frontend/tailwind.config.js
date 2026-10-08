@@ -19,14 +19,11 @@ export default {
         // distinct near-white: ivory, apricot, ice, peach, ...).
         white: "rgb(var(--surface) / <alpha-value>)",
         surfaceAlt: "rgb(var(--surface-alt) / <alpha-value>)",
-        hairline: "rgb(var(--hairline) / <alpha-value>)",
         ink: "rgb(var(--ink) / <alpha-value>)",
         muted: "rgb(var(--muted) / <alpha-value>)",
         field: "rgb(var(--field) / <alpha-value>)",
         accent: "rgb(var(--accent) / <alpha-value>)",
         accentSoft: "rgb(var(--accent-soft) / <alpha-value>)",
-        onAccent: "rgb(var(--on-accent))",
-        onInk: "rgb(var(--on-ink))",
 
         // Auto-legibility text colors (picked per theme at runtime).
         onAccent: "rgb(var(--on-accent) / <alpha-value>)",
@@ -52,8 +49,6 @@ export default {
         // resolve to the light design instead of breaking.
         // ----------------------------------------------------
         navy: "rgb(var(--canvas) / <alpha-value>)",
-        panel: "rgb(var(--surface) / <alpha-value>)",
-        panelAlt: "rgb(var(--surface-alt) / <alpha-value>)",
         line: "rgb(var(--hairline) / <alpha-value>)",
         gold: "rgb(var(--accent) / <alpha-value>)",
 
@@ -70,7 +65,6 @@ export default {
         math: "rgb(var(--tag-math) / <alpha-value>)",
       },
       fontFamily: {
-        serif: ["Source Serif 4", "Georgia", "serif"],
         sans: ["Inter", "system-ui", "sans-serif"],
         // Pixel/Inter combination: the retro (mono) layer renders
         // in Pixelify Sans; Inter handles the body/UI text.

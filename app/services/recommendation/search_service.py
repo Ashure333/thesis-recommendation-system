@@ -339,6 +339,15 @@ def _component_contributions(
     return contributions
 
 
+def _parse_tfidf_vectors(pool_ids, candidate_by_id, tfidf_vectors) -> bool:
+    """Parse TF-IDF vectors lazily; True when at least two exist."""
+    for paper_id in pool_ids:
+        paper = candidate_by_id[paper_id]
+        if paper.tfidf_vector:
+            tfidf_vectors[paper_id] = json.loads(paper.tfidf_vector)
+    return len(tfidf_vectors) >= 2
+
+
 def _uninformative_similarity(
     left_id: int,
     right_id: int,
@@ -786,10 +795,6 @@ def search_papers(
                     paper.sbert_vector
                 )
 
-            if paper.tfidf_vector:
-                tfidf_vectors[paper_id] = json.loads(
-                    paper.tfidf_vector
-                )
 
         # Redundancy signal preference: S-BERT (semantic) first, then
         # TF-IDF (lexical). Fewer than two vectors cannot distinguish
@@ -800,7 +805,7 @@ def search_papers(
                 sbert_vectors
             )
             similarity_source = "sbert"
-        elif len(tfidf_vectors) >= 2:
+        elif _parse_tfidf_vectors(pool_ids, candidate_by_id, tfidf_vectors):
             similarity = mmr.vector_similarity_getter(
                 tfidf_vectors
             )

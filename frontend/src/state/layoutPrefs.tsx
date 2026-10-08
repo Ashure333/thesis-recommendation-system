@@ -11,6 +11,7 @@ import {
    Which panels are visible on the multi-pane pages (Repository,
    Search): the left sidebar (filters / query controls) and the
    right details pane (paper details / similar-papers graph).
+   Whether the top-bar navigation shows its text labels.
    Persisted per browser, so a change on one tab applies to all.
    ============================================================ */
 
@@ -19,15 +20,17 @@ export type LayoutPreset = "full" | "list" | "filters" | "details";
 export interface LayoutPrefs {
   sidebar: boolean;
   details: boolean;
+  /** Text labels next to the top-bar nav icons. */
+  navLabels: boolean;
 }
 
 const STORAGE_KEY = "paperrec_layout_prefs";
 
 const PRESETS: Record<LayoutPreset, LayoutPrefs> = {
-  full: { sidebar: true, details: true },
-  list: { sidebar: false, details: false },
-  filters: { sidebar: true, details: false },
-  details: { sidebar: false, details: true },
+  full: { sidebar: true, details: true, navLabels: true },
+  list: { sidebar: false, details: false, navLabels: true },
+  filters: { sidebar: true, details: false, navLabels: true },
+  details: { sidebar: false, details: true, navLabels: true },
 };
 
 const DEFAULTS: LayoutPrefs = PRESETS.full;
@@ -40,6 +43,7 @@ function readPrefs(): LayoutPrefs {
       return {
         sidebar: typeof parsed.sidebar === "boolean" ? parsed.sidebar : DEFAULTS.sidebar,
         details: typeof parsed.details === "boolean" ? parsed.details : DEFAULTS.details,
+        navLabels: typeof parsed.navLabels === "boolean" ? parsed.navLabels : DEFAULTS.navLabels,
       };
     }
   } catch {
@@ -58,12 +62,14 @@ interface LayoutPrefsContextValue {
   prefs: LayoutPrefs;
   preset: LayoutPreset;
   setPreset: (preset: LayoutPreset) => void;
+  setNavLabels: (visible: boolean) => void;
 }
 
 const LayoutPrefsContext = createContext<LayoutPrefsContextValue>({
   prefs: DEFAULTS,
   preset: "full",
   setPreset: () => {},
+  setNavLabels: () => {},
 });
 
 export function LayoutPrefsProvider({ children }: { children: ReactNode }) {
@@ -72,9 +78,27 @@ export function LayoutPrefsProvider({ children }: { children: ReactNode }) {
   const setPreset = useCallback((preset: LayoutPreset) => {
     setPrefs((current) => {
       const next = PRESETS[preset];
-      if (next.sidebar === current.sidebar && next.details === current.details) {
+      if (
+        next.sidebar === current.sidebar &&
+        next.details === current.details
+      ) {
         return current;
       }
+      try {
+        window.localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ ...next, navLabels: current.navLabels })
+        );
+      } catch {
+        // best-effort
+      }
+      return { ...next, navLabels: current.navLabels };
+    });
+  }, []);
+
+  const setNavLabels = useCallback((visible: boolean) => {
+    setPrefs((current) => {
+      const next = { ...current, navLabels: visible };
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       } catch {
@@ -86,7 +110,7 @@ export function LayoutPrefsProvider({ children }: { children: ReactNode }) {
 
   return (
     <LayoutPrefsContext.Provider
-      value={{ prefs, preset: presetFor(prefs), setPreset }}
+      value={{ prefs, preset: presetFor(prefs), setPreset, setNavLabels }}
     >
       {children}
     </LayoutPrefsContext.Provider>

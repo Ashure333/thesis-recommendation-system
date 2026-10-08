@@ -384,11 +384,19 @@ def citation_maps(
         if not wanted:
             return {}, {}
 
-        query = db.query(PaperCitation).filter(
-            PaperCitation.paper_id.in_(wanted)
-        )
+        query = db.query(
+            PaperCitation.paper_id,
+            PaperCitation.direction,
+            PaperCitation.external_work_id,
+            PaperCitation.matched_paper_id,
+        ).filter(PaperCitation.paper_id.in_(wanted))
     else:
-        query = db.query(PaperCitation)
+        query = db.query(
+            PaperCitation.paper_id,
+            PaperCitation.direction,
+            PaperCitation.external_work_id,
+            PaperCitation.matched_paper_id,
+        )
 
     references_by_paper: dict[int, set[str]] = {}
     citers_by_paper: dict[int, set[str]] = {}

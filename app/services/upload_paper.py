@@ -211,6 +211,13 @@ def upload_paper(
         Keywords/Year directly from LaTeX source commands -- more
         reliable than PDF layout guessing when a .tex source exists.
 
+    RIS (.ris) and EndNote (.enw):
+        The tagged-line formats exported by Google Scholar's Cite
+        dialog (RefMan / RefWorks and EndNote) and by reference
+        managers. ris_enw_extraction.py reads the first record with
+        the same contract as the BibTeX parser; enrichment and PDF
+        attachment then apply exactly as for BibTeX imports.
+
     All:
         Metadata enrichment and automatic PDF attachment (the old
         Steps 5b/8b) no longer run inline -- they are the only
@@ -235,9 +242,10 @@ def upload_paper(
 
     extension = source.suffix.lower()
 
-    if extension not in {".pdf", ".bib", ".tex"}:
+    if extension not in {".pdf", ".bib", ".tex", ".ris", ".enw"}:
         raise ValueError(
-            "Only PDF, BibTeX (.bib), and LaTeX (.tex) files are supported."
+            "Only PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw), "
+            "and LaTeX (.tex) files are supported."
         )
 
     filename = original_filename or source.name
@@ -252,6 +260,14 @@ def upload_paper(
         )
     elif extension == ".tex":
         metadata = extract_metadata_from_tex(
+            str(source)
+        )
+    elif extension == ".ris":
+        metadata = extract_metadata_from_ris(
+            str(source)
+        )
+    elif extension == ".enw":
+        metadata = extract_metadata_from_enw(
             str(source)
         )
     else:
@@ -301,9 +317,17 @@ def upload_paper(
             "latex"
             if extension == ".tex"
             else (
-                "bibtex"
-                if extension == ".bib"
-                else "pdf"
+                "ris"
+                if extension == ".ris"
+                else (
+                    "endnote"
+                    if extension == ".enw"
+                    else (
+                        "bibtex"
+                        if extension == ".bib"
+                        else "pdf"
+                    )
+                )
             )
         ),
     )

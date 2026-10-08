@@ -40,7 +40,6 @@ from sqlalchemy.orm import Session
 from app.models.models import (
     Paper,
     PaperCitation,
-    PersonalLibrary,
 )
 from app.services.duplicate_detection import find_duplicate_groups
 

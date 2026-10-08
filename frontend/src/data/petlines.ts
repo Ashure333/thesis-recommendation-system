@@ -74,6 +74,7 @@ const FORM_LINES: Record<string, PetLine[]> = {
     { jp: "スライム ダ ヨ", en: "I am a slime." },
     { jp: "プルプル…", en: "*jiggle jiggle*" },
     { jp: "モト ノ カオ ダ", en: "Back to my old face." },
+    { jp: "キ ノ ネ カラ キタ", en: "I came up from the tree's roots." },
   ],
   rimuru: [
     { jp: "オレ ハ スライム ダ", en: "I am a slime." },
@@ -366,4 +367,47 @@ export function getDestructionLine(mode: string, variant?: string): PetLine {
   const line = pool[_destructionIndex % pool.length];
   _destructionIndex += 1;
   return line;
+}
+/**
+ * Every English line a form can say, for the chat bubble's Markov chain.
+ * Mirrors how the form speaks elsewhere (own idle, hungry and power lines;
+ * the shared destruction pool only for forms that fall back to it), so a
+ * generated line stays in the form's voice. Lines about hovering, clicking
+ * or the treasure hunt (and anything with a number) are left out: they make
+ * no sense in the middle of a conversation.
+ */
+export function getPetCorpus(variant = "rimuru"): string[] {
+  const modes = FORM_DROP_MODES[variant] ?? [];
+
+  const pools: PetLine[][] = [
+    FORM_LINES[variant] ?? [],
+    IDLE_LINES,
+    HUNT_LINES,
+    COMPLETE_LINES,
+    FORM_HUNGRY_LINES[variant] ?? HUNGRY_LINES,
+    ...modes.map(
+      (mode) => FORM_DROP_LINES[variant]?.[mode] ?? DESTRUCTION_LINES[mode] ?? [],
+    ),
+  ];
+
+  const seen = new Set<string>();
+  const corpus: string[] = [];
+
+  for (const line of pools.flat()) {
+    const text = line.en.trim();
+
+    if (
+      !text ||
+      seen.has(text) ||
+      /\d/.test(text) ||
+      /\b(hover|click|treasures?|pipeline|archive)\b/i.test(text)
+    ) {
+      continue;
+    }
+
+    seen.add(text);
+    corpus.push(text);
+  }
+
+  return corpus;
 }

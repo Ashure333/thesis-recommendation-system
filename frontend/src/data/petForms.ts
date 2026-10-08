@@ -35,7 +35,7 @@ export const PET_FORMS: PetForm[] = [
     name: "Original",
     variant: "original",
     blurb: "The classic slime blob — the pet's true original form.",
-    lore: "The pet's first face: a theme-accent slime blob, before the Petdex companions arrived from beyond the library.",
+    lore: "The pet's first face: a theme-accent slime blob that woke in the roots of the Garden's Tree of Knowledge, long before the Petdex companions arrived from beyond the library. It never wandered far from the tree that raised it, which is why it still turns up in the Garden to listen.",
   },
   {
     id: "rimuru",

@@ -117,20 +117,10 @@ const FEATURE_BY_KEY = new Map(
   SITE_FEATURES.map((feature) => [feature.key, feature])
 );
 
-const FEATURE_BY_PATH = new Map(
-  SITE_FEATURES.map((feature) => [feature.path, feature])
-);
-
 export function featureByKey(
   key: string
 ): SiteFeatureMeta | undefined {
   return FEATURE_BY_KEY.get(key as SiteFeatureKey);
-}
-
-export function featureByPath(
-  path: string
-): SiteFeatureMeta | undefined {
-  return FEATURE_BY_PATH.get(path);
 }
 
 /**

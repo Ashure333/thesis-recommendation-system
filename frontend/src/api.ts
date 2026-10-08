@@ -1,3 +1,5 @@
+import type { CitationStyle } from "./utils/preferences";
+
 const API_URL =
   import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -22,12 +24,6 @@ export interface Paper {
   snippet?: string | null;
   /** Near-duplicate records hidden from a relevance result list. */
   duplicate_count?: number;
-}
-
-export interface RepositoryStats {
-  total_papers: number;
-  by_subject: Record<string, number>;
-  category_count: number;
 }
 
 export interface LibraryEntry {
@@ -105,14 +101,18 @@ export function listPapers(
   ).then(handle<Paper[]>);
 }
 
-export function getRepositoryStats(): Promise<RepositoryStats> {
-  return fetch(`${API_URL}/api/papers/stats`).then(
-    handle<RepositoryStats>
-  );
-}
-
 // ============================================================
 // CATALOG (backend-owned taxonomy, auto-grows with new papers)
+
+export interface RepositoryStats {
+  total_papers: number;
+  by_subject: Record<string, number>;
+  category_count: number;
+}
+
+export function getRepositoryStats(): Promise<RepositoryStats> {
+  return fetch(`${API_URL}/api/papers/stats`).then(handle<RepositoryStats>);
+}
 
 export interface Catalog {
   subjects: string[];
@@ -145,6 +145,96 @@ export function getPaper(id: number): Promise<Paper> {
 // found PDFs on a background queue. Poll this to know when to
 // refresh the paper.
 // ============================================================
+
+// ============================================================
+// RESEARCH CHAT (repository / collection / web grounded)
+// ============================================================
+
+export type ResearchChatScope = "repo" | "library" | "web";
+
+export interface ResearchChatSource {
+  kind: "repo" | "web";
+  paper_id: number | null;
+  title: string;
+  author: string | null;
+  year: number | null;
+  score: number;
+  abstract: string | null;
+  doi: string | null;
+  url: string | null;
+  document_type: string | null;
+}
+
+export interface ResearchChatHistoryItem {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ResearchChatResponse {
+  answer: string;
+  sources: ResearchChatSource[];
+  used_fallback: boolean;
+}
+
+/** Ask the research assistant; retrieval is grounded in the
+ *  repository, a saved collection, or the open web. */
+export function researchChat(params: {
+  message: string;
+  pipeline?: "tfidf" | "sbert";
+  topK?: number;
+  scope?: ResearchChatScope;
+  paperIds?: number[];
+  history?: ResearchChatHistoryItem[];
+  /** Settings > citation style: the answer's in-text citations and
+   *  reference list follow it. Omitted = bracket numbers. */
+  citationStyle?: CitationStyle;
+  includeDoi?: boolean;
+}): Promise<ResearchChatResponse> {
+  return fetch(`${API_URL}/api/research-chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message: params.message,
+      pipeline: params.pipeline ?? "sbert",
+      top_k: params.topK ?? 6,
+      scope: params.scope ?? "repo",
+      paper_ids: params.paperIds ?? [],
+      history: params.history ?? [],
+      citation_style: params.citationStyle ?? null,
+      include_doi: params.includeDoi ?? true,
+    }),
+  }).then(handle<ResearchChatResponse>);
+}
+
+export interface ResearchChatSuggestions {
+  suggestions: string[];
+  /** True when the model was unavailable and templates were used. */
+  used_fallback: boolean;
+}
+
+/** Follow-up questions for the chat's suggestion pills, from the
+ *  latest question, its answer and the sources it used. */
+export function researchChatSuggestions(params: {
+  question: string;
+  answer: string;
+  sourceTitles?: string[];
+  count?: number;
+}): Promise<ResearchChatSuggestions> {
+  return fetch(`${API_URL}/api/research-chat/suggestions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      question: params.question,
+      answer: params.answer,
+      source_titles: params.sourceTitles ?? [],
+      count: params.count ?? 3,
+    }),
+  }).then(handle<ResearchChatSuggestions>);
+}
 
 export type EnrichmentStatus =
   | "idle"
@@ -233,6 +323,33 @@ export function previewIdentifier(
   }).then(handle<PaperPreviewData>);
 }
 
+// ============================================================
+// GOOGLE SCHOLAR EXPORT LINKS (BibTeX / EndNote / RefMan)
+// ============================================================
+
+export interface ScholarCitation {
+  format: "bib" | "enw" | "ris";
+  text: string;
+  url: string;
+}
+
+/**
+ * Fetch a Google Scholar export link server-side (the browser
+ * cannot fetch scholar.google.com directly). Nothing is persisted:
+ * `format` + `text` feed the normal preview → review → save flow.
+ */
+export function fetchScholarCitation(
+  url: string
+): Promise<ScholarCitation> {
+  return fetch(`${API_URL}/api/papers/scholar-fetch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url }),
+  }).then(handle<ScholarCitation>);
+}
+
 export interface MetadataImportInput {
   title: string;
   author?: string | null;
@@ -319,25 +436,6 @@ export function searchWeb(
   return fetch(`${API_URL}/api/search-web?${query.toString()}`, {
     signal: params.signal,
   }).then(handle<WebSearchResult[]>);
-}
-
-export async function importBibtex(
-  bibtex: string,
-  filename = "google-scholar.bib"
-): Promise<Paper> {
-  const blob = new Blob([bibtex], {
-    type: "application/x-bibtex",
-  });
-
-  const file = new File(
-    [blob],
-    filename,
-    {
-      type: "application/x-bibtex",
-    }
-  );
-
-  return uploadPaper(file);
 }
 
 export function getLibrary(): Promise<LibraryEntry[]> {
@@ -520,6 +618,8 @@ export function getRecommendationTrace(
             w_metadata: params.weights.metadata,
           }
         : {}),
+      mmr_lambda: params.mmrLambda ?? null,
+      mmr_pool: params.mmrPool ?? 50,
     }),
   }).then(handle<RecommendationTrace>);
 }
@@ -755,6 +855,7 @@ export interface SimilarGraphNode {
   publication_year: number | null;
   abstract: string | null;
   doi: string | null;
+  citation_count: number | null;
   similarity: number;
   relationship: "current" | "similar";
   /** Shortest weighted path from the origin (start_id) to this node. */
@@ -810,55 +911,6 @@ export function getSimilarPapersGraph(
   return fetch(
     `${API_URL}/api/papers/${paperId}/similar-graph?${search.toString()}`
   ).then(handle<SimilarPapersGraph>);
-}
-
-// ============================================================
-// RESEARCH ASSISTANT
-// Add this near the other API types/functions in frontend/src/api.ts
-// ============================================================
-
-export interface ResearchChatHistoryItem {
-  role: "user" | "assistant";
-  content: string;
-}
-
-export interface ResearchChatSource {
-  paper_id: number;
-  title: string;
-  author: string | null;
-  year: number | null;
-  score: number;
-  abstract: string | null;
-}
-
-export interface ResearchChatResponse {
-  answer: string;
-  sources: ResearchChatSource[];
-  used_fallback: boolean;
-}
-
-export interface ResearchChatParams {
-  message: string;
-  pipeline?: "tfidf" | "sbert";
-  topK?: number;
-  history?: ResearchChatHistoryItem[];
-}
-
-export function researchChat(
-  params: ResearchChatParams
-): Promise<ResearchChatResponse> {
-  return fetch(`${API_URL}/api/research-chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message: params.message,
-      pipeline: params.pipeline ?? "sbert",
-      top_k: params.topK ?? 6,
-      history: params.history ?? [],
-    }),
-  }).then(handle<ResearchChatResponse>);
 }
 
 // ============================================================

@@ -43,7 +43,7 @@ const TREASURES = [
 const ACHIEVEMENTS = [
   ["first-tip", "First Contact", "Discover your first tip"],
   ["tip-collector", "Tip Collector", "Discover 5 tips"],
-  ["tip-master", "Tip Master", "Discover every tip (26/26)"],
+  ["tip-master", "Tip Master", "Discover every tip (27/27)"],
   ["first-treasure", "Treasure Hunter", "Collect your first treasure"],
   ["treasure-hunter", "Treasure Hoarder", "Collect 3 treasures"],
   ["hunt-complete", "Hunt Complete", "Collect all 6 treasures"],
@@ -55,8 +55,9 @@ const ACHIEVEMENTS = [
 const ENDPOINTS = [
   ["GET", "/api/papers", "List, search, filter, and sort papers"],
   ["GET", "/api/papers/stats", "Repository statistics"],
-  ["POST", "/api/papers/upload", "Upload a PDF or BibTeX file"],
-  ["POST", "/api/papers/import-url", "Import from a Google Scholar BibTeX URL"],
+  ["POST", "/api/papers/upload", "Upload a PDF, BibTeX, RIS, or EndNote file"],
+  ["POST", "/api/papers/import-url", "Import from a Google Scholar BibTeX / EndNote / RefMan URL"],
+  ["POST", "/api/papers/scholar-fetch", "Fetch a Google Scholar export link for the drop zone (no DB write)"],
   ["POST", "/api/papers/import-bibtex", "Import a pasted BibTeX citation"],
   ["PATCH", "/api/papers/{id}", "Update paper metadata"],
   ["DELETE", "/api/papers/{id}", "Delete a paper"],
@@ -65,7 +66,7 @@ const ENDPOINTS = [
   ["POST", "/api/papers/{id}/attach-pdf", "Download and attach a chosen PDF"],
   ["GET", "/api/papers/{id}/similar-graph", "Build the similar-papers graph"],
   ["GET", "/api/recommendations", "Get ranked recommendations"],
-  ["GET", "/api/recommendations/trace", "Real-time math trace of one search"],
+  ["POST", "/api/recommendations/trace", "Real-time math trace of one search"],
   ["POST", "/api/recommendations/compare", "Arena battle: all six pipelines at once"],
   ["POST", "/api/recommendations/web-compare", "Web battle: all six pipelines over live web hits"],
   ["GET", "/api/recommendations/status", "Check if the index is stale"],
@@ -75,18 +76,19 @@ const ENDPOINTS = [
   ["GET", "/api/library", "The personal library"],
   ["POST", "/api/library/{id}", "Save a paper"],
   ["DELETE", "/api/library/{id}", "Remove a paper"],
-  ["POST", "/api/research-chat", "Ask the research assistant"],
+  ["POST", "/api/research-chat", "Ask the research assistant (API only; no page calls it)"],
 ] as const;
 
 const SUBJECTS = [
-  ["Computer Science: Machine Learning", "100"],
-  ["Mathematics: Mathematical Analysis", "20"],
-  ["Mathematics: Mathematical Modeling", "15"],
-  ["Mathematics: Graph Theory", "13"],
+  ["Computer Science: Machine Learning", "98"],
+  ["Mathematics: Mathematical Analysis", "17"],
+  ["Mathematics: Mathematical Modeling", "13"],
+  ["Mathematics: Graph Theory", "11"],
   ["Mathematics: Linear Algebra", "10"],
-  ["(unclassified)", "6"],
-  ["Computer Science: Information Retrieval", "3"],
+  ["(unclassified)", "5"],
+  ["Computer Science: Information Retrieval", "2"],
   ["Computer Science: Algorithms", "1"],
+  ["Other (13 small categories: Statistics, Biology, Education, NLP)", "14"],
 ] as const;
 
 const INFOBOX_ROWS: [string, string][] = [
@@ -96,8 +98,8 @@ const INFOBOX_ROWS: [string, string][] = [
   ["Tech", "FastAPI · SQLAlchemy · SQLite · scikit-learn · sentence-transformers · React · TypeScript · Vite · Tailwind"],
   ["Models", "TF-IDF (scikit-learn) · S-BERT (all-MiniLM-L6-v2)"],
   ["Pipelines", "6 fixed configurations + 1 custom dial"],
-  ["Pages", "Recommendations · Repository · Upload · My Library · Arena · Lab · Walkthrough · Engine · FAQ · Changelog"],
-  ["Extra", "Pixel pet · scavenger hunt · achievements · research assistant"],
+  ["Pages", "Recommendations · Repository · Upload · My Library · Arena · Lab · Walkthrough · Engine · FAQ · Settings · Changelog"],
+  ["Extra", "Pixel pet · scavenger hunt · achievements · the Garden"],
   ["Status", "Local research prototype"],
 ];
 
@@ -118,13 +120,14 @@ const TOC = [
 ] as const;
 
 const OTHER_PAGES = [
-  ["/recommendations", "Search"],
   ["/repository", "Repository"],
   ["/upload", "Upload"],
   ["/library", "My Library"],
   ["/evaluation", "Arena"],
+  ["/lab", "Lab"],
   ["/walkthrough-engine", "Engine"],
   ["/faq", "FAQ"],
+  ["/settings", "Settings"],
   ["/changelog", "Changelog"],
 ] as const;
 
@@ -144,8 +147,8 @@ const FORMS = [
 
 const GALLERY = [
   ["01-login.png", "Login", "Single-user local sign-in; any email and password works.", "overview"],
-  ["10-login-splash.png", "Title screen", "The arcade splash: INSERT COIN TO CONTINUE before the app opens.", "overview"],
-  ["11-settings.png", "Settings", "Theme accent picker, pet visibility, and the site-mode switches.", "overview"],
+  ["10-login-splash.png", "Title screen", "The arcade boot screen: the title types out, then PRESS START, before the app opens.", "overview"],
+  ["11-settings.png", "Settings", "Site mode, navigation labels, theme accent, pet visibility, and citation preferences.", "overview"],
   ["02-recommendations.png", "Search", "Query bar, mode tabs, ranked results, and the similar-papers graph.", "search"],
   ["12-search-details.png", "Search: details pane", "Any result opens a detail pane with score contributions and actions.", "search"],
   ["13-search-modes.png", "Search: mode tabs", "Switch between the six pipelined modes without losing the query.", "search"],
@@ -405,12 +408,18 @@ export default function Walkthrough() {
             </WikiSub>
             <WikiSub id="nav" title="The top navigation">
               <p className="text-sm leading-6 text-ink">
-                Six tabs lead the way: <Chip>Search</Chip> (the
+                Up to eleven tabs lead the way: <Chip>Search</Chip> (the
                 Recommendations page), <Chip>Repository</Chip>,{" "}
                 <Chip>Upload</Chip>, <Chip>My Library</Chip>,{" "}
-                <Chip>Arena</Chip>, and this walkthrough. The right side of
-                the bar shows the active pipeline's codename and a theme
-                color picker.
+                <Chip>Arena</Chip>, <Chip>Lab</Chip>, this walkthrough,{" "}
+                <Chip>Engine</Chip>, <Chip>FAQ</Chip>, <Chip>Settings</Chip>,
+                and <Chip>Changelog</Chip>. A Library / Researcher switch on
+                the right decides how many are shown: Library mode, the
+                default, lists only the tabs the site editor has enabled
+                (by default Search, Repository, My Library, FAQ, Settings and
+                Changelog), while Researcher mode shows them all. Next to the
+                switch sit the active pipeline's codename and a theme color
+                picker.
               </p>
               <p className="text-sm leading-6 text-ink">
                 Tip: hover any tab (or any labeled control) and hold the
@@ -423,9 +432,15 @@ export default function Walkthrough() {
 
           <WikiSection id="recommendations" title="Walkthrough: Recommendations">
             <p className="text-sm leading-6 text-ink">
-              The Recommendations page is the heart of the system: a query
-              bar, a mode switch, a pipeline selector with custom dials,
-              ranked results, a similar-papers graph, and a live math trace.
+              The merged Repository page puts searching and browsing in one
+              three-pane screen: the filter console on the left, the
+              document table in the middle, and a details inspector on the
+              right. Its Recommend scope is the heart of the system — a
+              query ranked by the selected pipeline, with a score
+              breakdown per result, a similar-papers graph, and a live
+              math trace. The pipeline itself is chosen in the filter
+              console and shared across pages; custom dials live in the
+              Lab.
             </p>
 
             <WikiTable
@@ -433,31 +448,31 @@ export default function Walkthrough() {
               rows={[
                 [
                   "Query bar + depth",
-                  "Enter free text (e.g. \"neural network text similarity\") and pick a depth of Top 5 / Top 10 / Top 15.",
+                  "Enter free text (e.g. \"neural network text similarity\") and pick a depth of Top 5 / Top 10 / Top 20. A Diversify (MMR) checkbox spreads near-duplicate results apart (see the Engine tab).",
                 ],
                 [
                   "Mode switch",
-                  "Query mode searches from text; seed-paper mode searches from a chosen repository paper (the seed is excluded from its own results).",
+                  "Keyword and Title modes search from text; Seed mode searches from a chosen repository paper (the seed is excluded from its own results).",
                 ],
                 [
                   "Pipeline selector",
-                  "Six presets plus a custom dial mode. The chip in the top bar shows the active codename.",
+                  "Not on this page: the six presets are the PIPELINE buttons in the Repository filter console, and the choice is shared with Search. The chip in the top bar shows the active codename.",
                 ],
                 [
-                  "Custom dials",
-                  "Three dials (TF-IDF, S-BERT, Metadata) whose values are normalized so the weights sum to 1. An all-zero dial falls back to an equal split.",
+                  "Custom dials (Lab)",
+                  "The Lab's recipe bench has three dials (TF-IDF, S-BERT, Metadata) whose values are normalized so the weights sum to 1. An all-zero dial falls back to an equal split.",
                 ],
                 [
-                  "Results table",
-                  "Rank, title, year, and score per result; the score is a similarity value, not a percentage. Clicking a rank badge re-centers the similar-papers graph on that paper.",
+                  "Results",
+                  "Result cards show rank, title, year, subject, and a score with its TF-IDF / S-BERT / Metadata breakdown bar, five to a page; the score is a similarity value, not a percentage. Clicking a rank badge re-centers the similar-papers graph on that paper, and Save to library adds it to your library.",
                 ],
                 [
                   "Similar papers graph",
                   "The top result becomes the graph center; similar papers cluster around it. Link count is adjustable (10 / 20 / 30 / 40).",
                 ],
                 [
-                  "Pipeline math panel",
-                  "A toggle shows the mathematical pseudocode of the active pipeline; the live trace fills every formula with the real numbers of the current search.",
+                  "Stats for Nerds",
+                  "A tab traces the active pipeline's real numbers for the current search — inputs, candidate set, per-component scores, normalization, combination, and the final ranking. The formulas themselves are explained in the Engine tab.",
                 ],
               ]}
             />
@@ -511,7 +526,7 @@ export default function Walkthrough() {
                 ],
               ]}
             />
-            <WikiCite ids={["arxiv-source"]} />
+            <WikiCite ids={["arxiv-taxonomy"]} />
             <TopicShots topic="repository" open={openPreview} />
           </WikiSection>
 
@@ -715,7 +730,7 @@ export default function Walkthrough() {
             </WikiSub>
             <p className="text-sm leading-6 text-ink">
               Finding all six unlocks the pet's full capabilities: every
-              tip becomes discovered (the counter reads 26/26), the deep
+              tip becomes discovered (the counter reads 27/27), the deep
               tips join the click cycle, and the chat library opens.
             </p>
 
@@ -737,7 +752,7 @@ export default function Walkthrough() {
               to an ancient giant over a march of 3,000 fertilizer
               packets, bought with sun in the tree's own Sun Shop.
               Five species — the Crimson Maple, Royal Oak, Silver
-              Birch, Water Elm, and Giant Redwood — each mature on
+              Birch, American Elm, and Giant Redwood — each mature on
               their own curve and speak their own stage lines as
               the milestones clear.
             </p>
@@ -777,7 +792,7 @@ export default function Walkthrough() {
                   ["Crimson Maple", "syrup", "blaze", "amber"],
                   ["Royal Oak", "daisies", "dance", "pinata"],
                   ["Silver Birch", "paper", "silver", "ribbon"],
-                  ["Water Elm", "vase", "ridge", "shade"],
+                  ["American Elm", "vase", "ridge", "shade"],
                   ["Giant Redwood", "grove", "mist", "elder"],
                 ]}
               />
@@ -842,7 +857,7 @@ export default function Walkthrough() {
           <WikiSection id="api" title="Data & API reference">
             <p className="text-sm leading-6 text-ink">
               The backend (FastAPI + SQLAlchemy + SQLite) serves everything
-              the pages use. The repository currently holds 168 records, 146
+              the pages use. The repository currently holds 171 records, 150
               of them valid for recommendation.
             </p>
             <WikiTable
@@ -907,18 +922,22 @@ export default function Walkthrough() {
               </li>
               <li>
                 The corpus grew from an earlier state of roughly 77 papers to
-                168 records; the 146 valid-for-recommendation figure is what
+                171 records; the 150 valid-for-recommendation figure is what
                 the engine actually searches.
               </li>
               <li>
-                The similar-papers graph stores no reference lists, so shared
-                authors and shared topics stand in for bibliographic coupling
-               , a deliberate substitution rather than a claim of equivalence.
+                The similar-papers graph adds a citation term (bibliographic
+                coupling and co-citation) from reference lists cached from
+                OpenAlex; a paper without cached rows contributes exactly 0,
+                so shared authors and topics still stand in for it there, a
+                deliberate substitution rather than a claim of equivalence.
               </li>
               <li>
-                Free-text queries only activate the metadata component's
-                title signal; seed-paper searches activate all four. The
-                Arena analysis is stratified by query type for this reason.
+                Free-text queries compare the same query string against each
+                paper's title, abstract, and keywords but have no year, so
+                the metadata score tops out at 0.75; seed-paper searches use
+                the seed's own four fields and can reach 1. The Arena
+                analysis is stratified by query type for this reason.
               </li>
               <li>
                 The Chrome extension in the repo sends Google Scholar
@@ -934,7 +953,7 @@ export default function Walkthrough() {
           </WikiSection>
 
           {/* ---- footer nav ---- */}
-          <WikiFooter ctaTo="/recommendations" ctaLabel="START SEARCHING" />
+          <WikiFooter ctaTo="/repository" ctaLabel="START SEARCHING" />
         </div>
       </div>
 

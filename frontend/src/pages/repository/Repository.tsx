@@ -4,6 +4,7 @@ import {
   Database,
   Globe,
   SlidersHorizontal,
+  Search as SearchIcon,
   Table,
 } from "lucide-react";
 import {
@@ -20,6 +21,7 @@ import {
   getRecommendations,
   notifyRecommendationIndexStale,
   Paper,
+  SearchResult,
   WebSearchResult,
 } from "../../api";
 import PaperViewerModal from "../../components/PaperViewerModal";
@@ -29,12 +31,14 @@ import PetFigure from "../../components/PetFigure";
 import LayoutOptions from "../../components/LayoutOptions";
 import StaggerIn from "../../components/retro/StaggerIn";
 import Pagination from "../../components/retro/Pagination";
-import WeightBar from "../../components/WeightBar";
 import PaneHandle, { usePaneWidth } from "../../components/ResizeHandle";
 import Highlight from "../../components/Highlight";
 import ConnectionsPane from "../../components/ConnectionsPane";
 import LiteratureMenu from "../../components/LiteratureMenu";
 import RepoStatsPane from "../../components/RepoStatsPane";
+import AlgorithmConsole from "../../components/AlgorithmConsole";
+import EditableCell from "../../components/EditableCell";
+import RetroDialog from "../../components/retro/RetroDialog";
 import { Check, Star } from "../../components/retro/PixelIcons";
 import { Button, EmptyState, PageHeader, TextInput } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
@@ -52,6 +56,7 @@ import {
 import { useCatalog } from "../../hooks/useCatalog";
 import { useLayoutPrefs } from "../../state/layoutPrefs";
 import { useLongPressFeed } from "../../utils/longPress";
+import { useStatsDrawer } from "../../state/statsDrawer";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 
 function categoryOf(paper: Paper) {
@@ -69,7 +74,10 @@ const REPO_RIGHT_KEY = "paperrec_repo_pane_right";
 const REPO_RIGHT_MIN = 300;
 const REPO_RIGHT_MAX = 560;
 
-type SearchMode = "repository" | "web";
+type SearchMode = "repository" | "web" | "recommend";
+
+/** MMR lambda used by the Diversify toggle (matches the Search page). */
+const MMR_LAMBDA = 0.7;
 
 /** Stable identity for a web hit (dedupe across repeat searches). */
 function webKey(result: WebSearchResult): string {
@@ -116,6 +124,34 @@ export default function Repository() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  /* Themed confirmation pop-up (replaces the native confirm boxes). */
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    body: string;
+    onYes: () => void | Promise<void>;
+  } | null>(null);
+
+  function askConfirm(
+    title: string,
+    body: string,
+    onYes: () => void | Promise<void>,
+  ) {
+    setConfirm({ title, body, onYes });
+  }
+
+  /* Recommendation search (the merged Search scope): ranked results
+     run through the same pipeline, top_k and MMR controls. */
+  const [recommendResults, setRecommendResults] = useState<
+    SearchResult[]
+  >([]);
+  const [recommendLoading, setRecommendLoading] = useState(false);
+  const [recommendError, setRecommendError] = useState<
+    string | null
+  >(null);
+  const [recommendSearched, setRecommendSearched] = useState(false);
+  const [topK, setTopK] = useState(10);
+  const [diversify, setDiversify] = useState(false);
   const [subject, setSubject] = useState(subjects[0]);
   const [category, setCategory] = useState(categories[0]);
   const [documentType, setDocumentType] = useState(documentTypes[0]);
@@ -165,6 +201,7 @@ export default function Repository() {
   function toggleStats() {
     const next = !statsOpen;
     setStatsOpen(next);
+    if (next) setInspectorCollapsed(false);
 
     try {
       window.localStorage.setItem(
@@ -188,6 +225,109 @@ export default function Repository() {
   >("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [authorFilter, setAuthorFilter] = useState<string | null>(null);
+
+  /* Collapsible sidebar sections (persisted per browser). */
+  const [foldersOpen, setFoldersOpen] = useState<boolean>(() => {
+    try {
+      return (
+        window.localStorage.getItem("paperrec_repo_folders_open") !== "0"
+      );
+    } catch {
+      return true;
+    }
+  });
+
+  const [authorsOpen, setAuthorsOpen] = useState<boolean>(() => {
+    try {
+      return (
+        window.localStorage.getItem("paperrec_repo_authors_open") === "1"
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "paperrec_repo_folders_open",
+        foldersOpen ? "1" : "0"
+      );
+      window.localStorage.setItem(
+        "paperrec_repo_authors_open",
+        authorsOpen ? "1" : "0"
+      );
+    } catch {
+      // best-effort
+    }
+  }, [foldersOpen, authorsOpen]);
+
+  /* Collapsible inspector (the right details/stats pane). */
+  const [inspectorCollapsed, setInspectorCollapsed] = useState<
+    boolean
+  >(() => {
+    try {
+      /* Closed by default: the list gets the room until a paper is picked.
+         Only an explicit choice (the toggles) is remembered. */
+      return window.localStorage.getItem("paperrec_repo_inspector") !== "0";
+    } catch {
+      return true;
+    }
+  });
+
+  /* Narrow screens: the filters wait behind a button, so the list comes first. */
+  const [filtersOpenNarrow, setFiltersOpenNarrow] = useState(false);
+
+  /* How wide the list is decides how many columns it can afford. */
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [listWidth, setListWidth] = useState(1000);
+
+  useEffect(() => {
+    const el = listRef.current;
+
+    if (!el) return;
+
+    const measure = () => setListWidth(el.clientWidth);
+
+    measure();
+
+    const ro = new ResizeObserver(measure);
+
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, []);
+  const compactList = listWidth < 720;
+
+  function toggleInspector() {
+    const next = !inspectorCollapsed;
+    setInspectorCollapsed(next);
+
+    try {
+      window.localStorage.setItem(
+        "paperrec_repo_inspector",
+        next ? "1" : "0"
+      );
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  /* Authors present in the current fetch, most frequent first. */
+  const authorList = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const paper of papers) {
+      const first = paper.author?.split(";")[0].trim();
+      if (!first) continue;
+      counts.set(first, (counts.get(first) ?? 0) + 1);
+    }
+
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+  }, [papers]);
 
   // Right-click literature menu for the current selection.
   const [literatureMenu, setLiteratureMenu] = useState<{
@@ -241,6 +381,7 @@ export default function Repository() {
   // ------------------------------------------------------------
   const { pipelineId, setPipelineId, customWeights } =
     usePipelineMode();
+  const { publish: publishStats } = useStatsDrawer();
   const activePipelineConfig =
     pipelineId === "custom"
       ? customPipelineConfig(customWeights)
@@ -339,19 +480,27 @@ export default function Repository() {
 
   // System views filter the fetched set (backend filters apply first).
   const viewPapers = useMemo(() => {
+    const scoped = authorFilter
+      ? papers.filter(
+          (paper) =>
+            paper.author?.toLowerCase().includes(authorFilter.toLowerCase()) ??
+            false,
+        )
+      : papers;
+
     if (systemView === "favorites") {
-      return papers.filter((p) => savedIds.has(p.id));
+      return scoped.filter((p) => savedIds.has(p.id));
     }
     if (systemView === "unsorted") {
-      return papers.filter((p) => !p.subject_category);
+      return scoped.filter((p) => !p.subject_category);
     }
     if (systemView === "recent") {
-      return [...papers].sort((a, b) =>
+      return [...scoped].sort((a, b) =>
         b.created_at.localeCompare(a.created_at),
       );
     }
-    return papers;
-  }, [papers, systemView, savedIds]);
+    return scoped;
+  }, [papers, systemView, savedIds, authorFilter]);
 
   // Sortable columns (client-side; similarity ranking overrides).
   const sortedPapers = useMemo(() => {
@@ -409,15 +558,36 @@ export default function Repository() {
 
   const location = useLocation();
   const navigate = useNavigate();
-  const navigationState = location.state as { selectSeed?: boolean; pipeline?: string } | null;
+  const navigationState = location.state as { selectSeed?: boolean; pipeline?: string; query?: string; mode?: string; seedPaperId?: number } | null;
   const isSelectingSeed = navigationState?.selectSeed === true;
   const seedPipeline = navigationState?.pipeline ?? "tfidf";
+
+  // The home page's search box and cross-page "find similar" /
+  // "use as seed" links land here: pre-fill the query (or the seed
+  // paper) and jump straight into the Recommend scope.
+  useEffect(() => {
+    const incomingQuery = navigationState?.query;
+    const incomingSeed = navigationState?.seedPaperId;
+
+    if (navigationState?.mode === "seed" && incomingSeed !== undefined) {
+      setSearchMode("recommend");
+      void runRecommendSearch(undefined, incomingSeed);
+    } else if (incomingQuery && incomingQuery.trim()) {
+      setSearch(incomingQuery);
+      setSearchMode("recommend");
+      void runRecommendSearch(incomingQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // Local fetch is suspended while the web scope is active so the
     // query typed for a web search doesn't re-hit the backend.
     if (searchMode === "web") return;
 
+    // Ignore responses from superseded requests (one fires per keystroke),
+    // so a slow earlier query cannot overwrite the newer results.
+    let stale = false;
     setLoading(true);
     setError(null);
     listPapers({
@@ -429,9 +599,16 @@ export default function Repository() {
       max_year: yearFilter(maxYear),
       sort_by: sortBy,
     })
-      .then(setPapers)
-      .catch((e) => setError(e.message))
+      .then((rows) => {
+        if (!stale) setPapers(rows);
+      })
+      .catch((e) => {
+        if (!stale) setError(e.message);
+      })
       .finally(() => setLoading(false));
+    return () => {
+      stale = true;
+    };
   }, [searchMode, search, subject, category, documentType, minYear, maxYear, sortBy, reloadToken]);
 
   // Context-menu messages fade after a beat.
@@ -453,6 +630,60 @@ export default function Repository() {
      arXiv), peer-reviewed types by default, server-side
      filtering.
      ------------------------------------------------------------ */
+
+  /* ------------------------------------------------------------
+     Recommendation search (the merged Search scope): ranks the
+     repository's own papers with the active pipeline, top_k and
+     the optional MMR diversification.
+     ------------------------------------------------------------ */
+
+  async function runRecommendSearch(queryOverride?: string, seedOverride?: number) {
+    const query = (queryOverride ?? search).trim();
+
+    if (!query && seedOverride === undefined) {
+      setError("Enter a query to rank the corpus.");
+      return;
+    }
+
+    setRecommendLoading(true);
+    setRecommendError(null);
+
+    try {
+      const results = await getRecommendations({
+        pipeline: pipelineId,
+        ...(query ? { query } : {}),
+        ...(seedOverride !== undefined
+          ? { seedPaperId: seedOverride }
+          : {}),
+        topK,
+        // The custom pipeline needs the dial allocation.
+        ...(pipelineId === "custom"
+          ? { weights: customWeights }
+          : {}),
+        ...(diversify ? { mmrLambda: MMR_LAMBDA } : {}),
+      });
+
+      setRecommendResults(results);
+      setRecommendSearched(true);
+
+      publishStats({
+        pipelineId,
+        mode: query ? "keyword" : "seed",
+        query: query || undefined,
+        seedPaperId: seedOverride,
+        topK,
+        ...(diversify ? { mmrLambda: MMR_LAMBDA } : {}),
+      });
+    } catch (e) {
+      setRecommendError(
+        e instanceof Error
+          ? e.message
+          : "Recommendation search failed."
+      );
+    } finally {
+      setRecommendLoading(false);
+    }
+  }
 
   async function runWebSearch() {
     const query = search.trim();
@@ -622,18 +853,20 @@ export default function Repository() {
 
   async function handleBatchDelete() {
     const targets = rankedPapers.filter((p) => selectedIds.has(p.id));
-    if (
-      targets.length === 0 ||
-      !window.confirm(
-        `Delete ${targets.length} paper${targets.length === 1 ? "" : "s"} permanently? This removes records, library entries, and stored files.`,
-      )
-    ) {
+    if (targets.length === 0) {
       return;
     }
-    for (const paper of targets) {
-      await handleDelete(paper.id, paper.title);
-    }
-    clearSelection();
+
+    askConfirm(
+      "Delete papers",
+      `Delete ${targets.length} paper${targets.length === 1 ? "" : "s"} permanently? This removes records, library entries, and stored files.`,
+      async () => {
+        for (const paper of targets) {
+          await handleDelete(paper.id, paper.title);
+        }
+        clearSelection();
+      },
+    );
   }
 
   async function handleSync() {
@@ -663,24 +896,56 @@ export default function Repository() {
   }
 
   function handleSelectSeed(paperId: number) {
-    navigate("/recommendations", { state: { mode: "seed", seedPaperId: paperId, pipeline: seedPipeline } });
+    navigate("/repository", { state: { mode: "seed", seedPaperId: paperId, pipeline: seedPipeline } });
+  }
+
+  /* Inline table edits (autosaved) refresh every view of the row. */
+  function handlePaperUpdated(updated: Paper) {
+    setPapers((prev) =>
+      prev.map((p) => (p.id === updated.id ? updated : p)),
+    );
+    setRecommendResults((prev) =>
+      prev.map((result) =>
+        result.paper.id === updated.id
+          ? { ...result, paper: updated }
+          : result,
+      ),
+    );
+    setSelectedPaper((current) =>
+      current?.id === updated.id ? updated : current,
+    );
   }
 
   async function handleDelete(paperId: number, title: string) {
-    if (!window.confirm(`Delete "${title}" permanently? This removes the repository record, library entry, and stored file.`)) return;
-    try {
-      setError(null);
-      await deletePaper(paperId);
-      // The pet burns the paper it just erased.
-      triggerSlimeAnimation("burn");
-      setPapers((prev) => prev.filter((paper) => paper.id !== paperId));
-      if (selectedPaper?.id === paperId) setSelectedPaper(null);
-    } catch (e) {
-      setError(e instanceof Error ? `Couldn't delete "${title}": ${e.message}` : `Couldn't delete "${title}".`);
-    }
+    askConfirm(
+      "Delete paper",
+      `Delete "${title}" permanently? This removes the repository record, library entry, and stored file.`,
+      async () => {
+        try {
+          setError(null);
+          await deletePaper(paperId);
+          // The pet burns the paper it just erased.
+          triggerSlimeAnimation("burn");
+          setPapers((prev) =>
+            prev.filter((paper) => paper.id !== paperId),
+          );
+          if (selectedPaper?.id === paperId) {
+            setSelectedPaper(null);
+          }
+        } catch (e) {
+          setError(
+            e instanceof Error
+              ? `Couldn't delete "${title}": ${e.message}`
+              : `Couldn't delete "${title}".`,
+          );
+        }
+      },
+    );
   }
 
   function selectPaper(paper: Paper) {
+    /* picking a paper opens the inspector (without changing the saved choice) */
+    setInspectorCollapsed(false);
     setSelectedPaper(paper);
     setViewerOpen(false);
     setDetailTab("details");
@@ -697,27 +962,25 @@ export default function Repository() {
   }
 
   async function handleDeletePdf(paper: Paper) {
-    if (
-      !window.confirm(
-        `Delete the stored PDF of "${paper.title}"? The bibliographic record stays intact.`,
-      )
-    ) {
-      return;
-    }
-
-    try {
-      const updated = await deletePaperPdf(paper.id);
-      setPapers((prev) =>
-        prev.map((p) => (p.id === updated.id ? updated : p)),
-      );
-      setSelectedPaper(updated);
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? `Couldn't delete the PDF: ${e.message}`
-          : "Couldn't delete the PDF.",
-      );
-    }
+    askConfirm(
+      "Delete PDF",
+      `Delete the stored PDF of "${paper.title}"? The bibliographic record stays intact.`,
+      async () => {
+        try {
+          const updated = await deletePaperPdf(paper.id);
+          setPapers((prev) =>
+            prev.map((p) => (p.id === updated.id ? updated : p)),
+          );
+          setSelectedPaper(updated);
+        } catch (e) {
+          setError(
+            e instanceof Error
+              ? `Couldn't delete the PDF: ${e.message}`
+              : "Couldn't delete the PDF.",
+          );
+        }
+      },
+    );
   }
 
   const selected = selectedPaper;
@@ -728,7 +991,7 @@ export default function Repository() {
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-orb")!} />
       <PageHeader
         eyebrow="Repository"
-        title="Browse academic papers"
+        title="Repository"
         icon={<Database className="h-4 w-4" />}
         description={
           loading
@@ -739,7 +1002,9 @@ export default function Repository() {
                     ? `${webResults.length} result${webResults.length === 1 ? "" : "s"}`
                     : "peer-reviewed by default"
                 }`
-              : `${papers.length} papers · filter on the left, list in the middle, details on the right.`
+              : searchMode === "recommend"
+                ? `Ranked recommendations · ${activePipelineConfig.codename}.`
+                : `${papers.length} papers. Pick one to open its record.`
         }
         action={
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -772,6 +1037,18 @@ export default function Repository() {
           </button>
         </div>
       )}
+
+      {/* Algorithm console — the always-visible pipeline controls */}
+      <div className="mt-4">
+        <AlgorithmConsole
+          recommendMode={searchMode === "recommend"}
+          topK={topK}
+          onTopKChange={setTopK}
+          diversify={diversify}
+          onDiversifyChange={setDiversify}
+        />
+      </div>
+
       <div
         className="mt-4 flex min-h-0 flex-col gap-3 lg:h-[calc(100dvh-20rem)] lg:flex-row lg:min-h-[480px]"
         style={
@@ -788,7 +1065,9 @@ export default function Repository() {
 
         {prefs.sidebar && (
         <aside
-          className="shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-left)]"
+          className={`shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:block lg:w-[var(--pane-left)] ${
+            filtersOpenNarrow ? "" : "hidden"
+          }`}
           data-tips="repo-filters"
         >
           <div className="flex items-center gap-1.5 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
@@ -801,7 +1080,8 @@ export default function Repository() {
           <div className="p-4">
 
           <div className="space-y-3">
-            {/* Search scope: local repository vs the open web */}
+{/* Search scope: repository browse, ranked recommendations,
+                or the open web */}
             <div>
               <span className="filter-label">Search in</span>
               <div className="flex gap-1 rounded border-[3px] border-gray-900 bg-canvas p-1">
@@ -816,7 +1096,20 @@ export default function Repository() {
                   }`}
                 >
                   <Database className="h-3.5 w-3.5" />
-                  Repository
+                  Library
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSearchMode("recommend")}
+                  aria-pressed={searchMode === "recommend"}
+                  className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded border-[2px] px-2 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors pixel-ease ${
+                    searchMode === "recommend"
+                      ? "border-gray-900 bg-accent text-onAccent shadow-[inset_0_-3px_0_rgba(0,0,0,0.3)]"
+                      : "border-transparent text-muted hover:text-accent"
+                  }`}
+                >
+                  <SearchIcon className="h-3.5 w-3.5" />
+                  Recommend
                 </button>
                 <button
                   type="button"
@@ -836,23 +1129,51 @@ export default function Repository() {
 
             <div>
               <label className="filter-label" htmlFor="repo-search">
-                {searchMode === "web" ? "Topic, method, or title" : "Search"}
+                {searchMode === "web"
+                  ? "Topic, method, or title"
+                  : searchMode === "recommend"
+                    ? "Query the corpus"
+                    : "Search"}
               </label>
               <TextInput
                 id="repo-search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && searchMode === "web") {
-                    void runWebSearch();
+                  if (e.key === "Enter") {
+                    if (searchMode === "web") {
+                      void runWebSearch();
+                    } else if (searchMode === "recommend") {
+                      void runRecommendSearch();
+                    }
                   }
                 }}
                 placeholder={
-                  searchMode === "web"
-                    ? "e.g. graph neural networks"
-                    : "Title, author, keywords…"
+                  searchMode === "recommend"
+                    ? "e.g. transfer learning for recommender systems"
+                    : searchMode === "web"
+                      ? "e.g. gamified learning analytics"
+                      : "Filter by title, author, or keyword…"
                 }
               />
+
+              {searchMode === "recommend" && (
+                <div className="mt-2">
+                  <Button
+                    type="button"
+                    onClick={() => void runRecommendSearch()}
+                    disabled={!search.trim() || recommendLoading}
+                    fullWidth
+                  >
+                    {recommendLoading
+                      ? "Ranking…"
+                      : "Rank corpus"}
+                  </Button>
+                  <p className="mt-1.5 text-xs leading-5 text-muted">
+                    Top-K and Diversify live in the Algorithm bar above.
+                  </p>
+                </div>
+              )}
             </div>
 
             {searchMode === "web" && (
@@ -952,42 +1273,140 @@ export default function Repository() {
               </>
             )}
 
-            {searchMode === "repository" && (
+{searchMode === "repository" && (
               <>
-                {/* My Library system views */}
+                {/* My Library system views — collapsible */}
                 <div className="border-b-[2px] border-gray-200 pb-3">
-                  <p className="mb-2 font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
+                  <button
+                    type="button"
+                    onClick={() => setFoldersOpen((value) => !value)}
+                    aria-expanded={foldersOpen}
+                    className="mb-2 flex w-full items-center justify-between gap-2 font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted hover:text-ink"
+                  >
                     My Library
-                  </p>
-                  <div className="space-y-1">
-                    {(
-                      [
-                        ["all", "All Documents"],
-                        ["recent", "Recently Added"],
-                        ["favorites", "Favorites"],
-                        ["unsorted", "Unsorted"],
-                      ] as const
-                    ).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setSystemView(id)}
-                        aria-pressed={systemView === id}
-                        className={`block w-full rounded border-[2px] border-gray-900 px-2.5 py-1.5 text-left text-sm font-semibold transition-colors pixel-ease ${
-                          systemView === id
-                            ? "bg-accent text-onAccent"
-                            : "bg-surface text-ink hover:bg-accentSoft"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
+                    <span className="text-ink">{foldersOpen ? "▾" : "▸"}</span>
+                  </button>
+
+                  {foldersOpen && (
+                    <div className="space-y-1">
+                      {(
+                        [
+                          ["all", "All Documents"],
+                          ["recent", "Recently Added"],
+                          ["favorites", "Favorites"],
+                          ["unsorted", "Unsorted"],
+                        ] as const
+                      ).map(([id, label]) => {
+                        const count =
+                          id === "favorites"
+                            ? papers.filter((p) => savedIds.has(p.id))
+                                .length
+                            : id === "unsorted"
+                              ? papers.filter((p) => !p.subject_category)
+                                  .length
+                              : papers.length;
+
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => setSystemView(id)}
+                            aria-pressed={systemView === id}
+                            className={`flex w-full items-center justify-between gap-2 rounded border-[2px] border-gray-900 px-2.5 py-1.5 text-left text-sm font-semibold transition-colors pixel-ease ${
+                              systemView === id
+                                ? "bg-accent text-onAccent"
+                                : "bg-surface text-ink hover:bg-accentSoft"
+                            }`}
+                          >
+                            <span>{label}</span>
+                            <span
+                              className={`font-mono text-xs font-bold ${
+                                systemView === id
+                                  ? "text-onAccent/80"
+                                  : "text-muted"
+                              }`}
+                            >
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                <FilterSelect label="Subject" value={subject} options={subjects} onChange={setSubject} />
-                <FilterSelect label="Category" value={category} options={categories} onChange={setCategory} />
-                <FilterSelect label="Document type" value={documentType} options={documentTypes} onChange={setDocumentType} />
+                {/* Filter by authors — collapsible, scrollable, at least
+                    five researchers visible */}
+                {authorList.length > 0 && (
+                  <div className="border-b-[2px] border-gray-200 pb-3">
+                    <button
+                      type="button"
+                      onClick={() => setAuthorsOpen((value) => !value)}
+                      aria-expanded={authorsOpen}
+                      className="mb-2 flex w-full items-center justify-between gap-2 font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted hover:text-ink"
+                    >
+                      Filter by authors
+                      <span className="text-ink">
+                        {authorsOpen ? "▾" : "▸"}
+                      </span>
+                    </button>
+
+                    {authorsOpen && (
+                      <div className="min-h-[11.25rem] max-h-52 space-y-1 overflow-y-auto pr-1">
+                        <button
+                          type="button"
+                          onClick={() => setAuthorFilter(null)}
+                          aria-pressed={authorFilter === null}
+                          className={`flex w-full items-center justify-between gap-2 rounded border-[2px] border-gray-900 px-2.5 py-1.5 text-left text-sm font-semibold transition-colors pixel-ease ${
+                            authorFilter === null
+                              ? "bg-accent text-onAccent"
+                              : "bg-surface text-ink hover:bg-accentSoft"
+                          }`}
+                        >
+                          <span>All authors</span>
+                          <span
+                            className={`font-mono text-xs font-bold ${
+                              authorFilter === null
+                                ? "text-onAccent/80"
+                                : "text-muted"
+                            }`}
+                          >
+                            {papers.length}
+                          </span>
+                        </button>
+
+                        {authorList.slice(0, 20).map(({ name, count }) => (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => setAuthorFilter(name)}
+                            aria-pressed={authorFilter === name}
+                            className={`flex w-full items-center justify-between gap-2 rounded border-[2px] border-gray-900 px-2.5 py-1 text-left text-xs font-semibold transition-colors pixel-ease ${
+                              authorFilter === name
+                                ? "bg-accent text-onAccent"
+                                : "bg-surface text-ink hover:bg-accentSoft"
+                            }`}
+                          >
+                            <span className="truncate">{name}</span>
+                            <span
+                              className={`shrink-0 font-mono text-xs font-bold ${
+                                authorFilter === name
+                                  ? "text-onAccent/80"
+                                  : "text-muted"
+                              }`}
+                            >
+                              {count}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              <FilterSelect label="Subject" value={subject} options={subjects} onChange={setSubject} />
+              <FilterSelect label="Category" value={category} options={categories} onChange={setCategory} />
+              <FilterSelect label="Document type" value={documentType} options={documentTypes} onChange={setDocumentType} />
               </>
             )}
 
@@ -1032,69 +1451,15 @@ export default function Repository() {
                   </option>
                 </select>
 
-                {similarityMode && (
-                  <p className="mt-1.5 text-xs leading-5 text-muted">
-                    {!selectedPaper
-                      ? "Select a paper in the list to rank by similarity."
-                      : `Ranked by ${activePipelineConfig.codename} against the selected paper.`}
-                  </p>
-                )}
-              </div>
+{similarityMode && (
+              <p className="mt-1.5 text-xs leading-5 text-muted">
+                {!selectedPaper
+                  ? "Select a paper in the list to rank by similarity."
+                  : `Ranked by ${activePipelineConfig.codename} against the selected paper.`}
+              </p>
             )}
-
-            {searchMode === "repository" && (
-              <div className="border-t-[2px] border-gray-200 pt-4">
-                <p className="mb-2 font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
-                  Pipeline
-                </p>
-
-                <div className="space-y-1.5">
-                  {pipelineConfigs.map((config) => {
-                    const active = config.id === pipelineId;
-
-                    return (
-                      <button
-                        key={config.id}
-                        type="button"
-                        onClick={() => setPipelineId(config.id)}
-                        className={`w-full rounded border-[3px] border-gray-900 px-2.5 py-2 text-left text-sm font-semibold transition pixel-ease ${
-                          active
-                            ? "bg-accent"
-                            : "bg-surface hover:bg-accentSoft"
-                        }`}
-                      >
-                        <div
-                          className={`flex items-center justify-between gap-2 rounded border-[2px] px-2 py-1 ${
-                            active
-                              ? "border-white/40 bg-white/25"
-                              : "border-gray-900 bg-surfaceAlt"
-                          }`}
-                        >
-                          <span
-                            className={`whitespace-nowrap text-xs font-bold ${
-                              active ? "text-onAccent" : "text-ink"
-                            }`}
-                          >
-                            {config.codename}
-                          </span>
-                          <span
-                            className={`truncate font-mono text-xs font-bold tracking-[0.12em] ${
-                              active ? "text-onAccent" : "text-muted"
-                            }`}
-                          >
-                            {config.label}
-                          </span>
-                        </div>
-
-                        <div className="mt-1.5">
-                          <WeightBar weights={config.weights} />
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+          </div>
+        )}
           </div>
 
           <p className="mt-4 border-t-[2px] border-gray-200 pt-3 text-xs text-muted">
@@ -1122,61 +1487,86 @@ export default function Repository() {
           aria-label="Paper results"
           data-tips="repo-results"
         >
-          {/* Toolbar: Add / Sync / Help (Mendeley-style actions) */}
-          {searchMode === "repository" && (
-            <div className="flex shrink-0 items-center gap-1.5 border-b-[3px] border-gray-900 bg-canvas px-4 py-2">
-              <button
-                type="button"
-                onClick={() => navigate("/upload")}
-                className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease"
-              >
-                + Add
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSync()}
-                disabled={syncing}
-                className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease disabled:opacity-50"
-              >
-                {syncing ? "Syncing…" : "⟳ Sync"}
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate("/faq")}
-                className="rounded border-[2px] border-gray-900 bg-white px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease"
-              >
-                ? Help
-              </button>
-            </div>
-          )}
-
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5">
-            <span className="flex items-center gap-1.5">
+          {/* One header: what this is, how many, and the actions. */}
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5">
+            <span className="flex min-w-0 items-center gap-1.5">
               {searchMode === "web" ? (
-                <Globe className="h-3.5 w-3.5 text-muted" />
+                <Globe className="h-3.5 w-3.5 shrink-0 text-muted" />
+              ) : searchMode === "recommend" ? (
+                <SearchIcon className="h-3.5 w-3.5 shrink-0 text-muted" />
               ) : (
-                <Table className="h-3.5 w-3.5 text-muted" />
+                <Table className="h-3.5 w-3.5 shrink-0 text-muted" />
               )}
               <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink">
-                {searchMode === "web" ? "Web results" : "Papers"}
+                {searchMode === "web"
+                  ? "Web results"
+                  : searchMode === "recommend"
+                    ? "Ranked results"
+                    : "Papers"}
+              </p>
+              <p className="truncate font-mono text-xs text-muted">
+                ·{" "}
+                {searchMode === "web"
+                  ? webLoading
+                    ? "…"
+                    : `${webResults.length} result${webResults.length === 1 ? "" : "s"}`
+                  : searchMode === "recommend"
+                    ? recommendLoading
+                      ? "ranking…"
+                      : recommendSearched
+                        ? `${recommendResults.length} ranked via ${activePipelineConfig.codename}`
+                        : ""
+                    : similarityMode
+                      ? similarityLoading
+                        ? `ranking via ${activePipelineConfig.codename}…`
+                        : `${rankedPapers.length} ranked via ${activePipelineConfig.codename}`
+                      : loading
+                        ? "…"
+                        : `${rankedPapers.length} result${rankedPapers.length === 1 ? "" : "s"}`}
               </p>
             </span>
-            <p className="truncate text-right font-mono text-xs text-muted">
-              {searchMode === "web"
-                ? webLoading
-                  ? "…"
-                  : `${webResults.length} result${webResults.length === 1 ? "" : "s"}`
-                : similarityMode
-                  ? similarityLoading
-                    ? `ranking via ${activePipelineConfig.codename}…`
-                    : `${rankedPapers.length} ranked via ${activePipelineConfig.codename}`
-                  : loading
-                    ? "…"
-                    : `${rankedPapers.length} result${rankedPapers.length === 1 ? "" : "s"}`}
-            </p>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {prefs.sidebar && (
+                <button
+                  type="button"
+                  aria-expanded={filtersOpenNarrow}
+                  onClick={() => setFiltersOpenNarrow((open) => !open)}
+                  className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-sm font-semibold text-ink transition-colors pixel-ease hover:bg-accentSoft lg:hidden"
+                >
+                  Filters {filtersOpenNarrow ? "▴" : "▾"}
+                </button>
+              )}
+              {searchMode === "repository" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/upload")}
+                    className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease"
+                  >
+                    + Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSync()}
+                    disabled={syncing}
+                    className="rounded border-[2px] border-gray-900 bg-surface px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease disabled:opacity-50"
+                  >
+                    {syncing ? "Syncing…" : "⟳ Sync"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/faq")}
+                    className="rounded border-[2px] border-gray-900 bg-white px-2.5 py-1 text-sm font-semibold text-ink hover:bg-accentSoft transition-colors pixel-ease"
+                  >
+                    ? Help
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
             {error && <div className="status-error m-4">{error}</div>}
 
             {searchMode === "web" ? (
@@ -1216,7 +1606,10 @@ export default function Repository() {
                         className={`paper-row cursor-pointer p-4 transition-colors pixel-ease ${
                           active ? "bg-accentSoft" : "hover:bg-canvas"
                         }`}
-                        onClick={() => setSelectedWeb(result)}
+                        onClick={() => {
+                          setInspectorCollapsed(false);
+                          setSelectedWeb(result);
+                        }}
                       >
                         <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
                           <span className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-xs font-bold uppercase tracking-[0.1em] text-ink">
@@ -1294,6 +1687,168 @@ export default function Repository() {
                   );
                 })
               )
+            ) : searchMode === "recommend" ? (
+              /* ------------------------------------------------
+                 RANKED RESULTS — the merged Search scope: the
+                 active pipeline's scores with a per-row signal
+                 bar; star/PDF/selection like the library rows.
+                 ------------------------------------------------ */
+              recommendLoading ? (
+                <div className="p-8 text-center">
+                  <p className="animate-blink text-sm font-bold text-muted">
+                    Ranking with {activePipelineConfig.codename}…
+                  </p>
+                </div>
+              ) : recommendError ? (
+                <div className="p-6">
+                  <p className="status-error">{recommendError}</p>
+                </div>
+              ) : !recommendSearched ? (
+                <div className="p-6">
+                  <EmptyState
+                    title="Rank the corpus against a query."
+                    description="Enter a query in the filter console, pick a pipeline, and press Rank corpus. Results land here with their score and signal breakdown."
+                  />
+                </div>
+              ) : recommendResults.length === 0 ? (
+                <div className="p-6">
+                  <EmptyState
+                    title="No matches."
+                    description="Try another query, a different pipeline, or a larger top K."
+                  />
+                </div>
+              ) : (
+                <table className="w-full min-w-[720px] text-left text-xs">
+                  <thead>
+                    <tr className="font-pixelify border-b-[3px] border-gray-900 text-xs uppercase tracking-wide text-muted">
+                      <th className="w-10 px-3 py-2.5 text-right">#</th>
+                      <th className="w-12 px-1 py-2.5 text-center" aria-label="PDF" />
+                      <th className="w-12 px-1 py-2.5 text-center" aria-label="Favorite" />
+                      <th className="px-2 py-2.5">Title</th>
+                      <th className="px-2 py-2.5">Authors</th>
+                      <th className="px-2 py-2.5 text-right">Year</th>
+                      <th className="px-2 py-2.5 text-right">Type</th>
+                      <th className="px-2 py-2.5 text-right">Score</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {recommendResults.map((result, index) => {
+                      const paper = result.paper;
+                      const active = selected?.id === paper.id;
+                      const isSaved = savedIds.has(paper.id);
+                      const components = result.components;
+                      const segments = [
+                        { color: "bg-tfidf", value: components?.tfidf ?? 0 },
+                        { color: "bg-sbert", value: components?.sbert ?? 0 },
+                        { color: "bg-meta", value: components?.metadata ?? 0 },
+                      ];
+                      const signalTotal =
+                        segments.reduce((sum, s) => sum + s.value, 0) || 1;
+
+                      return (
+                        <tr
+                          key={paper.id}
+                          onClick={() => selectPaper(paper)}
+                          className={`cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
+                            active
+                              ? "bg-accentSoft/60"
+                              : "hover:bg-canvas"
+                          }`}
+                        >
+                          <td className="px-3 py-2.5 text-right font-mono font-bold text-muted">
+                            {index + 1}
+                          </td>
+                          <td className="px-1 py-2.5 text-center">
+                            {hasPdf(paper) && (
+                              <span
+                                className="inline-flex items-center rounded border-[2px] border-gray-900 bg-accent px-1 py-0.5 font-mono text-xs font-bold leading-none text-onAccent"
+                                title="PDF attached"
+                              >
+                                PDF
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-1 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => toggleSaved(paper.id)}
+                              aria-label={isSaved ? "Remove from favorites" : "Add to favorites"}
+                              className={`transition-colors pixel-ease ${
+                                isSaved ? "text-accent" : "text-muted hover:text-ink"
+                              }`}
+                            >
+                              <Star className="h-4 w-4" />
+                            </button>
+                          </td>
+                          <td className="max-w-[280px] px-2 py-2.5">
+                            <EditableCell
+                              paperId={paper.id}
+                              field="title"
+                              value={paper.title ?? ""}
+                              onSaved={handlePaperUpdated}
+                              render={(text) => <MathText text={text} />}
+                              className="w-full"
+                              renderClassName="block font-pixelify font-bold text-ink"
+                            />
+                          </td>
+                          <td className="max-w-[180px] px-2 py-2.5">
+                            <EditableCell
+                              paperId={paper.id}
+                              field="author"
+                              value={paper.author ?? ""}
+                              onSaved={handlePaperUpdated}
+                              className="w-full"
+                              renderClassName="font-pixelify text-muted"
+                            />
+                          </td>
+                          <td className="px-2 py-2.5 text-right">
+                            <EditableCell
+                              paperId={paper.id}
+                              field="publication_year"
+                              isYear
+                              value={paper.publication_year}
+                              onSaved={handlePaperUpdated}
+                              className="ml-auto"
+                              renderClassName="font-pixelify text-ink"
+                            />
+                          </td>
+                          <td className="px-2 py-2.5 text-right">
+                            <EditableCell
+                              paperId={paper.id}
+                              field="document_type"
+                              value={paper.document_type ?? ""}
+                              onSaved={handlePaperUpdated}
+                              className="ml-auto"
+                              renderClassName="font-pixelify text-muted"
+                            />
+                          </td>
+                          <td className="px-2 py-2.5 text-right">
+                            <div className="ml-auto flex w-24 flex-col items-end">
+                              <span className="font-mono font-bold text-ink">
+                                {Number(result.score).toFixed(4)}
+                              </span>
+                              <span className="mt-1 flex h-1.5 w-full overflow-hidden rounded-full border-[1px] border-gray-900">
+                                {segments.map((segment, i) =>
+                                  segment.value > 0 ? (
+                                    <span
+                                      key={i}
+                                      className={segment.color}
+                                      style={{
+                                        width: `${(segment.value / signalTotal) * 100}%`,
+                                      }}
+                                    />
+                                  ) : null,
+                                )}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )
             ) : loading ? (
               <div className="p-8 text-center">
                 <p className="animate-blink text-sm font-bold text-muted">Loading repository…</p>
@@ -1307,10 +1862,10 @@ export default function Repository() {
                  TABULAR REFERENCE LIST — sortable columns,
                  favorites, PDF indicators, multi-select.
                  ------------------------------------------------ */
-              <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-xs">
-                <thead>
-                  <tr className="border-b-[3px] border-gray-900 text-xs uppercase tracking-wide text-muted">
+              <div className="overflow-x-clip">
+              <table className={`w-full text-left text-xs ${compactList ? "" : "min-w-[640px]"}`}>
+                <thead className="sticky top-0 z-10 bg-white shadow-[0_3px_0_rgb(var(--gray-900))]">
+                  <tr className="font-pixelify text-xs uppercase tracking-wide text-muted">
                     <th className="w-8 px-3 py-2.5">
                       <input
                         type="checkbox"
@@ -1330,17 +1885,51 @@ export default function Repository() {
                         className="h-3.5 w-3.5"
                       />
                     </th>
-                    <th className="w-10 px-1 py-2.5 text-center" aria-label="PDF" />
-                    <th className="w-12 px-1 py-2.5 text-center" aria-label="Favorite" />
-                    {(
+                    {!compactList && (
+                      <th className="w-10 px-1 py-2.5 text-center" aria-label="PDF" />
+                    )}
+                    <th className="w-10 px-1 py-2.5 text-center" aria-label="Favorite" />
+                    {compactList ? (
+                      <th className="px-2 py-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-sm font-semibold uppercase tracking-wide text-ink">
+                            Title
+                          </span>
+                          <label className="ml-auto flex items-center gap-1 font-mono text-[11px] font-semibold uppercase tracking-wide text-muted">
+                            Sort
+                            <select
+                              value={sortColumn}
+                              onChange={(event) =>
+                                setSortColumn(event.target.value as typeof sortColumn)
+                              }
+                              className="rounded border-[2px] border-gray-900 bg-field px-1 py-0.5 text-xs normal-case text-ink"
+                            >
+                              <option value="date">Added</option>
+                              <option value="title">Title</option>
+                              <option value="author">Author</option>
+                              <option value="year">Year</option>
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                            aria-label={sortDir === "asc" ? "Ascending" : "Descending"}
+                            className="rounded border-[2px] border-gray-900 bg-surface px-1.5 py-0.5 font-mono text-xs font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+                          >
+                            {sortDir === "asc" ? "↑" : "↓"}
+                          </button>
+                        </div>
+                      </th>
+                    ) : (
+                    (
                       [
                         ["title", "Title"],
                         ["author", "Authors"],
                         ["year", "Year"],
-                        ["date", "Date Added"],
+                        ["date", "Added"],
                       ] as const
                     ).map(([key, label]) => (
-                      <th key={key} className="px-2 py-2.5">
+                      <th key={key} className="whitespace-nowrap px-2 py-2.5">
                         <button
                           type="button"
                           onClick={() => toggleSort(key)}
@@ -1356,10 +1945,13 @@ export default function Repository() {
                             : ""}
                         </button>
                       </th>
-                    ))}
+                    ))
+                    )}
+                    {!compactList && (
                     <th className="px-2 py-2.5 text-right font-mono text-xs uppercase tracking-wide">
                       Type
                     </th>
+                    )}
                     {similarityMode && (
                       <th className="px-2 py-2.5 text-right font-mono text-xs uppercase tracking-wide">
                         Score
@@ -1369,9 +1961,8 @@ export default function Repository() {
                 </thead>
 
                 <tbody>
-                  {pagedPapers.map((paper, index) => {
+                  {pagedPapers.map((paper) => {
                     const { subject: paperSubject, category: paperCategory } = categoryOf(paper);
-                    const isCS = paperSubject.toLowerCase().includes("computer");
                     const active = selected?.id === paper.id;
                     const sim = similarity?.get(paper.id);
                     const isSaved = savedIds.has(paper.id);
@@ -1417,6 +2008,7 @@ export default function Repository() {
                             className="h-3.5 w-3.5"
                           />
                         </td>
+                        {!compactList && (
                         <td className="px-1 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                           {hasPdf(paper) && (
                             <span
@@ -1427,6 +2019,7 @@ export default function Repository() {
                             </span>
                           )}
                         </td>
+                        )}
                         <td className="px-1 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
@@ -1439,16 +2032,96 @@ export default function Repository() {
                             <Star className="h-4 w-4" />
                           </button>
                         </td>
-                        <td className="max-w-[280px] px-2 py-2.5">
-                          <div className="flex items-center gap-1.5">
+                        {compactList ? (
+                        <td className="min-w-0 px-2 py-2.5">
+                          <EditableCell
+                            paperId={paper.id}
+                            field="title"
+                            value={paper.title ?? ""}
+                            onSaved={handlePaperUpdated}
+                            render={(text) => <MathText text={text} />}
+                            className="min-w-0 max-w-full"
+                            renderClassName="font-pixelify font-bold text-ink !whitespace-normal [overflow-wrap:anywhere]"
+                          />
+                          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted">
+                            <EditableCell
+                              paperId={paper.id}
+                              field="author"
+                              value={paper.author ?? ""}
+                              onSaved={handlePaperUpdated}
+                              className="min-w-0 max-w-full"
+                              renderClassName="font-pixelify text-muted"
+                            />
+                            {paper.author && paper.publication_year != null && (
+                              <span aria-hidden="true">·</span>
+                            )}
+                            <EditableCell
+                              paperId={paper.id}
+                              field="publication_year"
+                              isYear
+                              value={paper.publication_year}
+                              onSaved={handlePaperUpdated}
+                              renderClassName="font-pixelify text-muted"
+                            />
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            {hasPdf(paper) && (
+                              <span
+                                className="inline-flex items-center rounded border-[2px] border-gray-900 bg-accent px-1 py-0.5 font-mono text-[10px] font-bold leading-none text-onAccent"
+                                title="PDF attached"
+                              >
+                                PDF
+                              </span>
+                            )}
                             {paperSubject && (
-                              <span className={`shrink-0 rounded border-[2px] border-gray-900 bg-surface px-1 py-0.5 text-xs font-bold ${isCS ? "text-cs" : "text-math"}`}>
+                              <span className="rounded border-[2px] border-gray-900 bg-gray-900 px-1 py-0.5 text-[10px] font-bold text-white">
                                 {paperSubject}
                               </span>
                             )}
-                            <span className="font-pixelify truncate font-bold text-ink">
-                              <MathText text={paper.title} />
+                            {paperCategory && (
+                              <span className="truncate text-[11px] text-muted">{paperCategory}</span>
+                            )}
+                            {paper.document_type && (
+                              <span className="text-[11px] text-muted">
+                                {paperSubject || paperCategory ? "· " : ""}
+                                {paper.document_type}
+                              </span>
+                            )}
+                          </div>
+                          {paper.snippet && (
+                            <span
+                              className="mt-0.5 block truncate text-xs italic text-muted"
+                              title={paper.snippet}
+                            >
+                              <Highlight text={paper.snippet} terms={search.trim().split(/\s+/)} />
                             </span>
+                          )}
+                          {typeof paper.duplicate_count === "number" && paper.duplicate_count > 0 && (
+                            <span
+                              className="mt-0.5 inline-flex items-center rounded border-[2px] border-gray-900 bg-canvas px-1 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-muted"
+                              title="Near-duplicate records hidden from this result list"
+                            >
+                              +{paper.duplicate_count} duplicate{paper.duplicate_count === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </td>
+                        ) : (
+                        <td className="w-[46%] max-w-0 px-2 py-2.5">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            {paperSubject && (
+                              <span className="shrink-0 rounded border-[2px] border-gray-900 bg-gray-900 px-1 py-0.5 text-xs font-bold text-white">
+                                {paperSubject}
+                              </span>
+                            )}
+                            <EditableCell
+                              paperId={paper.id}
+                              field="title"
+                              value={paper.title ?? ""}
+                              onSaved={handlePaperUpdated}
+                              render={(text) => <MathText text={text} />}
+                              className="min-w-0 flex-1"
+                              renderClassName="font-pixelify font-bold text-ink"
+                            />
                           </div>
                           {paperCategory && (
                             <span className="mt-0.5 block truncate text-xs text-muted">
@@ -1477,18 +2150,44 @@ export default function Repository() {
                               </span>
                             )}
                         </td>
-                        <td className="max-w-[200px] truncate px-2 py-2.5 text-muted">
-                          {paper.author ?? "Unknown author"}
+                        )}
+                        {!compactList && (
+                        <>
+                        <td className="max-w-[200px] px-2 py-2.5 text-muted">
+                          <EditableCell
+                            paperId={paper.id}
+                            field="author"
+                            value={paper.author ?? ""}
+                            onSaved={handlePaperUpdated}
+                            className="w-full"
+                            renderClassName="font-pixelify text-muted"
+                          />
                         </td>
                         <td className="whitespace-nowrap px-2 py-2.5 font-mono text-muted">
-                          {paper.publication_year ?? "—"}
+                          <EditableCell
+                            paperId={paper.id}
+                            field="publication_year"
+                            isYear
+                            value={paper.publication_year}
+                            onSaved={handlePaperUpdated}
+                            renderClassName="font-pixelify text-muted"
+                          />
                         </td>
                         <td className="whitespace-nowrap px-2 py-2.5 font-mono text-muted">
                           {new Date(paper.created_at).toLocaleDateString()}
                         </td>
                         <td className="whitespace-nowrap px-2 py-2.5 text-right text-muted">
-                          {paper.document_type ?? "—"}
+                          <EditableCell
+                            paperId={paper.id}
+                            field="document_type"
+                            value={paper.document_type ?? ""}
+                            onSaved={handlePaperUpdated}
+                            className="ml-auto"
+                            renderClassName="font-pixelify text-muted"
+                          />
                         </td>
+                        </>
+                        )}
                         {similarityMode && (
                           <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono text-muted">
                             {sim ? `#${sim.rank} · ${sim.score.toFixed(4)}` : "—"}
@@ -1561,22 +2260,78 @@ export default function Repository() {
             RIGHT PANE — paper details
             ==================================================== */}
 
-        {prefs.details && (
+        {prefs.details && (inspectorCollapsed ? (
+        /* Collapsed inspector: a slim rail, one click to reopen. */
+        <aside className="w-full shrink-0 overflow-hidden rounded border-[3px] border-gray-900 bg-white lg:w-12 lg:self-stretch">
+          <button
+            type="button"
+            onClick={() => {
+              setInspectorCollapsed(false);
+              try {
+                window.localStorage.setItem("paperrec_repo_inspector", "0");
+              } catch {
+                // Best-effort.
+              }
+            }}
+            title="Show the details inspector"
+            aria-label="Show inspector"
+            className="flex h-9 w-full items-center justify-center gap-2 bg-canvas font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted transition-colors pixel-ease hover:bg-accentSoft hover:text-ink lg:h-full lg:min-h-[240px] lg:text-lg"
+          >
+            <span aria-hidden="true">«</span>
+            <span className="lg:hidden">Inspector</span>
+          </button>
+        </aside>
+      ) : (
+        <>
         <PaneHandle
           label="Resize details panel"
           direction="right"
           onResize={resizeRight}
         />
-        )}
 
-        {prefs.details && statsOpen && (
+        {statsOpen && (
         <aside className="w-full shrink-0 overflow-hidden rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
-          <RepoStatsPane papers={rankedPapers} query={search} />
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b-[3px] border-gray-900 bg-canvas px-3 py-1.5">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
+              Inspector
+            </span>
+            <button
+              type="button"
+              onClick={toggleInspector}
+              aria-label="Hide the inspector"
+              title="Hide the inspector"
+              className="rounded border-[2px] border-gray-900 bg-surface px-2 py-0.5 font-mono text-xs font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+            >
+              »
+            </button>
+          </div>
+          <RepoStatsPane
+            papers={
+              searchMode === "recommend"
+                ? recommendResults.map((result) => result.paper)
+                : rankedPapers
+            }
+            query={search}
+          />
         </aside>
         )}
 
-        {prefs.details && !statsOpen && (
+        {!statsOpen && (
         <aside className="w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b-[3px] border-gray-900 bg-canvas px-3 py-1.5">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
+              Inspector
+            </span>
+            <button
+              type="button"
+              onClick={toggleInspector}
+              aria-label="Hide the inspector"
+              title="Hide the inspector"
+              className="rounded border-[2px] border-gray-900 bg-surface px-2 py-0.5 font-mono text-xs font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+            >
+              »
+            </button>
+          </div>
           {searchMode === "web" ? (
             /* ------------------------------------------------
                WEB RESULT DETAILS
@@ -1740,6 +2495,7 @@ export default function Repository() {
                         ? customWeights
                         : undefined
                     }
+                    controls
                     onExpand={() =>
                       navigate("/recommendations", {
                         state: {
@@ -1854,11 +2610,10 @@ export default function Repository() {
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
                 {(() => {
                   const { subject: s, category: c } = categoryOf(selected);
-                  const isCS = s.toLowerCase().includes("computer");
                   return (
                     <>
                       {s && (
-                        <span className={`rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold ${isCS ? "text-cs" : "text-math"}`}>
+                        <span className="rounded border-[2px] border-gray-900 bg-gray-900 px-1.5 py-0.5 text-xs font-bold text-white">
                           {s}
                         </span>
                       )}
@@ -1978,6 +2733,42 @@ export default function Repository() {
           )}
         </aside>
         )}
+        </>
+      ))}
+      </div>
+
+      {/* Status bar — the reference-manager touch: scope, filters,
+          and the live count at a glance. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded border-[3px] border-gray-900 bg-white px-4 py-2 font-mono text-xs text-muted">
+        <span>
+          {searchMode === "web"
+            ? `${webSearched ? webResults.length : 0} web result${
+                webResults.length === 1 ? "" : "s"
+              }`
+            : searchMode === "recommend"
+              ? `${recommendSearched ? recommendResults.length : 0} ranked result${
+                  recommendResults.length === 1 ? "" : "s"
+                }`
+              : `Showing ${rankedPapers.length} of ${papers.length} document${
+                  papers.length === 1 ? "" : "s"
+                }`}
+        </span>
+        <span className="text-ink">
+          {searchMode === "web"
+            ? "scope: web"
+            : searchMode === "recommend"
+              ? `scope: ${activePipelineConfig.codename}`
+              : `scope: ${systemView === "all" ? "all" : systemView === "favorites" ? "favorites" : systemView === "unsorted" ? "unsorted" : "recently added"}`}
+        </span>
+        {authorFilter && <span>author: {authorFilter}</span>}
+        {search.trim() && <span>search: {search.trim()}</span>}
+        {searchMode === "recommend" && (
+          <span>
+            top_k: {topK}
+            {diversify ? " · diversify: on" : ""}
+          </span>
+        )}
+        <span className="text-ink">double-click cells to edit · autosaves</span>
       </div>
 
       {literatureMenu && (
@@ -1996,6 +2787,24 @@ export default function Repository() {
           }}
         />
       )}
+
+      <RetroDialog
+        open={confirm !== null}
+        title={confirm?.title ?? ""}
+        size="md"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const action = confirm?.onYes;
+          setConfirm(null);
+          if (action) {
+            void action();
+          }
+        }}
+      >
+        {confirm?.body}
+      </RetroDialog>
 
       <PaperViewerModal
         paper={selectedPaper}

@@ -72,6 +72,7 @@ export default function ConnectionsWorkbench({
   defaultTopK = 20,
   compact = false,
   onExpand,
+  controls = false,
 }: {
   paperId: number;
   pipeline: string;
@@ -81,6 +82,8 @@ export default function ConnectionsWorkbench({
   compact?: boolean;
   /** When given, a "Full view" affordance is shown (compact panes). */
   onExpand?: () => void;
+  /** Controls layer for the local graph (see ConnectedPapersGraph). */
+  controls?: boolean;
 }) {
   const [scope, setScope] = useState<Scope>(() =>
     readStored(SCOPE_KEY, ["local", "web"] as const, "local")
@@ -299,9 +302,8 @@ export default function ConnectionsWorkbench({
           pipeline={pipeline}
           topK={topK}
           weights={weights}
-          hideClusterSections
-          hideRankedList
           widened={!compact}
+          controls={controls}
           highlightPaperIds={activeWorkIds}
           onSelectNode={setFocusedPaperId}
         />
@@ -428,7 +430,10 @@ export default function ConnectionsWorkbench({
   // ----------------------------------------------------------
 
   return (
-    <div className="flex flex-col" data-connections-workbench>
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      data-connections-workbench
+    >
       {/* HEADER — view tabs + scope switch */}
       <div
         className={`flex shrink-0 flex-col gap-2 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5 ${

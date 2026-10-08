@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import {
   TIPS,
@@ -18,8 +18,15 @@ import {
   getDestructionLine,
   getDropMode,
   getHungryLine,
+  getPetCorpus,
   type DropMode,
 } from "../../data/petlines";
+import { PET_CHAT_EVENT } from "../../utils/petChat";
+import {
+  buildChain,
+  composeChatLine,
+  type PetChatContext,
+} from "../../utils/petMarkov";
 import { removeFromLibrary } from "../../api";
 import { answerQuestion } from "../../data/help";
 import { useHunt, HUNT_FOUND_EVENT } from "../../state/hunt";
@@ -671,8 +678,6 @@ export default function PixelPet() {
   const shown = open ? (prefersReducedMotion ? body : typed) : "";
   const done = shown.length >= body.length;
 
-  const seenSet = new Set(seen);
-
   /* --------------------------------------------------------
      Rewards: hop + "+1" coin
      -------------------------------------------------------- */
@@ -1179,6 +1184,48 @@ export default function PixelPet() {
 
   const [speechIndex, setSpeechIndex] = useState(0);
 
+  /* Chat-driven lines: while you talk to the research chat it tells
+     us what just happened (thinking / answered / fallback / error)
+     and the conversation's topic. The line is composed from a Markov
+     chain trained on THIS form's own lines, so it stays in character,
+     and it shows for a few seconds ahead of the idle chatter. */
+  const chatChain = useMemo(
+    () => buildChain(getPetCorpus(effectiveForm.variant)),
+    [effectiveForm.variant],
+  );
+  const chatChainRef = useRef(chatChain);
+  chatChainRef.current = chatChain;
+
+  const [chatLine, setChatLine] = useState<{
+    text: string;
+    key: number;
+  } | null>(null);
+
+  useEffect(() => {
+    function handleChat(event: Event) {
+      const context = (event as CustomEvent).detail as
+        | PetChatContext
+        | undefined;
+
+      if (!context?.kind) return;
+
+      setChatLine({
+        text: composeChatLine(chatChainRef.current, context, Math.random),
+        key: Date.now(),
+      });
+    }
+
+    window.addEventListener(PET_CHAT_EVENT, handleChat);
+    return () => window.removeEventListener(PET_CHAT_EVENT, handleChat);
+  }, []);
+
+  useEffect(() => {
+    if (!chatLine) return;
+
+    const id = window.setTimeout(() => setChatLine(null), 7_000);
+    return () => window.clearTimeout(id);
+  }, [chatLine]);
+
 
   /* --------------------------------------------------------
      Paper drops: a library paper dragged onto the pet gets
@@ -1195,7 +1242,11 @@ export default function PixelPet() {
   const speechKey =
     dropFx?.mode ??
     petAnim ??
-    (petHungry ? "hungry" : speechIndex);
+    (petHungry
+      ? "hungry"
+      : chatLine
+        ? `chat-${chatLine.key}`
+        : speechIndex);
 
   const speechLines = getPetLines(count, total, effectiveComplete, form.variant);
   const speechLine = speechLines[speechIndex % speechLines.length];
@@ -1210,7 +1261,9 @@ export default function PixelPet() {
       ? getDestructionLine(dropFx.mode, effectiveForm.variant)
       : petAnim
         ? getDestructionLine(petAnim, effectiveForm.variant)
-        : speechLine;
+        : chatLine
+          ? { en: chatLine.text }
+          : speechLine;
 
   useEffect(() => {
     // No idle talk while the user is interacting with the pet:
@@ -1529,7 +1582,11 @@ export default function PixelPet() {
 
       {!open && !charging && !speechMuted && (
           <div
-            key={dropFx ? dropFx.mode : petAnim ?? speechIndex}
+            key={
+              dropFx
+                ? dropFx.mode
+                : petAnim ?? (chatLine ? `chat-${chatLine.key}` : speechIndex)
+            }
             className={`animate-pop-in absolute z-20 max-w-[min(220px,calc(100vw-40px))] rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-xs leading-4 text-ink ${
               speechFlipY ? "top-full mt-2" : "bottom-full mb-2"
             } ${speechFlipX ? "left-0" : "right-0"}`}

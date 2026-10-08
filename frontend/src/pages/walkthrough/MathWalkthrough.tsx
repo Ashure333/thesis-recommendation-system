@@ -10,6 +10,7 @@ import {
   WikiSub,
   WikiTable,
 } from "./wiki";
+import FlowDiagram from "./FlowDiagram";
 
 /* ============================================================
    ENGINE WALKTHROUGH: the mathematics and computer science
@@ -27,13 +28,14 @@ const INFOBOX_ROWS: [string, string][] = [
   ["Embedding model", "all-MiniLM-L6-v2, 6 layers, 384 dimensions"],
   ["Signals", "TF-IDF (lexical) · S-BERT (semantic) · Metadata (4 fields)"],
   ["Pipelines", "6 fixed configurations + 1 custom dial"],
-  ["Scale", "n = 146 valid papers · per-search work O(n·d)"],
-  ["Determinism", "Deterministic (total tie-breaks, fixed seeds"],
+  ["Scale", "n = 150 valid papers · per-search work O(n·d)"],
+  ["Determinism", "Deterministic (total tie-breaks, fixed seeds)"],
   ["Status", "Local research prototype"],
 ];
 
 const TOC = [
   ["overview", "Overview"],
+  ["flow", "The process at a glance (flow)"],
   ["vector-space", "The vector space model & TF-IDF"],
   ["embeddings", "Sentence embeddings & S-BERT"],
   ["metadata", "The metadata component"],
@@ -48,13 +50,14 @@ const TOC = [
 ] as const;
 
 const OTHER_PAGES = [
-  ["/recommendations", "Search"],
   ["/repository", "Repository"],
   ["/upload", "Upload"],
   ["/library", "My Library"],
   ["/evaluation", "Arena"],
+  ["/lab", "Lab"],
   ["/walkthrough", "Walkthrough"],
   ["/faq", "FAQ"],
+  ["/settings", "Settings"],
   ["/changelog", "Changelog"],
 ] as const;
 
@@ -80,8 +83,10 @@ const COMPLEXITY_ROWS = [
   ["Index build (TF-IDF)", "Fit vocabulary + IDF over the corpus", "O(n·L̄) tokenization; O(n·d_tfidf) storage"],
   ["Index build (S-BERT)", "Encode every paper once", "n model forward passes; O(n·384) storage"],
   ["One search (any pipeline)", "Score all valid candidates", "O(n·d) cosine work per active component; O(n) small metadata fits"],
+  ["Diversify (MMR, optional)", "Greedy rerank of the top-50 positive-score pool", "pool(pool − 1)/2 pair similarities, each O(d): 1,225 at the default pool, never an n × n matrix"],
   ["Arena battle", "Six searches + comparisons", "6 × search, then O(36·k) pairwise and O(6n) consensus"],
-  ["Similar-papers graph", "Edges between graph papers + Dijkstra", "O(V²) candidate pairs (V = k + 1), then O(E log V)"],
+  ["Similar-papers graph: weights", "A blended weight for every pair of the V = k + 1 papers", "O(V²·d) cosines, plus metadata per node: 3 field vectorizers over the other papers, O(V²·L̄) text work"],
+  ["Similar-papers graph: Dijkstra", "Binary-heap shortest paths from the origin over V nodes and E edges", "O((V + E) log V); with V ≤ 41 in the UI and E ≤ V(V − 1)/2 ≤ 820 it is negligible"],
   ["Duplicate check (upload)", "Compare the new title/DOI to existing papers", "O(m) title-similarity passes over m stored papers"],
 ] as const;
 
@@ -146,6 +151,298 @@ export default function MathWalkthrough() {
               <WikiInfobox rows={INFOBOX_ROWS} />
             </div>
           </div>
+
+          <WikiSection id="flow" title="The process at a glance (flow)">
+            <p className="text-sm leading-6 text-ink">
+              Three figures put the pieces together before the formulas
+              below: the recommendation pipeline end to end, how the four
+              metadata signals combine, and what an Arena battle runs on
+              every query.
+            </p>
+
+            <FlowDiagram
+              title="Figure 1 — The recommendation pipeline"
+              height={300}
+              nodes={[
+                {
+                  id: "query",
+                  label: "Query / seed",
+                  sub: "text or paper",
+                  x: 20,
+                  y: 130,
+                  w: 130,
+                  h: 52,
+                },
+                {
+                  id: "prepare",
+                  label: "Text preparation",
+                  sub: "normalize(T + A + K)",
+                  x: 190,
+                  y: 130,
+                  w: 140,
+                  h: 52,
+                },
+                {
+                  id: "tfidf",
+                  label: "TF-IDF",
+                  sub: "smoothed IDF · L2",
+                  x: 370,
+                  y: 14,
+                  w: 130,
+                  h: 52,
+                },
+                {
+                  id: "sbert",
+                  label: "S-BERT",
+                  sub: "384-d embeddings",
+                  x: 370,
+                  y: 124,
+                  w: 130,
+                  h: 52,
+                },
+                {
+                  id: "meta",
+                  label: "Metadata",
+                  sub: "4 fields · 25% each",
+                  x: 370,
+                  y: 234,
+                  w: 130,
+                  h: 52,
+                },
+                {
+                  id: "norm",
+                  label: "Normalize",
+                  sub: "min–max · meta passes",
+                  x: 550,
+                  y: 124,
+                  w: 140,
+                  h: 52,
+                },
+                {
+                  id: "fuse",
+                  label: "Weighted fusion",
+                  sub: "S(d) = Σ wᵢ·s′ᵢ",
+                  x: 730,
+                  y: 124,
+                  w: 140,
+                  h: 52,
+                },
+                {
+                  id: "rank",
+                  label: "Rank & output",
+                  sub: "top_k · ties by year",
+                  x: 880,
+                  y: 60,
+                  w: 160,
+                  h: 52,
+                  accent: true,
+                },
+              ]}
+              edges={[
+                { from: "query", to: "prepare" },
+                { from: "prepare", to: "tfidf", label: "cleaned text" },
+                { from: "prepare", to: "sbert" },
+                { from: "prepare", to: "meta" },
+                { from: "tfidf", to: "norm" },
+                { from: "sbert", to: "norm" },
+                { from: "meta", to: "norm" },
+                { from: "norm", to: "fuse" },
+              ]}
+            />
+
+            <FlowDiagram
+              title="Figure 2 — The metadata component"
+              height={300}
+              nodes={[
+                {
+                  id: "title",
+                  label: "Title",
+                  sub: "f(Q) + all candidates",
+                  x: 20,
+                  y: 26,
+                  w: 210,
+                  h: 52,
+                },
+                {
+                  id: "abstract",
+                  label: "Abstract",
+                  sub: "f(Q) + all candidates",
+                  x: 20,
+                  y: 92,
+                  w: 210,
+                  h: 52,
+                },
+                {
+                  id: "keywords",
+                  label: "Keywords",
+                  sub: "f(Q) + all candidates",
+                  x: 20,
+                  y: 158,
+                  w: 210,
+                  h: 52,
+                },
+                {
+                  id: "year",
+                  label: "Year",
+                  sub: "1 / (1 + |Δyear|)",
+                  x: 20,
+                  y: 224,
+                  w: 210,
+                  h: 52,
+                },
+                {
+                  id: "fields",
+                  label: "Per-field SIFTER",
+                  sub: "one vectorizer per field",
+                  x: 330,
+                  y: 124,
+                  w: 180,
+                  h: 56,
+                },
+                {
+                  id: "weights",
+                  label: "Equal weights",
+                  sub: "0.25 + 0.25 + 0.25 + 0.25",
+                  x: 590,
+                  y: 124,
+                  w: 180,
+                  h: 56,
+                },
+                {
+                  id: "clamp",
+                  label: "s_meta(d)",
+                  sub: "clamped to [0, 1] · missing = 0",
+                  x: 830,
+                  y: 124,
+                  w: 200,
+                  h: 56,
+                  accent: true,
+                },
+              ]}
+              edges={[
+                { from: "title", to: "fields" },
+                { from: "abstract", to: "fields" },
+                { from: "keywords", to: "fields" },
+                { from: "year", to: "fields" },
+                { from: "fields", to: "weights", label: "four cosines" },
+                { from: "weights", to: "clamp" },
+              ]}
+            />
+
+            <FlowDiagram
+              title="Figure 3 — The Arena battle"
+              height={300}
+              nodes={[
+                {
+                  id: "q",
+                  label: "One query",
+                  sub: "or one seed paper",
+                  x: 20,
+                  y: 130,
+                  w: 140,
+                  h: 52,
+                },
+                {
+                  id: "p1",
+                  label: "PIXEL PUNCH",
+                  sub: "TF-IDF 100%",
+                  x: 210,
+                  y: 12,
+                  w: 150,
+                  h: 40,
+                },
+                {
+                  id: "p2",
+                  label: "GHOST WIRE",
+                  sub: "S-BERT 100%",
+                  x: 210,
+                  y: 58,
+                  w: 150,
+                  h: 40,
+                },
+                {
+                  id: "p3",
+                  label: "DUO MODE",
+                  sub: "TF-IDF + S-BERT",
+                  x: 210,
+                  y: 104,
+                  w: 150,
+                  h: 40,
+                },
+                {
+                  id: "p4",
+                  label: "TRIVIA QUEST",
+                  sub: "S-BERT + meta",
+                  x: 210,
+                  y: 150,
+                  w: 150,
+                  h: 40,
+                },
+                {
+                  id: "p5",
+                  label: "ARCHIVE MAGE",
+                  sub: "TF-IDF + meta",
+                  x: 210,
+                  y: 196,
+                  w: 150,
+                  h: 40,
+                },
+                {
+                  id: "p6",
+                  label: "FINAL BOSS",
+                  sub: "all three signals",
+                  x: 210,
+                  y: 242,
+                  w: 150,
+                  h: 40,
+                },
+                {
+                  id: "six",
+                  label: "Six rankings",
+                  sub: "same batch of candidates",
+                  x: 430,
+                  y: 124,
+                  w: 170,
+                  h: 56,
+                },
+                {
+                  id: "vote",
+                  label: "Consensus & agreement",
+                  sub: "Borda-style · pairwise · winner",
+                  x: 660,
+                  y: 124,
+                  w: 200,
+                  h: 56,
+                },
+                {
+                  id: "log",
+                  label: "Battle log",
+                  sub: "every run, tallied",
+                  x: 900,
+                  y: 60,
+                  w: 140,
+                  h: 52,
+                  accent: true,
+                },
+              ]}
+              edges={[
+                { from: "q", to: "p1" },
+                { from: "q", to: "p2" },
+                { from: "q", to: "p3" },
+                { from: "q", to: "p4" },
+                { from: "q", to: "p5" },
+                { from: "q", to: "p6" },
+                { from: "p1", to: "six" },
+                { from: "p2", to: "six" },
+                { from: "p3", to: "six" },
+                { from: "p4", to: "six" },
+                { from: "p5", to: "six" },
+                { from: "p6", to: "six" },
+                { from: "six", to: "vote" },
+                { from: "vote", to: "log" },
+              ]}
+            />
+          </WikiSection>
 
           <WikiSection id="vector-space" title="The vector space model & TF-IDF">
             <p className="text-sm leading-6 text-ink">
@@ -229,18 +526,25 @@ export default function MathWalkthrough() {
             <p className="text-sm leading-6 text-ink">
               The metadata component is a small, transparent scoring layer
               over four bibliographic fields at fixed equal weights of 25
-              percent. Text fields are compared with pairwise TF-IDF
-              cosine similarity; the publication year is compared by
-              temporal proximity.
+              percent. Each text field is compared with TF-IDF cosine
+              similarity, using one vectorizer per field that is fitted on
+              the query together with every candidate's value of that
+              field; the publication year is compared by temporal
+              proximity.
             </p>
             <MathBlock
               lines={[
                 "For each text field f in { title, abstract, keywords }:",
-                "  s_f(d) = cos( TFIDF({ f(Q) }), TFIDF({ f(d) }) )",
-                "         = 0  if the field is missing in Q or d",
+                "  V_f    = TF-IDF vectorizer fitted once per request on",
+                "           { f(Q) } + { f(d') : d' in D, f(d') not blank }",
+                "  s_f(d) = cos( v_f(Q), v_f(d) )",
+                "         = 0  if f(Q) or f(d) is missing",
+                "",
+                "f(Q) = the seed's own field          (seed-paper query)",
+                "     = the query string, all 3 fields (free-text query)",
                 "",
                 "s_year(d) = 1 / ( 1 + | year(Q) - year(d) | )",
-                "          = 0  if either year is missing",
+                "          = 0  if either year is missing (always, for free text)",
                 "",
                 "s_meta(d) = 0.25 * s_title(d) + 0.25 * s_abstract(d)",
                 "          + 0.25 * s_keywords(d) + 0.25 * s_year(d)",
@@ -252,11 +556,18 @@ export default function MathWalkthrough() {
               one available field cannot inflate its score by omission.
               Second, the year signal decays smoothly: identical years
               score 1, one year apart scores 0.5, three years apart 0.25.
-              On free-text queries only the title signal is active (the
-              other fields do not exist in the query), so metadata-inclusive
-              pipelines behave differently under query search than under
-              seed-paper search.
+              A free-text query has no publication year, so the same query
+              string is compared against each candidate's title, abstract,
+              and keywords but the year term is always 0: the metadata
+              score of a text query cannot exceed 0.75, while a seed-paper
+              query uses the seed's own four fields and can reach 1. That
+              is why metadata-inclusive pipelines behave differently under
+              query search than under seed-paper search. Because the
+              vectorizer is fitted on the query plus all candidates, the
+              inverse document frequencies follow the corpus of that field,
+              not just the pair being compared.
             </p>
+            <WikiCite ids={["stats-for-nerds-checked"]} />
           </WikiSection>
 
           <WikiSection id="fusion" title="Normalization & weighted fusion">
@@ -312,6 +623,41 @@ export default function MathWalkthrough() {
               pipeline, and corpus always produce the identical list. The
               score &gt; 0 filter drops papers that matched nothing.
             </p>
+            <WikiSub id="mmr" title="Optional diversification (MMR)">
+              <p className="text-sm leading-6 text-ink">
+                A pure relevance ranking can fill up with near-duplicates of
+                one paper. The <Chip>Diversify (MMR)</Chip> checkbox on the
+                Search page turns on Maximal Marginal Relevance (Carbonell
+                &amp; Goldstein, 1998): the positive-score results are
+                reranked greedily so each pick balances its own relevance
+                against its similarity to the papers already picked.
+              </p>
+              <MathBlock
+                lines={[
+                  "MMR(i) = λ · S(i) − (1 − λ) · max_{j ∈ picked} sim(i, j)",
+                  "",
+                  "λ = 0.7 when Diversify is ticked; off by default",
+                  "pool = the top 50 positive-score results (API: 1..100)",
+                  "sim = cosine of the stored S-BERT vectors, clipped to [0, 1]",
+                  "      (TF-IDF vectors if fewer than two S-BERT vectors exist;",
+                  "       the constant 1 if neither: no diversity signal)",
+                  "First pick is always the top-scoring paper; at λ = 1 the",
+                  "order is plain relevance. Ties: higher S(d), then lower id.",
+                ]}
+              />
+              <p className="text-sm leading-6 text-ink">
+                MMR only reorders: it never changes a score, never adds or
+                drops a paper from the pool, and the default path (switch
+                off) is byte-for-byte the ranking above. The whole pool is
+                reordered and the first top_k of the new order are
+                returned; papers beyond the pool keep their relevance
+                order. Each pair of pool papers is compared exactly once,
+                pool(pool − 1)/2 similarities, which is 1,225 at the
+                default pool of 50, so the cost is small and never an n × n
+                matrix.
+              </p>
+            </WikiSub>
+            <WikiCite ids={["engine-mmr-and-citations"]} />
           </WikiSection>
 
           <WikiSection id="graph" title="The similar-papers graph">
@@ -329,8 +675,13 @@ export default function MathWalkthrough() {
                 "       + w_sbert * cos( e_sbert(a), e_sbert(b) )",
                 "       + w_meta  * meta(a, b)",
                 "       + 0.15    * J( authors(a), authors(b) )",
+                "       + 0.25    * C( a, b )",
                 "",
                 "J = Jaccard over lowercased author last names",
+                "C = 0.5 * coupling(a,b) + 0.5 * cocitation(a,b)",
+                "    coupling   = |shared references| / min(|refs(a)|,   |refs(b)|)",
+                "    cocitation = |shared citing works| / min(|citers(a)|, |citers(b)|)",
+                "    C = 0 for a pair with no cached citation rows",
                 "w(a,b) clamped to [0, 1]; missing vector contributes 0",
                 "",
                 "Edges: origin star always drawn; other pairs",
@@ -345,11 +696,135 @@ export default function MathWalkthrough() {
               reference model's shared-author contribution: two papers by
               the same author are a little closer than their texts alone
               suggest. The graph uses raw component similarities, not the
-              min-max normalized scores of the ranked list. Because the
-              repository stores no reference lists, shared authors and
-              shared topics stand in for bibliographic coupling, a
+              min-max normalized scores of the ranked list. The 0.25
+              citation term is bibliographic coupling (papers citing the
+              same works) plus co-citation (papers cited together),
+              computed from reference and citer lists cached from
+              OpenAlex; a paper's rows are filled by refreshing its
+              citations, and a pair with no cached rows contributes
+              exactly 0, so an un-refreshed database scores as it did
+              before. Where no citation data exists, shared authors and
+              topics still stand in for bibliographic coupling, a
               deliberate substitution, not a claim of equivalence.
             </p>
+
+            <WikiSub id="dijkstra" title="Shortest paths: Dijkstra's algorithm">
+              <p className="text-sm leading-6 text-ink">
+                The edge weights say how related two papers are; the
+                shortest-path step says how a paper is related to the
+                origin. Select a node and the page highlights the route
+                from the origin to it: the chain of papers whose successive
+                similarities are strongest overall. The server computes
+                that route once, with Dijkstra's algorithm, so the
+                highlighted path is a real similarity route and not merely
+                the fewest hops. Only the local graph uses it.
+              </p>
+              <MathBlock
+                lines={[
+                  "G = (V, E, w), undirected",
+                  "V = { o } + the top_k results            |V| = k + 1",
+                  "E = { (o, v) : v != o }                  the origin star",
+                  "  + { (a, b) : w(a,b) >= 0.15 }          the strong pairs",
+                  "",
+                  "c(a,b) = max( 0, 1 - w(a,b) )            edge cost, in [0, 1]",
+                  "len(P) = sum of c(e) over the edges e of a path P",
+                  "d(v)   = min over paths P from o to v of len(P),   d(o) = 0",
+                ]}
+              />
+              <p className="text-sm leading-6 text-ink">
+                The cost 1 − w turns similarity into distance: a perfect
+                edge (w = 1) is free and an unrelated pair (w = 0) costs a
+                full 1. Because the origin is joined to every node, a route
+                always exists, and for every node v the distance is at most
+                the direct cost: d(v) ≤ 1 − w(o, v) ≤ 1.
+              </p>
+              <p className="text-sm leading-6 text-ink">
+                The implementation, step for step:
+              </p>
+              <MathBlock
+                lines={[
+                  "d(o) = 0;  d(v) = infinity for every other v",
+                  "Q = a min-heap holding (0, o), ordered by (distance, paper id)",
+                  "",
+                  "while Q is not empty:",
+                  "    (delta, u) = pop the smallest entry of Q",
+                  "    if u is already settled: skip this stale entry",
+                  "    settle u                       d(u) = delta is now final",
+                  "    for each neighbour v of u, with cost c(u, v):",
+                  "        if delta + c(u,v) < d(v) - 1e-9:",
+                  "            d(v) = delta + c(u,v);  pred(v) = u",
+                  "            push (d(v), v) onto Q",
+                  "",
+                  "path(v) = follow pred from v back to o, then reverse",
+                  "output d(v) rounded to 4 decimals, and path(v), for every",
+                  "node reached",
+                ]}
+              />
+              <p className="text-sm leading-6 text-ink">
+                <strong>Why it is correct.</strong> Dijkstra needs every
+                cost to be non-negative, and the clamp in c(a,b) guarantees
+                it. The invariant: when u is popped, no unsettled node can
+                give a shorter route to u, because any such route would
+                have to leave the settled set through a node whose tentative
+                distance is already at least delta and then add a cost of 0
+                or more. So d(u) is final the moment u is settled, and every
+                node is settled exactly once. Stale heap entries (a node
+                pushed again after an improvement) are simply skipped when
+                they surface, which is cheaper than updating the heap in
+                place.
+              </p>
+              <p className="text-sm leading-6 text-ink">
+                <strong>When does an indirect route win?</strong> For an
+                origin o, an intermediate paper m and a target v:
+              </p>
+              <MathBlock
+                lines={[
+                  "o -> m -> v beats the direct edge o -> v",
+                  "    <=>  c(o,m) + c(m,v) < c(o,v)",
+                  "    <=>  (1 - w1) + (1 - w2) < 1 - wd",
+                  "    <=>  w1 + w2 > 1 + wd",
+                  "",
+                  "w1 = w(o,m),  w2 = w(m,v),  wd = w(o,v)",
+                ]}
+              />
+              <p className="text-sm leading-6 text-ink">
+                Each weight is at most 1, so both hops must be strong: for
+                example 0.60 + 0.60 beats a direct edge of 0.19 but not one
+                of 0.21. A weakly related paper is pulled onto the route of
+                a strongly related neighbour that bridges it to the origin,
+                which is exactly the similarity route the graph highlights.
+                Longer chains compete the same way: extra hops cost at
+                least nothing, but the whole sum must stay below the direct
+                cost.
+              </p>
+              <p className="text-sm leading-6 text-ink">
+                <strong>Determinism.</strong> Ties are settled by rules. The
+                heap orders entries by (distance, paper id), so among equal
+                distances the smaller id is settled first; a later route
+                replaces a stored predecessor only if it is better by more
+                than 1e-9, so floating-point noise cannot flip a path; and
+                the result does not depend on the order of the edge list
+                (the test suite shuffles it). The same graph always yields
+                the same distances and paths.
+              </p>
+              <p className="text-sm leading-6 text-ink">
+                <strong>Cost.</strong> Each undirected edge is relaxed from
+                both ends, so there are at most 2E heap pushes, each pop or
+                push costing O(log V): the total is O((V + E) log V). With
+                at most 41 nodes in the interface and E ≤ V(V − 1)/2 ≤ 820
+                edges, that is a few thousand operations, negligible next
+                to computing the E edge weights.
+              </p>
+              <p className="text-sm leading-6 text-ink">
+                These statements are pinned by test/test_shortest_paths.py:
+                the worked example below, the w1 + w2 &gt; 1 + wd condition
+                over a grid of weights, the tie-break rules, and agreement
+                with an independent Bellman-Ford implementation on 300
+                random graphs, where every returned path costs exactly its
+                distance.
+              </p>
+              <WikiCite ids={["engine-dijkstra"]} />
+            </WikiSub>
           </WikiSection>
 
           <WikiSection id="arena" title="The Arena as a voting system">
@@ -432,7 +907,7 @@ export default function MathWalkthrough() {
 
           <WikiSection id="complexity" title="Algorithms & complexity">
             <p className="text-sm leading-6 text-ink">
-              With 146 valid papers the whole pipeline is comfortably
+              With 150 valid papers the whole pipeline is comfortably
               interactive, but the orders of growth are worth recording
               (n = valid papers, d = vector dimension, k = top_k, V and E
               = graph nodes and edges):
@@ -521,14 +996,60 @@ export default function MathWalkthrough() {
                 rows={[
                   ["A → C", "[A, C]", "1 − 0.764 = 0.236"],
                   ["A → B", "[A, B]", "1 − 0.278 = 0.722"],
-                  ["B → C", "[B, C] (direct)", "1 − 0.176 = 0.824"],
                 ]}
               />
               <p className="text-sm leading-6 text-ink">
-                All three edges clear the 0.15 threshold, and every direct
-                edge beats the two-hop route through the origin. Dijkstra
-                keeps the direct paths. A→C is the tightest connection:
-                two papers on neural text methods, 0.236 apart.
+                All three edges clear the 0.15 threshold. Shortest paths
+                are always measured from the origin A, and here both direct
+                routes survive: A → B costs 0.722 directly against 0.236 +
+                0.824 = 1.060 through C, and A → C costs 0.236 directly
+                against 0.722 + 0.824 = 1.546 through B. A → C is the
+                tightest connection: two papers on neural text methods,
+                0.236 apart.
+              </p>
+            </WikiSub>
+            <WikiSub id="example-dijkstra" title="Dijkstra step by step (a fourth paper)">
+              <p className="text-sm leading-6 text-ink">
+                An indirect route needs a bridge. Add a paper D on the same
+                topic as C, with w(C,D) = 0.820 and w(A,D) = 0.310; the pair
+                B–D is below the 0.15 threshold and is not drawn. Costs are
+                c = 1 − w:
+              </p>
+              <WikiTable
+                headers={["Edge", "Weight w", "Cost c = 1 − w"]}
+                rows={[
+                  ["A–B", "0.278", "0.722"],
+                  ["A–C", "0.764", "0.236"],
+                  ["A–D", "0.310", "0.690"],
+                  ["B–C", "0.176", "0.824"],
+                  ["C–D", "0.820", "0.180"],
+                ]}
+              />
+              <WikiTable
+                headers={["Step", "Pop and settle", "Relaxations", "Distances afterwards"]}
+                rows={[
+                  ["1", "A (0)", "B ← 0.722, C ← 0.236, D ← 0.690", "A 0 · B 0.722 · C 0.236 · D 0.690"],
+                  ["2", "C (0.236)", "B: 0.236 + 0.824 = 1.060 is not better. D: 0.236 + 0.180 = 0.416 beats 0.690, so D ← 0.416 via C", "B 0.722 · C 0.236 · D 0.416"],
+                  ["3", "D (0.416)", "its neighbours A and C are already settled", "unchanged"],
+                  ["4", "(0.690, D)", "stale entry for D, skipped", "unchanged"],
+                  ["5", "B (0.722)", "its neighbours A and C are already settled", "final"],
+                ]}
+              />
+              <WikiTable
+                headers={["Origin → node", "Shortest path", "Length"]}
+                rows={[
+                  ["A → C", "[A, C]", "0.236"],
+                  ["A → D", "[A, C, D]", "0.236 + 0.180 = 0.416 (the direct edge costs 0.690)"],
+                  ["A → B", "[A, B]", "0.722"],
+                ]}
+              />
+              <p className="text-sm leading-6 text-ink">
+                The condition from above predicts it: w(A,C) + w(C,D) =
+                0.764 + 0.820 = 1.584, which is more than 1 + w(A,D) =
+                1.310, so the route through C wins, by 0.690 − 0.416 =
+                0.274. B stays direct because through C it would cost
+                1.060. This exact graph is a unit test, so the table above
+                is what the engine returns.
               </p>
             </WikiSub>
           </WikiSection>
@@ -567,7 +1088,7 @@ export default function MathWalkthrough() {
                 runs and rankings are reproducible to the last paper.
               </li>
               <li>
-                The search path is O(n·d) with n = 146 valid papers. The
+                The search path is O(n·d) with n = 150 valid papers. The
                 whole corpus is scored per query, and nothing is indexed
                 beyond the stored vectors and embeddings.
               </li>

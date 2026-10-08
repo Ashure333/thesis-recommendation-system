@@ -32,15 +32,6 @@ PIPELINE_ORDER: tuple[str, ...] = (
     "tfidf_sbert_metadata",
 )
 
-PipelineName = Literal[
-    "tfidf",
-    "sbert",
-    "tfidf_sbert",
-    "tfidf_metadata",
-    "sbert_metadata",
-    "tfidf_sbert_metadata",
-]
-
 # Component set per pipeline. Two pipelines agree "independently"
 # only to the extent they share no building blocks: a hybrid's
 # top-k is partly a re-run of its own components, so its agreement

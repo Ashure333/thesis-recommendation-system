@@ -265,16 +265,24 @@ def _groq_max_wait() -> float:
         return DEFAULT_GROQ_MAX_WAIT_SECONDS
 
 
-def _groq_request_body(model: str, prompt: str) -> dict:
+DEFAULT_GROQ_SYSTEM = (
+    "You are a repository-grounded academic research "
+    "assistant. Follow the supplied evidence strictly."
+)
+
+
+def _groq_request_body(
+    model: str,
+    prompt: str,
+    system: str = DEFAULT_GROQ_SYSTEM,
+    max_tokens: int = 2500,
+) -> dict:
     body = {
         "model": model,
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "You are a repository-grounded academic research "
-                    "assistant. Follow the supplied evidence strictly."
-                ),
+                "content": system,
             },
             {
                 "role": "user",
@@ -284,7 +292,7 @@ def _groq_request_body(model: str, prompt: str) -> dict:
         "temperature": 0.2,
         # gpt-oss spends part of this budget on hidden reasoning; the old
         # 1200 left some answers empty (finish_reason == "length").
-        "max_tokens": 2500,
+        "max_tokens": max_tokens,
     }
 
     if model.startswith("openai/gpt-oss"):
@@ -305,6 +313,8 @@ def _groq_try_model(
     prompt: str,
     headers: dict,
     wait_left: float,
+    system: str = DEFAULT_GROQ_SYSTEM,
+    max_tokens: int = 2500,
 ) -> tuple[str | None, str | None, float]:
     """One model, with bounded 429 retries.
 
@@ -316,7 +326,7 @@ def _groq_try_model(
             response = requests.post(
                 GROQ_URL,
                 headers=headers,
-                json=_groq_request_body(model, prompt),
+                json=_groq_request_body(model, prompt, system, max_tokens),
                 timeout=90,
             )
         except requests.RequestException as error:
@@ -362,7 +372,16 @@ def _groq_try_model(
     return None, "rate limited (429)", wait_left
 
 
-def _groq_answer(prompt: str) -> str:
+def groq_complete(
+    prompt: str,
+    *,
+    system: str = DEFAULT_GROQ_SYSTEM,
+    max_tokens: int = 2500,
+    models: list[str] | None = None,
+    max_wait: float | None = None,
+) -> str:
+    """One Groq completion with bounded 429 retries and a model chain."""
+
     api_key = os.getenv("GROQ_API_KEY", "").strip()
 
     if not api_key:
@@ -375,19 +394,21 @@ def _groq_answer(prompt: str) -> str:
         "Content-Type": "application/json",
     }
 
-    wait_left = _groq_max_wait()
+    wait_left = _groq_max_wait() if max_wait is None else max_wait
     errors: list[str] = []
 
-    for model in _groq_models():
+    for model in models or _groq_models():
         answer, error, wait_left = _groq_try_model(
             model,
             prompt,
             headers,
             wait_left,
+            system,
+            max_tokens,
         )
 
         if answer is not None:
-            return _normalize_citations(answer)
+            return answer
 
         errors.append(f"{model}: {error}")
 
@@ -395,6 +416,10 @@ def _groq_answer(prompt: str) -> str:
         "Groq request failed for every configured model — "
         + "; ".join(errors)
     )
+
+
+def _groq_answer(prompt: str) -> str:
+    return _normalize_citations(groq_complete(prompt))
 
 
 def _tokenize(value: str) -> set[str]:

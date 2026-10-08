@@ -1,0 +1,66 @@
+\contentsline {chapter}{THE PROBLEM AND ITS BACKGROUND}{1}{section*.1}%
+\contentsline {section}{Introduction}{1}{section*.2}%
+\contentsline {section}{Statement of the Problem}{4}{section*.3}%
+\contentsline {section}{Significance of the Study}{7}{section*.4}%
+\contentsline {section}{Scope and Delimitation}{7}{section*.5}%
+\contentsline {section}{Definition of Terms}{8}{section*.6}%
+\contentsline {section}{AI-Assisted Research Disclosure}{11}{section*.7}%
+\contentsline {chapter}{REVIEW OF RELATED LITERATURE AND STUDIES}{12}{section*.8}%
+\contentsline {section}{Related Theories}{12}{section*.9}%
+\contentsline {section}{Related Literature}{14}{section*.10}%
+\contentsline {subsection}{Recommender Systems and the Research-Paper Domain}{14}{subsection*.11}%
+\contentsline {subsection}{The Vocabulary-Mismatch Problem}{15}{subsection*.12}%
+\contentsline {subsection}{Fusion and Normalization of Heterogeneous Signals}{15}{subsection*.13}%
+\contentsline {subsection}{Offline Evaluation Conventions}{16}{subsection*.14}%
+\contentsline {section}{Related Studies}{16}{section*.15}%
+\contentsline {subsection}{Local Studies}{16}{subsection*.16}%
+\contentsline {subsection}{International Studies}{17}{subsection*.17}%
+\contentsline {subsubsection}{Surveys of Paper Recommendation Systems}{17}{subsubsection*.18}%
+\contentsline {subsubsection}{Embedding-Based Paper Recommendation and Retrieval}{17}{subsubsection*.19}%
+\contentsline {subsubsection}{Content-Based Citation Recommendation with Metadata}{18}{subsubsection*.20}%
+\contentsline {subsubsection}{Hybrid Fusion of Heterogeneous Representations}{18}{subsubsection*.21}%
+\contentsline {subsubsection}{Offline Evaluation of Recommenders}{19}{subsubsection*.22}%
+\contentsline {section}{Synthesis of the Review of Literature and Studies}{19}{section*.23}%
+\contentsline {subsection}{Convergences}{19}{subsection*.24}%
+\contentsline {subsection}{Contradictions and Limitations}{20}{subsection*.25}%
+\contentsline {subsection}{Gap Analysis}{20}{subsection*.26}%
+\contentsline {section}{Conceptual Framework}{21}{section*.27}%
+\contentsline {section}{Hypotheses of the Study}{22}{section*.28}%
+\contentsline {section}{AI-Assisted Research Disclosure}{23}{section*.29}%
+\contentsline {chapter}{RESEARCH METHODOLOGY}{24}{section*.30}%
+\contentsline {section}{Research Design}{24}{section*.31}%
+\contentsline {section}{Research Locale}{25}{section*.32}%
+\contentsline {section}{System Framework and Features}{25}{section*.33}%
+\contentsline {section}{Process of Developing the System}{31}{section*.34}%
+\contentsline {subsection}{Planning}{31}{subsection*.35}%
+\contentsline {subsection}{Approach in Development}{31}{subsection*.36}%
+\contentsline {subsection}{Requirement Analysis}{32}{subsection*.37}%
+\contentsline {subsection}{Design}{32}{subsection*.38}%
+\contentsline {subsection}{Development}{33}{subsection*.39}%
+\contentsline {subsection}{Testing}{34}{subsection*.40}%
+\contentsline {section}{System Evaluation}{34}{section*.41}%
+\contentsline {subsection}{Evaluation Instrument (Arena Protocol)}{34}{subsection*.42}%
+\contentsline {subsection}{Research Instrument}{35}{subsection*.43}%
+\contentsline {subsection}{Population and Sample}{36}{subsection*.44}%
+\contentsline {subsection}{Data Collection}{37}{subsection*.45}%
+\contentsline {subsection}{Data Processing and Analysis}{38}{subsection*.46}%
+\contentsline {section}{Ethical Considerations}{40}{section*.47}%
+\contentsline {section}{Limitations of the Method}{41}{section*.48}%
+\contentsline {section}{AI-Assisted Research Disclosure}{42}{section*.49}%
+\contentsline {thesisrefs}{References}{43}{section*.50}%
+\contentsline {section}{Notation}{57}{section*.58}%
+\contentsline {section}{B.1 Text Preparation}{57}{section*.59}%
+\contentsline {section}{B.2 TF-IDF Component --- Lexical Similarity}{58}{section*.60}%
+\contentsline {section}{B.3 S-BERT Component --- Semantic Similarity}{58}{section*.61}%
+\contentsline {section}{B.4 Metadata Component --- Field-Level Similarity}{59}{section*.62}%
+\contentsline {section}{B.5 Score Normalization}{60}{section*.63}%
+\contentsline {section}{B.6 The Six Pipeline Configurations}{60}{section*.64}%
+\contentsline {section}{B.7 Ranking and Output}{61}{section*.65}%
+\contentsline {section}{B.8 The Similar-Papers Graph}{61}{section*.66}%
+\contentsline {section}{B.9 BM25 Ranked Repository Search}{66}{section*.67}%
+\contentsline {section}{B.10 Precomputed Vector Matrices}{67}{section*.68}%
+\contentsline {section}{B.11 MMR Diversification}{67}{section*.69}%
+\contentsline {section}{B.12 Learned Fusion Weights (Offline Instrument)}{68}{section*.70}%
+\contentsline {section}{B.13 Citation-Based Relatedness}{68}{section*.71}%
+\contentsline {section}{B.14 Offline Retrieval Metrics}{69}{section*.72}%
+\contentsline {section}{B.15 The Execution Trace (Stats for Nerds)}{70}{section*.73}%
