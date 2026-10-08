@@ -23,6 +23,21 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "upload-fixes",
+    date: "Oct 8",
+    title: "Upload: RIS and EndNote save, nothing is filed by default, several papers at once",
+    tag: "FIXED",
+    body: "RIS and EndNote files can finally be saved (they previewed but failed on Save). Unclassified papers are no longer filed under Machine Learning, books and conference papers keep their type, and a save is one request instead of two. You can drop several files or paste several DOIs at once.",
+    details: [
+      "Saving: /api/papers/upload accepted only PDF, BibTeX and LaTeX, upload_paper.py never imported the RIS/EndNote readers and storage refused their extensions; all three are fixed, and RIS/EndNote imports now get the same automatic PDF lookup as BibTeX. The reviewed fields travel with the file (one request, checked for duplicates on what will actually be saved), so a failed second step can no longer leave a half-edited record that cannot be retried.",
+      "Data quality: a paper the classifier cannot place shows as unsorted (it used to keep the previous paper's subject or a hard-coded Machine Learning default, and Approve all used the same fallback); the document type is read from the citation (@book, @inproceedings, TY, %0, arXiv) instead of always being Journal Article; RIS and EndNote authors are joined with ';' instead of an ambiguous comma.",
+      "Speed: the preview no longer searches six sources for PDFs on every BibTeX entry (the first preview took about 8 s and the page ignored the result); the duplicate check reads only ids and titles and skips unrelated titles; Approve all saves three entries at a time and catches duplicates inside the batch.",
+      "Identifiers: doi:, DOI: and 'doi ' prefixes, ar5iv / alphaxiv / arxiv.org/html links and DOIs that really end in ')' are understood, and several can be pasted at once.",
+      "Safety: uploads are capped at 50 MB and checked (a PDF must start with %PDF-, a citation must be text); the PDF link on import-metadata and every Scholar redirect must be a public http(s) address; simultaneous imports cannot both pass the duplicate check; years and citation counts are validated, in the form and on the server.",
+      "Review form: a duplicate warning before saving, a whole-number year and citation count with an inline message, files from the picker and the drop zone (several at once, keyboard-operable), a warning before leaving with unsaved entries, and no more asterisks on fields that are not required.",
+    ],
+  },
+  {
     id: "look-wallpapers",
     date: "Oct 8",
     title: "Every look gets its own live wallpaper",

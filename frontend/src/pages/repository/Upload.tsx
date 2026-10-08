@@ -7,12 +7,13 @@ import {
 
 import {
   uploadPaper,
-  updatePaper,
+  previewPaperFile,
   previewIdentifier,
   importPaperFromMetadata,
   fetchScholarCitation,
   notifyRecommendationIndexStale,
   type Paper,
+  type ReviewedFields,
 } from "../../api";
 import FindPdfPanel from "../../components/FindPdfPanel";
 import PixelProgress from "../../components/retro/PixelProgress";
@@ -63,7 +64,12 @@ interface ScholarErrorMessage {
 
 interface ManualEntry {
   key: string;
-  file: File;
+  /** What the review navigator shows for this entry. */
+  label?: string;
+  /** The file to import, or null for an entry that came from an identifier. */
+  file: File | null;
+  /** A DOI / arXiv id to resolve, for entries that have no file. */
+  identifier?: string;
   preview: PaperPreview | null;
   status: "pending" | "approved" | "error";
   error?: string;
@@ -157,7 +163,75 @@ interface PaperPreview {
   missing_fields: string | null;
   source_filename: string | null;
   extraction_method: string | null;
+  duplicate_of?: { id: number; title: string | null } | null;
 }
+
+/** File types the importer reads. */
+const FILE_SUFFIXES = ["pdf", "bib", "ris", "enw", "tex"] as const;
+const MAX_FILES_AT_ONCE = 60;
+
+/**
+ * Pull the identifiers out of whatever was pasted: one or several DOIs,
+ * arXiv ids or links, separated by spaces, commas, semicolons or new
+ * lines. "doi: 10.1000/x" and "arXiv: 1706.03762" keep their prefix.
+ */
+function splitIdentifiers(raw: string): string[] {
+  const joined = raw
+    .replace(/\b(doi|arxiv)\s*[:=]\s+/gi, "$1:")
+    .replace(/\bdoi\s+(?=10\.)/gi, "doi:");
+  const seen = new Set<string>();
+
+  return joined
+    .split(/[\s,;]+/)
+    .map((token) => token.trim())
+    .filter((token) => {
+      const key = token.toLowerCase();
+
+      if (!token || seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+
+      return true;
+    });
+}
+
+const APPROVE_CONCURRENCY = 3;
+
+/** An entry as extracted, ready to save unchanged. */
+function previewFields(preview: PaperPreview): ReviewedFields {
+  return {
+    title: preview.title ?? "",
+    abstract: preview.abstract ?? "",
+    keywords: preview.keywords ?? "",
+    publication_year: preview.publication_year ?? null,
+    author: preview.author ?? null,
+    doi: preview.doi ?? null,
+    subject_category: preview.subject_category ?? null,
+    document_type: preview.document_type ?? null,
+    citation_count: preview.citation_count ?? null,
+  };
+}
+
+/** What makes two entries "the same paper": a DOI, else the title's letters. */
+function duplicateMarker(fields: ReviewedFields): string | null {
+  const doi = (fields.doi ?? "")
+    .toLowerCase()
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//, "")
+    .trim();
+
+  if (doi) {
+    return `doi:${doi}`;
+  }
+
+  const title = fields.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+  return title.length >= 12 ? `title:${title}` : null;
+}
+
+const fileSuffix = (name: string) =>
+  name.split(".").pop()?.toLowerCase() ?? "";
 
 /**
  * Keeps a select's current value selectable even when the backend
@@ -378,7 +452,7 @@ export default function Upload() {
   const [doi, setDoi] = useState("");
   const [subject, setSubject] = useState("");
   const [category, setCategory] = useState("");
-  const [docType, setDocType] = useState("Journal Article");
+  const [docType, setDocType] = useState("");
 
   // Backend-owned taxonomy; seed lists until the catalog loads.
   // The current value is always kept selectable (withOption), so a
@@ -406,10 +480,50 @@ export default function Upload() {
   );
   const [citations, setCitations] = useState("");
 
+
   const [title, setTitle] = useState("");
   const [abstract, setAbstract] = useState("");
   const [keywords, setKeywords] = useState("");
   const [year, setYear] = useState("");
+
+  // The only fields that can be typed wrongly: say so before saving,
+  // not through a failed request afterwards.
+  const latestYear = new Date().getFullYear() + 1;
+  const yearProblem =
+    year.trim() !== "" &&
+    !(
+      /^\d{4}$/.test(year.trim()) &&
+      Number(year) >= 1400 &&
+      Number(year) <= latestYear
+    )
+      ? `Use a four-digit year from 1400 to ${latestYear}.`
+      : null;
+  const citationProblem =
+    citations.trim() !== "" && !/^\d+$/.test(citations.trim())
+      ? "Use a whole number, 0 or more."
+      : null;
+  const fieldProblem = yearProblem ?? citationProblem;
+
+  /** What the form holds right now, ready to save. */
+  function reviewedFields(): ReviewedFields {
+    const subjectText = subject.trim();
+    const categoryText = category.trim();
+
+    return {
+      title: title.trim(),
+      abstract: abstract.trim(),
+      keywords: keywords.trim(),
+      publication_year: year.trim() ? Number(year.trim()) : null,
+      author: authors.trim() || null,
+      doi: doi.trim() || null,
+      subject_category:
+        subjectText && categoryText
+          ? `${subjectText}: ${categoryText}`
+          : subjectText || null,
+      document_type: docType.trim() || null,
+      citation_count: citations.trim() ? Number(citations.trim()) : null,
+    };
+  }
 
   const isPersistedPaper =
     paper !== null &&
@@ -484,31 +598,7 @@ export default function Upload() {
   }, []);
 
   async function previewFile(file: File): Promise<PaperPreview> {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const apiUrl =
-      import.meta.env.VITE_API_URL ??
-      "http://localhost:8000";
-
-    const response = await fetch(
-      `${apiUrl}/api/papers/preview`,
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data?.detail ??
-          "Failed to preview the paper."
-      );
-    }
-
-    return data as PaperPreview;
+    return (await previewPaperFile(file)) as PaperPreview;
   }
 
   function populatePaper(result: PaperPreview | Paper) {
@@ -542,17 +632,12 @@ export default function Upload() {
       .split(":")
       .map((part) => part.trim());
 
-    if (classifiedSubject) {
-      setSubject(classifiedSubject);
-    }
-
-    if (classifiedCategory) {
-      setCategory(classifiedCategory);
-    }
-
-    if (result.document_type) {
-      setDocType(result.document_type);
-    }
+    // Always set them: a paper the classifier could not place must show
+    // as unsorted, not keep the previous paper's subject (or a default
+    // that would quietly file it under Machine Learning).
+    setSubject(classifiedSubject ?? "");
+    setCategory(classifiedCategory ?? "");
+    setDocType(result.document_type ?? "");
 
     setCitations(
       result.citation_count != null
@@ -563,75 +648,126 @@ export default function Upload() {
     setJustSaved(false);
   }
 
-  async function handleFile(file: File) {
+  /*
+   * The entries a file brings: one per citation in a BibTeX / RIS /
+   * EndNote export (so a whole selection from a reference manager is
+   * reviewed entry by entry), otherwise the file itself.
+   */
+  async function entriesFromFile(file: File): Promise<ManualEntry[]> {
+    const suffix = fileSuffix(file.name);
+
+    if (!(FILE_SUFFIXES as readonly string[]).includes(suffix)) {
+      throw new Error(
+        `"${file.name}" is not a supported file. Use PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw) or LaTeX (.tex).`
+      );
+    }
+
+    if (suffix === "bib" || suffix === "ris" || suffix === "enw") {
+      const text = await file.text();
+      const rawEntries =
+        suffix === "bib"
+          ? splitBibtexEntries(text)
+          : suffix === "ris"
+            ? splitRisEntries(text)
+            : splitEnwEntries(text);
+
+      if (rawEntries.length > 1) {
+        return rawEntries.map((citation, index) => ({
+          key: entryKey(citation, index),
+          label:
+            suffix === "bib"
+              ? `@${entryKey(citation, index)}`
+              : `${file.name} · ${index + 1}`,
+          file: new File(
+            [new Blob([citation], { type: "text/plain" })],
+            `citation-export-${index + 1}.${suffix}`,
+            { type: "text/plain" }
+          ),
+          preview: null,
+          status: "pending" as const,
+        }));
+      }
+    }
+
+    return [
+      {
+        key: file.name,
+        label: file.name,
+        file,
+        preview: null,
+        status: "pending" as const,
+      },
+    ];
+  }
+
+  /** Keys name entries in the navigator, so two files may not share one. */
+  function withUniqueKeys(entries: ManualEntry[]): ManualEntry[] {
+    const used = new Map<string, number>();
+
+    return entries.map((entry) => {
+      const count = (used.get(entry.key) ?? 0) + 1;
+
+      used.set(entry.key, count);
+
+      return count === 1
+        ? entry
+        : { ...entry, key: `${entry.key} (${count})` };
+    });
+  }
+
+  /** Several papers at once: review them one by one in the navigator. */
+  function startNavigator(entries: ManualEntry[]) {
+    setSelectedFile(null);
+    setPaper(null);
+    setIdentifierImport(false);
+    setManualEntries(entries);
+    setCurrentIndex(0);
+
+    void previewEntry(entries, 0);
+  }
+
+  /** Another import is mid-flight: say so instead of racing it. */
+  function busy(): boolean {
+    if (uploading || saving || approvingAll) {
+      setError("Still working on the last import. Try again in a moment.");
+
+      return true;
+    }
+
+    return false;
+  }
+
+  async function handleFiles(files: File[]) {
+    if (files.length === 0 || busy()) {
+      return;
+    }
+
+    if (files.length > MAX_FILES_AT_ONCE) {
+      setError(`Import at most ${MAX_FILES_AT_ONCE} files at a time.`);
+
+      return;
+    }
+
     setUploading(true);
     setError(null);
     setJustSaved(false);
 
     try {
-      const suffix = file.name
-        .split(".")
-        .pop()
-        ?.toLowerCase();
+      const groups = await Promise.all(files.map(entriesFromFile));
+      const entries = withUniqueKeys(groups.flat());
 
-      if (
-        suffix !== "pdf" &&
-        suffix !== "bib" &&
-        suffix !== "ris" &&
-        suffix !== "enw" &&
-        suffix !== "tex"
-      ) {
-        throw new Error(
-          "Only PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw), and LaTeX (.tex) files are accepted."
-        );
+      if (entries.length > 1) {
+        startNavigator(entries);
+
+        return;
       }
 
-      /*
-       * Multi-entry citation exports (a reference manager's whole
-       * selection, journal sites, Google Scholar) are split
-       * client-side and routed through the per-entry navigator so
-       * every paper can be imported, not just the first one.
-       */
-      if (suffix === "bib" || suffix === "ris" || suffix === "enw") {
-        const text = await file.text();
-        const rawEntries =
-          suffix === "bib"
-            ? splitBibtexEntries(text)
-            : suffix === "ris"
-              ? splitRisEntries(text)
-              : splitEnwEntries(text);
+      const only = entries[0];
+      const result = await previewFile(only.file!);
 
-        if (rawEntries.length > 1) {
-          const entries: ManualEntry[] = rawEntries.map(
-            (citation, index) => ({
-              key: entryKey(citation, index),
-              file: new File(
-                [
-                  new Blob([citation], {
-                    type: "application/x-bibtex",
-                  }),
-                ],
-                `citation-export-${index + 1}.${suffix}`,
-                { type: "application/x-bibtex" }
-              ),
-              preview: null,
-              status: "pending",
-            })
-          );
-
-          setSelectedFile(null);
-          setPaper(null);
-          setManualEntries(entries);
-          setCurrentIndex(0);
-
-          void previewEntry(entries, 0);
-          return;
-        }
-      }
-
-      const result = await previewFile(file);
-
-      setSelectedFile(file);
+      setManualEntries([]);
+      setCurrentIndex(0);
+      setSelectedFile(only.file);
       populatePaper(result);
     } catch (e) {
       setSelectedFile(null);
@@ -650,6 +786,10 @@ export default function Upload() {
     bibtex: string,
     format: "bib" | "enw" | "ris" = "bib"
   ) {
+    if (busy()) {
+      return;
+    }
+
     setUploading(true);
     setError(null);
     setJustSaved(false);
@@ -706,22 +846,50 @@ export default function Upload() {
    * flow uses. Nothing is saved until Save paper below.
    */
   async function handleIdentifierLookup() {
-    const raw = identifierInput.trim();
+    const tokens = splitIdentifiers(identifierInput);
 
-    if (!raw) {
+    if (tokens.length === 0) {
       setError("Paste a DOI, an arXiv id, or a link to either.");
       return;
     }
 
-    setUploading(true);
+    if (busy()) {
+      return;
+    }
+
     setError(null);
     setJustSaved(false);
 
+    // Several identifiers at once go through the same review
+    // navigator as a multi-entry citation file.
+    if (tokens.length > 1) {
+      if (tokens.length > MAX_FILES_AT_ONCE) {
+        setError(`Look up at most ${MAX_FILES_AT_ONCE} identifiers at a time.`);
+        return;
+      }
+
+      setIdentifierInput("");
+      startNavigator(
+        tokens.map((token) => ({
+          key: token,
+          label: token,
+          file: null,
+          identifier: token,
+          preview: null,
+          status: "pending" as const,
+        }))
+      );
+
+      return;
+    }
+
+    setUploading(true);
+
     try {
-      const result = await previewIdentifier(raw);
+      const result = await previewIdentifier(tokens[0]);
 
       // Identifier lookups are single-paper: clear any multi-entry
-      // BibTeX navigator so the single Save button is the one shown.
+      // navigator so the single Save button is the one shown.
       setManualEntries([]);
       setCurrentIndex(0);
       setPreviewingIndex(null);
@@ -769,6 +937,7 @@ export default function Upload() {
     const entries: ManualEntry[] = rawEntries.map(
       (bibtex, index) => ({
         key: entryKey(bibtex, index),
+        label: `@${entryKey(bibtex, index)}`,
         file: new File(
           [new Blob([bibtex], { type: "application/x-bibtex" })],
           `manual-entry-${index + 1}.bib`,
@@ -806,7 +975,7 @@ export default function Upload() {
     setError(null);
 
     try {
-      const result = await previewFile(entry.file);
+      const result = await previewEntryData(entry);
 
       setManualEntries((current) =>
         current.map((item, i) =>
@@ -818,6 +987,7 @@ export default function Upload() {
 
       setSelectedFile(entry.file);
       populatePaper(result);
+      setIdentifierImport(Boolean(entry.identifier));
 
       return result;
     } catch (e) {
@@ -839,6 +1009,13 @@ export default function Upload() {
     } finally {
       setPreviewingIndex(null);
     }
+  }
+
+  /** Read one entry: a file through the extractor, an identifier through Crossref / arXiv. */
+  async function previewEntryData(entry: ManualEntry): Promise<PaperPreview> {
+    return entry.identifier || !entry.file
+      ? ((await previewIdentifier(entry.identifier ?? entry.key)) as PaperPreview)
+      : previewFile(entry.file);
   }
 
   function goTo(index: number) {
@@ -864,6 +1041,7 @@ export default function Upload() {
     if (entry.preview) {
       setSelectedFile(entry.file);
       populatePaper(entry.preview);
+      setIdentifierImport(Boolean(entry.identifier));
     } else {
       void previewEntry(manualEntries, clamped);
     }
@@ -875,22 +1053,20 @@ export default function Upload() {
    * per-entry / approve-all flows.
    */
   async function persistPaper(
-    file: File,
-    fields: {
-      title: string;
-      abstract: string;
-      keywords: string;
-      publication_year: number | null;
-      author: string | null;
-      doi: string | null;
-      subject_category: string | null;
-      document_type: string;
-      citation_count: number | null;
-    }
+    entry: Pick<ManualEntry, "file" | "identifier">,
+    fields: ReviewedFields,
+    source: Pick<PaperPreview, "source_filename"> | null
   ) {
-    const uploaded = await uploadPaper(file);
+    // One request: the reviewed fields are saved with the paper, so there
+    // is no half-saved record if something goes wrong.
+    if (entry.identifier || !entry.file) {
+      return importPaperFromMetadata({
+        ...fields,
+        source_filename: source?.source_filename ?? null,
+      });
+    }
 
-    return updatePaper(uploaded.id, fields);
+    return uploadPaper(entry.file, fields);
   }
 
   async function handleApproveCurrent() {
@@ -905,24 +1081,16 @@ export default function Upload() {
       return;
     }
 
+    if (fieldProblem) {
+      setError(fieldProblem);
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
     try {
-      await persistPaper(entry.file, {
-        title,
-        abstract,
-        keywords,
-        publication_year: year ? Number(year) : null,
-        author: authors || null,
-        doi: doi || null,
-        subject_category:
-          subject && category ? `${subject}: ${category}` : subject || null,
-        document_type: docType,
-        citation_count: citations
-          ? Number(citations)
-          : null,
-      });
+      await persistPaper(entry, reviewedFields(), entry.preview);
 
       notifyRecommendationIndexStale();
 
@@ -969,71 +1137,102 @@ export default function Upload() {
       return;
     }
 
+    if (fieldProblem && manualEntries[currentIndex]?.status === "pending") {
+      setApproveAllOpen(false);
+      setError(fieldProblem);
+      return;
+    }
+
     // The dialog stays open through the whole run — it becomes a
     // live progress view, then a summary, until the user dismisses.
     setApprovingAll(true);
     setApproveAllOutcome(null);
     setError(null);
 
+    const total = pending.length;
+    const queue = [...pending];
+    const seen = new Set<string>();
+    const failedKeys: string[] = [];
     let done = 0;
     let approved = 0;
-    const failedKeys: string[] = [];
 
-    for (const { entry, index } of pending) {
-      setApproveAllCurrentKey(entry.key);
-      setApproveAllProgress({ done, total: pending.length });
+    // The entry on screen carries the reviewer's own edits; the rest
+    // are saved as extracted.
+    const onScreen = reviewedFields();
 
-      try {
-        const preview =
-          entry.preview ?? (await previewFile(entry.file));
+    const markEntry = (index: number, patch: Partial<ManualEntry>) =>
+      setManualEntries((current) =>
+        current.map((item, i) =>
+          i === index ? { ...item, ...patch } : item
+        )
+      );
 
-        await persistPaper(entry.file, {
-          title: preview.title ?? "",
-          abstract: preview.abstract ?? "",
-          keywords: preview.keywords ?? "",
-          publication_year:
-            preview.publication_year ?? null,
-          author: preview.author ?? null,
-          doi: preview.doi ?? null,
-          subject_category:
-            preview.subject_category ??
-            "Computer Science: Machine Learning",
-          document_type:
-            preview.document_type ?? "Journal Article",
-          citation_count:
-            preview.citation_count ?? null,
-        });
+    async function worker() {
+      for (;;) {
+        const next = queue.shift();
 
-        notifyRecommendationIndexStale();
-        approved += 1;
+        if (!next) {
+          return;
+        }
 
-        setManualEntries((current) =>
-          current.map((item, i) =>
-            i === index
-              ? { ...item, status: "approved" }
-              : item
-          )
-        );
-      } catch (e) {
-        const message =
-          e instanceof Error
-            ? e.message
-            : "Failed to save this entry.";
+        const { entry, index } = next;
 
-        failedKeys.push(entry.key);
+        setApproveAllCurrentKey(entry.key);
 
-        setManualEntries((current) =>
-          current.map((item, i) =>
-            i === index
-              ? { ...item, status: "error", error: message }
-              : item
-          )
-        );
+        try {
+          const preview = entry.preview ?? (await previewEntryData(entry));
+
+          // Two entries in one batch may be the same paper; they are
+          // saved side by side, so catch it here, not in the database.
+          const sameness = duplicateMarker(
+            index === currentIndex ? onScreen : previewFields(preview)
+          );
+
+          if (sameness && seen.has(sameness)) {
+            throw new Error("Another entry in this batch is the same paper.");
+          }
+
+          if (sameness) {
+            seen.add(sameness);
+          }
+
+          if (preview.duplicate_of) {
+            throw new Error(
+              `Already in the repository (#${preview.duplicate_of.id}).`
+            );
+          }
+
+          await persistPaper(
+            entry,
+            index === currentIndex ? onScreen : previewFields(preview),
+            preview
+          );
+
+          notifyRecommendationIndexStale();
+          approved += 1;
+          markEntry(index, { status: "approved" });
+        } catch (e) {
+          const message =
+            e instanceof Error
+              ? e.message
+              : "Failed to save this entry.";
+
+          failedKeys.push(entry.key);
+          markEntry(index, { status: "error", error: message });
+        }
+
+        done++;
+        setApproveAllProgress({ done, total });
       }
-
-      done++;
-      setApproveAllProgress({ done, total: pending.length });
     }
+
+    setApproveAllProgress({ done: 0, total });
+
+    // A few at a time: the server saves each import in one request and
+    // serializes the duplicate check, so this is safe and quicker.
+    await Promise.all(
+      Array.from({ length: Math.min(APPROVE_CONCURRENCY, total) }, worker)
+    );
 
     setApprovingAll(false);
     setApproveAllProgress(null);
@@ -1097,6 +1296,10 @@ export default function Upload() {
    * routed through the same preview -> review -> save flow.
    */
   async function importScholarLink(url: string) {
+    if (busy()) {
+      return;
+    }
+
     setUploading(true);
     setError(null);
     setJustSaved(false);
@@ -1157,10 +1360,10 @@ export default function Upload() {
       return;
     }
 
-    const file = event.dataTransfer.files?.[0];
+    const files = Array.from(event.dataTransfer.files ?? []);
 
-    if (file) {
-      void handleFile(file);
+    if (files.length > 0) {
+      void handleFiles(files);
       return;
     }
 
@@ -1181,6 +1384,11 @@ export default function Upload() {
       return;
     }
 
+    if (fieldProblem) {
+      setError(fieldProblem);
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
@@ -1188,31 +1396,14 @@ export default function Upload() {
       /*
        * The preview step never touches the database.
        * The first persistent operation happens here, after
-       * the user explicitly clicks Save.
+       * the user explicitly clicks Save, and it is a single request:
+       * the reviewed fields are saved together with the paper.
        */
-      const fields = {
-        title,
-        abstract,
-        keywords,
-        publication_year: year
-          ? Number(year)
-          : null,
-        author: authors || null,
-        doi: doi || null,
-        subject_category:
-          subject && category ? `${subject}: ${category}` : subject || null,
-        document_type: docType,
-        citation_count: citations
-          ? Number(citations)
-          : null,
-      };
-
-      const updated = identifierImport
-        ? await importPaperFromMetadata({
-            ...fields,
-            source_filename: paper.source_filename,
-          })
-        : await persistPaper(selectedFile!, fields);
+      const updated = await persistPaper(
+        { file: selectedFile, identifier: identifierImport ? "identifier" : undefined },
+        reviewedFields(),
+        paper as PaperPreview
+      );
 
       notifyRecommendationIndexStale();
 
@@ -1230,6 +1421,29 @@ export default function Upload() {
       setSaving(false);
     }
   }
+
+  /*
+   * Work that has been read but not saved is lost on a reload or when
+   * the tab closes: ask first.
+   */
+  const unsavedWork =
+    (paper !== null && !justSaved && !isPersistedPaper) ||
+    manualEntries.some((entry) => entry.status === "pending");
+
+  useEffect(() => {
+    if (!unsavedWork) {
+      return;
+    }
+
+    function warn(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", warn);
+
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsavedWork]);
 
   /*
    * Arrow-key navigation between parsed entries.
@@ -1292,9 +1506,9 @@ export default function Upload() {
 
     setAuthors("");
     setDoi("");
-    setSubject("Computer Science");
-    setCategory("Machine Learning");
-    setDocType("Journal Article");
+    setSubject("");
+    setCategory("");
+    setDocType("");
     setCitations("");
 
     setTitle("");
@@ -1338,13 +1552,19 @@ export default function Upload() {
       <input
         ref={fileInput}
         type="file"
-        accept="application/pdf,.bib,.tex"
+        multiple
+        accept="application/pdf,.pdf,.bib,.ris,.enw,.tex"
+        aria-label="Choose papers to import"
+        tabIndex={-1}
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0];
+          const files = Array.from(e.target.files ?? []);
 
-          if (file) {
-            void handleFile(file);
+          // Allow choosing the same file again afterwards.
+          e.target.value = "";
+
+          if (files.length > 0) {
+            void handleFiles(files);
           }
         }}
       />
@@ -1358,6 +1578,16 @@ export default function Upload() {
       <div className="space-y-6">
       <div
         data-paperrec-dropzone
+        role="button"
+        tabIndex={0}
+        aria-label="Import papers: drop files here or press Enter to choose files"
+        aria-busy={uploading}
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && !uploading) {
+            e.preventDefault();
+            fileInput.current?.click();
+          }
+        }}
         onClick={() => {
           if (!uploading) {
             fileInput.current?.click();
@@ -1392,7 +1622,7 @@ export default function Upload() {
         <p className="text-sm text-ink">
           {uploading
             ? "Importing…"
-            : "Drop a PDF, BibTeX (.bib), RIS (.ris), or EndNote (.enw) file here"}
+            : "Drop PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw) or LaTeX (.tex) files here"}
         </p>
 
         {uploading && (
@@ -1404,9 +1634,9 @@ export default function Upload() {
         )}
 
         <p className="mt-1 text-xs text-muted">
-          Multi-entry exports (reference managers, journal sites,
-          Google Scholar) import every paper. Each entry goes
-          through the review navigator below.
+          Drop several files at once, or a multi-entry export
+          (reference managers, journal sites, Google Scholar): every
+          paper goes through the review navigator below.
         </p>
 
         <p className="mt-2 text-xs text-muted">
@@ -1464,8 +1694,8 @@ export default function Upload() {
                 void handleIdentifierLookup();
               }
             }}
-            placeholder="10.18653/v1/D19-1410 · arxiv.org/abs/1706.03762"
-            aria-label="DOI or arXiv identifier"
+            placeholder="10.18653/v1/D19-1410 · doi:… · arxiv.org/abs/1706.03762 (one or several)"
+            aria-label="DOI or arXiv identifiers, separated by spaces"
             className="ui-input flex-1"
           />
 
@@ -1628,7 +1858,8 @@ export default function Upload() {
 
             <div className="min-w-0 flex-1">
               <p className="truncate font-mono text-sm font-bold text-ink">
-                @{manualEntries[currentIndex]?.key}
+                {manualEntries[currentIndex]?.label ??
+                  `@${manualEntries[currentIndex]?.key}`}
               </p>
 
               <p className="mt-0.5 text-xs text-muted">
@@ -1662,7 +1893,12 @@ export default function Upload() {
                 key={index}
                 type="button"
                 onClick={() => goTo(index)}
-                aria-label={`Entry ${index + 1}: ${entry.key}`}
+                aria-label={`Entry ${index + 1}: ${entry.label ?? entry.key}`}
+                title={
+                  entry.preview?.duplicate_of
+                    ? `Already in the repository (#${entry.preview.duplicate_of.id})`
+                    : entry.label ?? entry.key
+                }
                 className={`flex h-7 min-w-7 items-center justify-center rounded border-[2px] border-gray-900 px-1.5 font-mono text-xs font-bold transition-colors pixel-ease ${
                   index === currentIndex
                     ? "bg-accent text-onAccent"
@@ -1676,7 +1912,7 @@ export default function Upload() {
                 {index + 1}
                 {entry.status === "approved" ? (
                   <Check className="h-3 w-3" />
-                ) : entry.status === "error" ? (
+                ) : entry.status === "error" || entry.preview?.duplicate_of ? (
                   "!"
                 ) : null}
               </button>
@@ -1704,6 +1940,16 @@ export default function Upload() {
       {paper && (
         <div className="grid gap-6 lg:grid-cols-5">
           <div className="min-w-0 lg:col-span-3">
+            {(paper as PaperPreview).duplicate_of &&
+              !justSaved &&
+              !isPersistedPaper && (
+                <p className="status-warning mb-4" role="status">
+                  Already in the repository: #
+                  {(paper as PaperPreview).duplicate_of!.id}{" "}
+                  {(paper as PaperPreview).duplicate_of!.title}. Saving will
+                  be rejected unless you change the title or the DOI.
+                </p>
+              )}
             <div className="rounded border-[3px] border-gray-900 bg-white p-4">
               <div className="space-y-4">
             <div>
@@ -1732,8 +1978,7 @@ export default function Upload() {
                 htmlFor="authors"
                 className="mb-1 field-label"
               >
-                Authors{" "}
-                <span className="text-ink">*</span>
+                Authors
               </label>
 
               <input
@@ -1743,7 +1988,7 @@ export default function Upload() {
                 onChange={(e) =>
                   setAuthors(e.target.value)
                 }
-                placeholder="Last, F., Last, F. (comma-separated)"
+                placeholder="Last, First; Last, First"
                 className="ui-input"
               />
             </div>
@@ -1809,13 +2054,24 @@ export default function Upload() {
                 <input
                   id="year"
                   type="number"
+                  inputMode="numeric"
+                  min={1400}
+                  max={latestYear}
+                  step={1}
                   value={year}
                   onChange={(e) =>
                     setYear(e.target.value)
                   }
                   placeholder="e.g. 2023"
+                  aria-invalid={yearProblem !== null}
+                  aria-describedby={yearProblem ? "year-problem" : undefined}
                   className="ui-input"
                 />
+                {yearProblem && (
+                  <p id="year-problem" role="alert" className="mt-1 text-xs font-bold text-ink">
+                    {yearProblem}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1851,8 +2107,7 @@ export default function Upload() {
                   htmlFor="subject"
                   className="mb-1 field-label"
                 >
-                  Subject{" "}
-                  <span className="text-ink">*</span>
+                  Subject
                 </label>
 
                 <AutoSuggest
@@ -1869,8 +2124,7 @@ export default function Upload() {
                   htmlFor="category"
                   className="mb-1 field-label"
                 >
-                  Category{" "}
-                  <span className="text-ink">*</span>
+                  Category
                 </label>
 
                 <AutoSuggest
@@ -1889,8 +2143,7 @@ export default function Upload() {
                   htmlFor="docType"
                   className="mb-1 field-label"
                 >
-                  Document Type{" "}
-                  <span className="text-ink">*</span>
+                  Document Type
                 </label>
 
                 <select
@@ -1901,6 +2154,7 @@ export default function Upload() {
                   }
                   className="ui-input"
                 >
+                  <option value="">Not set</option>
                   {docTypeOptions.map((option) => (
                     <option key={option}>{option}</option>
                   ))}
@@ -1924,13 +2178,23 @@ export default function Upload() {
                 <input
                   id="citations"
                   type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
                   value={citations}
                   onChange={(e) =>
                     setCitations(e.target.value)
                   }
                   placeholder="0"
+                  aria-invalid={citationProblem !== null}
+                  aria-describedby={citationProblem ? "citations-problem" : undefined}
                   className="ui-input"
                 />
+                {citationProblem && (
+                  <p id="citations-problem" role="alert" className="mt-1 text-xs font-bold text-ink">
+                    {citationProblem}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -2025,6 +2289,7 @@ export default function Upload() {
                 disabled={
                   saving ||
                   approvingAll ||
+                  fieldProblem !== null ||
                   manualEntries[currentIndex]?.status !== "pending" ||
                   !manualEntries[currentIndex]?.preview
                 }
@@ -2066,6 +2331,7 @@ export default function Upload() {
                 onClick={handleSave}
                 disabled={
                   saving ||
+                  fieldProblem !== null ||
                   (!selectedFile && !identifierImport) ||
                   justSaved ||
                   isPersistedPaper

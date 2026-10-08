@@ -7,10 +7,11 @@ import subprocess
 import sys
 import tempfile
 import threading
+from urllib.parse import urlsplit
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header
+from fastapi import FastAPI, Depends, Form, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -32,6 +33,12 @@ from app.repositories.queries import filter_papers
 from app.services.fts_search import ensure_fts_index
 
 from app.services.upload_paper import (
+    IMPORT_LOCK,
+    MAX_PUBLICATION_YEAR,
+    REVIEWED_FIELDS,
+    MIN_PUBLICATION_YEAR,
+    build_paper,
+    extract_metadata,
     upload_paper_from_pdf,
     complete_paper_manually,
 )
@@ -100,6 +107,7 @@ from app.services.recommendation.compare_service import (
     rank_web_results,
 )
 
+from app.services.url_safety import UnsafeUrlError, assert_public_http_url, safe_get
 from app.services.pdf_finder import (
     find_pdf_candidates,
     download_and_attach_pdf,
@@ -964,9 +972,34 @@ def delete_paper_pdf(
 # PREVIEW PAPER
 # ============================================================
 
+def _duplicate_summary(
+    db: Session,
+    paper: Paper,
+) -> dict | None:
+    """The stored paper this one would be rejected as a copy of, if any."""
+
+    try:
+        match = find_duplicate_paper(
+            db,
+            title=paper.title,
+            doi=paper.doi,
+        )
+    except Exception as error:
+        print("WARNING: Preview duplicate check failed")
+        print(error)
+
+        return None
+
+    if match is None:
+        return None
+
+    return {"id": match.id, "title": match.title}
+
+
 def _paper_preview_payload(
     paper: Paper,
     pdf_candidates: list,
+    duplicate_of: dict | None = None,
 ) -> dict:
     """
     The shared preview response shape: what saving this paper would
@@ -994,20 +1027,26 @@ def _paper_preview_payload(
             candidate.to_dict()
             for candidate in pdf_candidates
         ],
+        "duplicate_of": duplicate_of,
     }
 
 
-@app.post("/api/papers/preview")
-def preview_paper(
-    file: UploadFile = File(...),
-):
-    """
-    Extract and validate paper metadata without creating a database record.
+# One upload may be this big. A PDF of a thesis is a few MB; this only
+# stops a runaway or hostile file from filling the disk.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
-    This is the first step of the upload flow. The frontend can show the
-    extracted metadata for editing, while the actual database insert and
-    file storage only happen through /api/papers/upload after the user
-    clicks Save.
+ACCEPTED_UPLOAD_SUFFIXES = (".pdf", ".bib", ".tex", ".ris", ".enw")
+
+_ACCEPTED_FILES_MESSAGE = (
+    "Only PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw), "
+    "and LaTeX (.tex) files are accepted."
+)
+
+
+def _save_upload_to_temp(file: UploadFile) -> tuple[str, str]:
+    """
+    Copy an uploaded file to a temp file, checking its type and size on
+    the way. Returns (path, suffix); the caller removes the file.
     """
 
     if not file.filename:
@@ -1018,69 +1057,115 @@ def preview_paper(
 
     suffix = os.path.splitext(file.filename)[1].lower()
 
-    if suffix not in (".pdf", ".bib", ".tex", ".ris", ".enw"):
+    if suffix not in ACCEPTED_UPLOAD_SUFFIXES:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Only PDF, BibTeX (.bib), RIS (.ris), "
-                "EndNote (.enw), and LaTeX (.tex) files "
-                "are accepted."
-            ),
+            detail=_ACCEPTED_FILES_MESSAGE,
         )
 
-    with tempfile.NamedTemporaryFile(
-        suffix=suffix,
-        delete=False,
-    ) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = tmp.name
+    tmp_path = None
 
     try:
-        if suffix == ".pdf":
-            metadata = extract_metadata_from_pdf(tmp_path)
-        elif suffix == ".tex":
-            metadata = extract_metadata_from_tex(tmp_path)
-        elif suffix == ".ris":
-            metadata = extract_metadata_from_ris(tmp_path)
-        elif suffix == ".enw":
-            metadata = extract_metadata_from_enw(tmp_path)
-        else:
-            metadata = extract_metadata_from_bib(tmp_path)
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix,
+            delete=False,
+        ) as tmp:
+            tmp_path = tmp.name
+            total = 0
+            head = b""
 
-        metadata = metadata or {}
+            while True:
+                chunk = file.file.read(1024 * 1024)
 
-        paper = Paper(
-            title=metadata.get("title"),
-            author=metadata.get("author"),
-            abstract=metadata.get("abstract"),
-            keywords=metadata.get("keywords"),
-            keywords_source=metadata.get("keywords_source"),
-            keywords_generated=metadata.get(
-                "keywords_generated",
-                False,
-            ),
-            publication_year=metadata.get("publication_year"),
-            doi=metadata.get("doi"),
-            citation_count=metadata.get("citation_count"),
-            source_filename=file.filename,
-            extraction_method=(
-                "latex"
-                if suffix == ".tex"
-                else (
-                    "ris"
-                    if suffix == ".ris"
-                    else (
-                        "endnote"
-                        if suffix == ".enw"
-                        else (
-                            "bibtex"
-                            if suffix == ".bib"
-                            else "pdf"
-                        )
+                if not chunk:
+                    break
+
+                if not head:
+                    head = chunk[:1024]
+
+                total += len(chunk)
+
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "That file is too large (the limit is "
+                            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."
+                        ),
                     )
-                )
-            ),
-        )
+
+                tmp.write(chunk)
+
+        if total == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="That file is empty.",
+            )
+
+        if suffix == ".pdf" and not head.lstrip().startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=400,
+                detail="That file is not a valid PDF.",
+            )
+
+        if suffix != ".pdf" and b"\x00" in head:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "That looks like a binary file, not a text "
+                    f"citation ({suffix})."
+                ),
+            )
+
+        return tmp_path, suffix
+
+    except BaseException:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+        raise
+
+
+@app.post("/api/papers/preview")
+def preview_paper(
+    file: UploadFile = File(...),
+    candidates: bool = False,
+    db: Session = Depends(get_session),
+):
+    """
+    Extract and validate paper metadata without creating a database record.
+
+    This is the first step of the upload flow. The frontend can show the
+    extracted metadata for editing, while the actual database insert and
+    file storage only happen through /api/papers/upload after the user
+    clicks Save. The response says whether the paper is already stored
+    (`duplicate_of`) so the review form can warn before saving.
+
+    Searching the web for PDF candidates takes several seconds, so it only
+    runs when asked for (`?candidates=true`); the review form does not
+    need it.
+    """
+
+    tmp_path, suffix = _save_upload_to_temp(file)
+
+    try:
+        try:
+            metadata = extract_metadata(tmp_path, suffix)
+        except Exception as error:
+            print()
+            print("PAPER PREVIEW EXTRACTION FAILED")
+            print(error)
+
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Could not read metadata from that file. "
+                    "Check that it is a valid "
+                    f"{suffix[1:].upper()} file."
+                ),
+            ) from error
+
+        paper = build_paper(metadata, file.filename, suffix)
 
         try:
             classify_paper(paper)
@@ -1100,20 +1185,20 @@ def preview_paper(
             print("WARNING: Paper preview text preparation failed")
             print(error)
 
-        # BibTeX/BibLaTeX and LaTeX source are citation/source metadata,
-        # so they have no PDF file of their own. Run the existing PDF
-        # finder immediately against this temporary Paper object. Nothing
-        # is persisted or downloaded here.
         pdf_candidates = []
 
-        if suffix in (".bib", ".tex") and paper.title:
+        if candidates and suffix in (".bib", ".tex") and paper.title:
             try:
                 pdf_candidates = find_pdf_candidates(paper)
             except Exception as error:
                 print("WARNING: Paper preview PDF discovery failed")
                 print(error)
 
-        return _paper_preview_payload(paper, pdf_candidates)
+        return _paper_preview_payload(
+            paper,
+            pdf_candidates,
+            _duplicate_summary(db, paper),
+        )
 
     except HTTPException:
         raise
@@ -1138,7 +1223,10 @@ def preview_paper(
 # ============================================================
 
 @app.post("/api/papers/preview-identifier")
-def preview_identifier(payload: IdentifierLookupRequest):
+def preview_identifier(
+    payload: IdentifierLookupRequest,
+    db: Session = Depends(get_session),
+):
     """
     Resolve a pasted DOI, arXiv id, or link to either into the same
     preview payload POST /api/papers/preview returns for an uploaded
@@ -1210,7 +1298,11 @@ def preview_identifier(payload: IdentifierLookupRequest):
         print("WARNING: Identifier preview text preparation failed")
         print(error)
 
-    return _paper_preview_payload(paper, [])
+    return _paper_preview_payload(
+        paper,
+        [],
+        _duplicate_summary(db, paper),
+    )
 
 
 # ============================================================
@@ -1223,53 +1315,105 @@ def preview_identifier(payload: IdentifierLookupRequest):
 )
 def upload_paper(
     file: UploadFile = File(...),
+    title: str | None = Form(None),
+    author: str | None = Form(None),
+    abstract: str | None = Form(None),
+    keywords: str | None = Form(None),
+    publication_year: str | None = Form(None),
+    doi: str | None = Form(None),
+    subject_category: str | None = Form(None),
+    document_type: str | None = Form(None),
+    citation_count: str | None = Form(None),
+    cleared: str | None = Form(None),
     db: Session = Depends(get_session),
 ):
-    if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="A filename is required.",
-        )
+    """
+    Import a PDF, BibTeX, RIS, EndNote or LaTeX file.
 
-    suffix = os.path.splitext(
-        file.filename
-    )[1].lower()
+    The optional form fields are the reviewer's corrections from the
+    Upload form; they are laid over the extracted metadata *before* the
+    duplicate check and the save, so one request is one atomic import.
+    A field that is omitted keeps its extracted value. Form posts cannot
+    tell "left out" from "left blank", so a field the reviewer emptied is
+    named in `cleared` (comma-separated) instead.
+    """
 
-    if suffix not in (
-        ".pdf",
-        ".bib",
-        ".tex",
+    reviewed: dict = {
+        "title": title,
+        "author": author,
+        "abstract": abstract,
+        "keywords": keywords,
+        "doi": doi,
+        "subject_category": subject_category,
+        "document_type": document_type,
+    }
+
+    for name in (cleared or "").split(","):
+        name = name.strip()
+
+        if name in REVIEWED_FIELDS:
+            reviewed[name] = ""
+
+    for name, raw in (
+        ("publication_year", publication_year),
+        ("citation_count", citation_count),
     ):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Only PDF, BibTeX (.bib), and "
-                "LaTeX (.tex) files are accepted."
-            ),
-        )
+        if raw is None:
+            continue
 
-    with tempfile.NamedTemporaryFile(
-        suffix=suffix,
-        delete=False,
-    ) as tmp:
+        cleaned = raw.strip()
 
-        shutil.copyfileobj(
-            file.file,
-            tmp,
-        )
+        if not cleaned:
+            reviewed[name] = ""
+            continue
 
-        tmp_path = tmp.name
+        try:
+            number = int(cleaned)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{name.replace('_', ' ').capitalize()} must be a whole number.",
+            )
+
+        if name == "publication_year" and not (
+            MIN_PUBLICATION_YEAR <= number <= MAX_PUBLICATION_YEAR
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Publication year must be between "
+                    f"{MIN_PUBLICATION_YEAR} and {MAX_PUBLICATION_YEAR}."
+                ),
+            )
+
+        if name == "citation_count" and number < 0:
+            raise HTTPException(
+                status_code=422,
+                detail="Citation count cannot be negative.",
+            )
+
+        reviewed[name] = number
+
+    tmp_path, _suffix = _save_upload_to_temp(file)
 
     try:
         paper = upload_paper_from_pdf(
             db,
             tmp_path,
             file.filename,
+            reviewed,
         )
 
     except DuplicatePaperError as error:
         raise HTTPException(
             status_code=409,
+            detail=str(error),
+        ) from error
+
+    except ValueError as error:
+        # An unsupported or unreadable file: say why, not just "failed".
+        raise HTTPException(
+            status_code=400,
             detail=str(error),
         ) from error
 
@@ -1323,74 +1467,111 @@ def import_from_metadata(
             detail="Title is required before saving.",
         )
 
-    duplicate = find_duplicate_paper(
-        db,
-        title=title,
-        doi=payload.doi,
-    )
-
-    if duplicate is not None:
+    if payload.publication_year is not None and not (
+        MIN_PUBLICATION_YEAR <= payload.publication_year <= MAX_PUBLICATION_YEAR
+    ):
         raise HTTPException(
-            status_code=409,
+            status_code=422,
             detail=(
-                f"Looks like a duplicate of paper #{duplicate.id}: "
-                f"{duplicate.title}"
+                "Publication year must be between "
+                f"{MIN_PUBLICATION_YEAR} and {MAX_PUBLICATION_YEAR}."
             ),
         )
 
-    paper = Paper(
-        title=title,
-        author=(payload.author or "").strip() or None,
-        abstract=(payload.abstract or "").strip() or None,
-        keywords=(payload.keywords or "").strip() or None,
-        publication_year=payload.publication_year,
-        doi=payload.doi,
-        subject_category=payload.subject_category,
-        document_type=payload.document_type,
-        citation_count=payload.citation_count,
-        source_filename=payload.source_filename,
-        extraction_method="metadata",
-    )
-
-    try:
-        generate_keywords_if_missing(paper)
-    except Exception as error:
-        print("WARNING: Identifier import keyword generation failed")
-        print(error)
-
-    # Fill-only: assigns only when the caller didn't supply a subject
-    # (web imports never do; the Upload form's dropdowns win when the
-    # user picked something).
-    try:
-        classify_paper(paper)
-    except Exception as error:
-        print("WARNING: Identifier import classification failed")
-        print(error)
-
-    try:
-        validate_paper(paper)
-    except Exception as error:
-        print("WARNING: Identifier import validation failed")
-        print(error)
-
-    try:
-        refresh_prepared_text(paper)
-    except Exception as error:
-        print("WARNING: Identifier import text preparation failed")
-        print(error)
-
-    try:
-        db.add(paper)
-        db.commit()
-        db.refresh(paper)
-
-    except Exception:
-        db.rollback()
-
+    if payload.citation_count is not None and payload.citation_count < 0:
         raise HTTPException(
-            status_code=500,
-            detail="Failed to save the paper.",
+            status_code=422,
+            detail="Citation count cannot be negative.",
         )
+
+    if payload.pdf_url:
+        try:
+            assert_public_http_url(payload.pdf_url)
+        except UnsafeUrlError as error:
+            raise HTTPException(
+                status_code=400,
+                detail=str(error),
+            ) from error
+
+    return _save_metadata_import(db, payload, title)
+
+
+def _save_metadata_import(
+    db: Session,
+    payload: MetadataImportRequest,
+    title: str,
+) -> Paper:
+    """Save a reviewed record; the duplicate check and insert run one at a time."""
+
+    with IMPORT_LOCK:
+        duplicate = find_duplicate_paper(
+            db,
+            title=title,
+            doi=payload.doi,
+        )
+
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Looks like a duplicate of paper #{duplicate.id}: "
+                    f"{duplicate.title}"
+                ),
+            )
+
+        paper = Paper(
+            title=title,
+            author=(payload.author or "").strip() or None,
+            abstract=(payload.abstract or "").strip() or None,
+            keywords=(payload.keywords or "").strip() or None,
+            publication_year=payload.publication_year,
+            doi=payload.doi,
+            subject_category=payload.subject_category,
+            document_type=payload.document_type,
+            citation_count=payload.citation_count,
+            source_filename=payload.source_filename,
+            extraction_method="metadata",
+        )
+
+        try:
+            generate_keywords_if_missing(paper)
+        except Exception as error:
+            print("WARNING: Identifier import keyword generation failed")
+            print(error)
+
+        # Fill-only: assigns only when the caller didn't supply a subject
+        # (web imports never do; the Upload form's dropdowns win when the
+        # user picked something).
+        try:
+            classify_paper(paper)
+        except Exception as error:
+            print("WARNING: Identifier import classification failed")
+            print(error)
+
+        try:
+            validate_paper(paper)
+        except Exception as error:
+            print("WARNING: Identifier import validation failed")
+            print(error)
+
+        try:
+            refresh_prepared_text(paper)
+        except Exception as error:
+            print("WARNING: Identifier import text preparation failed")
+            print(error)
+
+        try:
+            db.add(paper)
+            db.commit()
+            db.refresh(paper)
+
+        except Exception:
+            db.rollback()
+
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save the paper.",
+            )
 
     # Optional explicit PDF (the user picked a candidate). Best-effort:
     # the paper is already saved, and if this fails the background
@@ -1536,6 +1717,8 @@ SCHOLAR_EXPORT_URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_SCHOLAR_HOSTS = {"scholar.googleusercontent.com", "scholar.google.com"}
+
 _SCHOLAR_CONTENT_SIGNATURES = {
     "bib": (r"@\w+\s*\{",),
     "enw": (r"(?m)^%0\s",),
@@ -1565,8 +1748,10 @@ def _fetch_scholar_export(url: str) -> tuple[str, str]:
     export_format = match.group(1).lower()
 
     try:
-        response = requests.get(
+        response = safe_get(
             url,
+            host_ok=lambda hop: (urlsplit(hop).hostname or "")
+            in _SCHOLAR_HOSTS,
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 "
@@ -1584,6 +1769,12 @@ def _fetch_scholar_export(url: str) -> tuple[str, str]:
             },
             timeout=10,
         )
+
+    except UnsafeUrlError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        ) from error
 
     except requests.RequestException as error:
 

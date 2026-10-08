@@ -17,7 +17,7 @@ const INFOBOX_ROWS: [string, string][] = [
 export function WalkthroughMain() {
   return (
     <WikiSection id="overview" title="Overview">
-      <div className="mb-3 w-full overflow-hidden rounded border-[3px] border-gray-900 bg-white sm:float-right sm:ml-5 sm:w-[300px]">
+      <div className="mb-3 w-full overflow-hidden rounded border-[3px] border-gray-900 bg-white sm:clear-both sm:float-right sm:ml-5 sm:w-[340px] sm:max-w-[45%]">
         <p className="border-b-[3px] border-gray-900 bg-accent px-3 py-1.5 text-center font-mono text-xs font-bold uppercase tracking-[0.15em] text-onAccent">
           Re:Search
         </p>

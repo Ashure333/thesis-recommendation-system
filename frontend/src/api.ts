@@ -61,9 +61,18 @@ export interface PdfCandidate {
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    const detail = body?.detail;
+
+    // FastAPI sends validation problems as a list of {msg, loc}.
+    const message = Array.isArray(detail)
+      ? detail
+          .map((item: { msg?: string }) => item?.msg)
+          .filter(Boolean)
+          .join("; ")
+      : detail;
 
     throw new Error(
-      body.detail ?? `Request failed (${res.status})`
+      message || `Request failed (${res.status})`
     );
   }
 
@@ -268,14 +277,63 @@ export function updatePaper(
   }).then(handle<Paper>);
 }
 
-export function uploadPaper(file: File): Promise<Paper> {
+/** What the Upload form reviews: the fields saved with a paper. */
+export interface ReviewedFields {
+  title: string;
+  abstract: string;
+  keywords: string;
+  publication_year: number | null;
+  author: string | null;
+  doi: string | null;
+  subject_category: string | null;
+  document_type: string | null;
+  citation_count: number | null;
+}
+
+/**
+ * Import a file. The reviewed fields travel with it, so the paper is
+ * saved once, already corrected (no second request that can fail and
+ * leave a half-edited record). A form post cannot tell "left out" from
+ * "left blank", so emptied fields are listed in `cleared`.
+ */
+export function uploadPaper(
+  file: File,
+  fields?: ReviewedFields
+): Promise<Paper> {
   const formData = new FormData();
   formData.append("file", file);
+
+  if (fields) {
+    const cleared: string[] = [];
+
+    for (const [name, value] of Object.entries(fields)) {
+      if (value === null || value === "") {
+        cleared.push(name);
+      } else {
+        formData.append(name, String(value));
+      }
+    }
+
+    if (cleared.length > 0) {
+      formData.append("cleared", cleared.join(","));
+    }
+  }
 
   return fetch(`${API_URL}/api/papers/upload`, {
     method: "POST",
     body: formData,
   }).then(handle<Paper>);
+}
+
+/** Read a file's metadata without saving anything. */
+export function previewPaperFile(file: File): Promise<PaperPreviewData> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return fetch(`${API_URL}/api/papers/preview`, {
+    method: "POST",
+    body: formData,
+  }).then(handle<PaperPreviewData>);
 }
 
 // ============================================================
@@ -297,6 +355,8 @@ export interface PaperPreviewData {
   missing_fields: string | null;
   source_filename: string | null;
   extraction_method: string | null;
+  /** The stored paper this one would be rejected as a copy of. */
+  duplicate_of?: { id: number; title: string | null } | null;
   pdf_candidates?: Array<{
     url: string;
     source: string;

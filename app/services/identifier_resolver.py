@@ -57,7 +57,12 @@ _DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$")
 _ARXIV_NEW_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
 _ARXIV_OLD_RE = re.compile(r"^[a-z-]+(\.[a-z]{2})?/\d{7}(v\d+)?$", re.I)
 _DOI_URL_RE = re.compile(r"(?:dx\.)?doi\.org/(10\.\d{4,9}/\S+)", re.I)
-_ARXIV_URL_RE = re.compile(r"arxiv\.org/(?:abs|pdf)/([^\s?#]+)", re.I)
+# arxiv.org, export.arxiv.org, ar5iv.labs.arxiv.org, alphaxiv.org, ...
+_ARXIV_URL_RE = re.compile(
+    r"(?:arxiv\.org|ar5iv\.org|alphaxiv\.org)/(?:abs|pdf|html)/([^\s?#]+)", re.I
+)
+# "doi:10.1000/xyz", "DOI: 10.1000/xyz", "doi 10.1000/xyz"
+_DOI_PREFIX_RE = re.compile(r"^\s*doi\s*[:=]?\s*(10\.\d{4,9}/\S+)\s*$", re.I)
 
 
 def _clean_arxiv_id(value: str) -> str:
@@ -75,6 +80,21 @@ def _clean_arxiv_id(value: str) -> str:
     return cleaned
 
 
+def _trim_trailing(doi: str) -> str:
+    """
+    Drop punctuation that clings to a DOI pasted from running text. A
+    closing parenthesis is only dropped when it has no opening partner
+    inside the DOI, so DOIs that really end in ")" survive.
+    """
+
+    doi = doi.rstrip(".,;\"'")
+
+    while doi.endswith(")") and doi.count(")") > doi.count("("):
+        doi = doi[:-1].rstrip(".,;\"'")
+
+    return doi
+
+
 def parse_identifier(raw: str) -> tuple[str, str] | None:
     """
     Returns ("doi", value) or ("arxiv", value), or None when the text
@@ -88,7 +108,7 @@ def parse_identifier(raw: str) -> tuple[str, str] | None:
     # Link forms first -- they carry the identifier inside a URL.
     doi_url = _DOI_URL_RE.search(text)
     if doi_url:
-        return ("doi", doi_url.group(1).rstrip(").,;\"'"))
+        return ("doi", _trim_trailing(doi_url.group(1)))
 
     arxiv_url = _ARXIV_URL_RE.search(text)
     if arxiv_url:
@@ -103,9 +123,13 @@ def parse_identifier(raw: str) -> tuple[str, str] | None:
             return ("arxiv", cleaned)
         return None
 
+    prefixed = _DOI_PREFIX_RE.match(text)
+    if prefixed:
+        return ("doi", _trim_trailing(prefixed.group(1)))
+
     # Bare identifiers.
     if _DOI_RE.match(text):
-        return ("doi", text.rstrip(").,;\"'"))
+        return ("doi", _trim_trailing(text))
 
     if _ARXIV_NEW_RE.match(text) or _ARXIV_OLD_RE.match(text):
         return ("arxiv", _clean_arxiv_id(text))

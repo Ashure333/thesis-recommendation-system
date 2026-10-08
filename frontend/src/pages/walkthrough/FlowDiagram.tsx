@@ -365,7 +365,7 @@ export default function FlowDiagram({
   const fullWidth = Math.max(vbW * 1.4, 1400);
 
   return (
-    <figure className="relative rounded border-[2px] border-gray-900 bg-white">
+    <figure className="clear-both relative rounded border-[2px] border-gray-900 bg-white">
       <div className="flex items-center justify-between gap-3 border-b-[2px] border-gray-900 bg-surface px-3 py-1.5">
         <figcaption className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
           {title ?? "Diagram"}

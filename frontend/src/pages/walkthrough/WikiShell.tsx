@@ -96,7 +96,7 @@ function SearchBox({ accessible }: { accessible: WikiId[] }) {
         className="min-h-9 w-full rounded border-[3px] border-gray-900 bg-field px-2.5 text-sm text-ink placeholder:text-muted"
       />
       {results.length > 0 && (
-        <ul className="absolute right-0 top-full z-30 mt-1 w-[min(22rem,90vw)] overflow-hidden rounded border-[3px] border-gray-900 bg-white shadow-[4px_4px_0_rgba(0,0,0,0.2)]">
+        <ul className="absolute right-0 top-full z-30 mt-1 w-[min(22rem,calc(100vw-4rem))] overflow-hidden rounded border-[3px] border-gray-900 bg-white shadow-[4px_4px_0_rgba(0,0,0,0.2)]">
           {results.map((page) => (
             <li key={`${page.wiki}/${page.slug}`} className="border-b border-gray-200 last:border-b-0">
               <Link
@@ -127,7 +127,7 @@ function Rail({
   headings: Heading[];
 }) {
   return (
-    <aside aria-label="Wiki navigation" className="lg:sticky lg:top-4 lg:h-fit lg:w-60 lg:shrink-0">
+    <aside aria-label="Wiki navigation" className="lg:sticky lg:top-4 lg:h-fit lg:max-h-[calc(100vh-7rem)] lg:w-60 lg:shrink-0 lg:overflow-y-auto">
       <nav className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
         <p className="border-b-[3px] border-gray-900 bg-gray-900 px-3 py-2 font-mono text-xs font-bold tracking-[0.2em] text-onInk">
           {WIKIS[wiki].name.toUpperCase()}
@@ -201,7 +201,7 @@ function PortalCards({ wiki }: { wiki: WikiId }) {
         .map(([group, pages]) => [group, pages.filter((page) => page.slug !== "main")] as const)
         .filter(([, pages]) => pages.length > 0)
         .map(([group, pages]) => (
-          <section key={group}>
+          <section key={group} className="clear-both">
             <h2 className="border-b-[3px] border-gray-900 pb-1 text-xl font-bold tracking-tight text-ink">
               {group}
             </h2>

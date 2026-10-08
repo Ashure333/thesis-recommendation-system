@@ -40,6 +40,8 @@ merged.
 """
 
 import re
+
+from app.services.document_types import from_bibtex
 import unicodedata
 from datetime import datetime
 
@@ -468,6 +470,7 @@ def extract_metadata_from_bib(bib_path: str) -> dict:
             "keywords": str | None,
             "publication_year": int | None,
             "doi": str | None,
+            "document_type": str | None,
         }
 
     Missing fields are returned as None.
@@ -494,12 +497,19 @@ def extract_metadata_from_bib(bib_path: str) -> dict:
             "keywords": None,
             "publication_year": None,
             "doi": None,
+            "document_type": None,
         }
 
     # ---------------------------------------------------------
     # Extract metadata
     # ---------------------------------------------------------
+    entry_kind = re.search(r"@(\w+)\s*\{", raw_text)
+
     return {
+        "document_type": from_bibtex(
+            entry_kind.group(1) if entry_kind else None,
+            entry,
+        ),
         "title": _extract_title(entry),
         "author": _extract_authors(entry),
         "abstract": _extract_abstract(entry),

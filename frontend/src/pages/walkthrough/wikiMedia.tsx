@@ -19,6 +19,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useState,
   type ReactNode,
 } from "react";
 
@@ -67,8 +68,10 @@ function Magnifier() {
 }
 
 const FLOAT: Record<"right" | "left" | "center", string> = {
-  right: "mb-3 w-full sm:float-right sm:ml-5 sm:w-[var(--thumb-w)]",
-  left: "mb-3 w-full sm:float-left sm:mr-5 sm:w-[var(--thumb-w)]",
+  // Floats never sit beside each other (clear-both) and never take more than
+  // 45% of the column, so the text beside them keeps a readable measure.
+  right: "mb-3 w-full sm:clear-both sm:float-right sm:ml-5 sm:w-[var(--thumb-w)] sm:max-w-[45%]",
+  left: "mb-3 w-full sm:clear-both sm:float-left sm:mr-5 sm:w-[var(--thumb-w)] sm:max-w-[45%]",
   center: "mx-auto my-4 w-full max-w-[var(--thumb-w)]",
 };
 
@@ -87,13 +90,21 @@ export function WikiThumb({
 }) {
   const open = useContext(OpenContext);
   const shot = shotById(id);
+  const [ratio, setRatio] = useState<number | null>(null);
 
   if (!shot) return null;
+
+  // A tall, narrow screenshot would leave a long empty strip beside a short
+  // paragraph, so a floated thumbnail is kept to about 400 px of image height.
+  const shown =
+    float !== "center" && ratio !== null && ratio < 1
+      ? Math.max(Math.min(width, Math.round(400 * ratio)), 150)
+      : width;
 
   return (
     <figure
       className={`${FLOAT[float]} overflow-hidden rounded border-[3px] border-gray-900 bg-white`}
-      style={{ ["--thumb-w" as string]: `${width}px` }}
+      style={{ ["--thumb-w" as string]: `${shown}px` }}
     >
       <button
         type="button"
@@ -105,6 +116,11 @@ export function WikiThumb({
           src={shotUrl(id)}
           alt={shot.title}
           loading="lazy"
+          onLoad={(event) => {
+            const { naturalWidth, naturalHeight } = event.currentTarget;
+
+            if (naturalWidth > 0) setRatio(naturalWidth / naturalHeight);
+          }}
           className="block w-full"
         />
       </button>

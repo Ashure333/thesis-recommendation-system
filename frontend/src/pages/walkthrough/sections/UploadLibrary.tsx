@@ -14,8 +14,8 @@ export function UploadPage() {
         <WikiTable
           headers={["Route", "How it works"]}
           rows={[
-            ["Drop a file", "PDF, BibTeX (.bib), RIS (.ris) or EndNote (.enw). Multi-entry exports from reference managers, journal sites and Google Scholar import every entry, each reviewed in turn."],
-            ["DOI or arXiv id", "Paste a DOI, an arXiv id (1706.03762) or a link to either. Metadata comes from Crossref or arXiv; the open-access PDF is searched for in the background after saving."],
+            ["Drop or choose files", "PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw) or LaTeX (.tex), one or many at once (up to 60, 50 MB each). Multi-entry exports from reference managers, journal sites and Google Scholar import every entry; everything goes through the review navigator, one entry at a time."],
+            ["DOI or arXiv id", "Paste a DOI, an arXiv id (1706.03762) or a link to either, with or without a doi: / arXiv: prefix, or several separated by spaces. Metadata comes from Crossref or arXiv; the open-access PDF is searched for in the background after saving."],
             ["Google Scholar link", "Drag a Scholar BibTeX, EndNote, RefMan or RefWorks link onto the drop zone, or paste it; the export is fetched for you. The bundled browser extension sends Scholar citations straight to this page."],
             ["Paste BibTeX manually", "Opens a pop-up for one or many BibTeX entries copied from a citation manager."],
           ]}
@@ -26,7 +26,10 @@ export function UploadPage() {
           <P>
             After a lookup or an extraction the page shows the record in a form: <Chip>Title</Chip>,{" "}
             <Chip>Authors</Chip>, <Chip>Abstract</Chip>, <Chip>Keywords</Chip>, <Chip>Publication year</Chip>,
-            DOI, subject, category, document type and citation count. Fields marked * are required.
+            DOI, subject, category, document type and citation count. Fields marked * are required. A paper the
+            classifier cannot place is left unsorted rather than filed under a default, and the document type is
+            read from the citation itself (a BibTeX <Chip>@book</Chip>, an RIS <Chip>TY</Chip> code) so a book is not
+            labeled a journal article. A year or citation count that is not a whole number is flagged before you save.
             The box on the right, <Chip>Recommendation Signal Validation</Chip>, lights each of the four
             signals the engine needs (title, abstract, keywords, publication year); a paper missing any
             of them is stored but flagged as needing review and excluded from rankings until fixed.
@@ -43,7 +46,7 @@ export function UploadPage() {
             steps={[
               <>Choose a route and let the system extract or fetch the metadata.</>,
               <>Correct the form; watch the four validation signals turn on.</>,
-              <><Chip>Save paper</Chip> stores it (or <Chip>Approve all</Chip> for a multi-entry import). <Chip>Back</Chip> returns to the upload step.</>,
+              <><Chip>Save paper</Chip> stores it in a single request, with your corrections (or <Chip>Approve all</Chip> for a multi-entry import, which saves a few entries at a time and flags duplicates inside the batch). <Chip>Back</Chip> returns to the upload step.</>,
             ]}
           />
         </WikiSub>
@@ -51,7 +54,8 @@ export function UploadPage() {
         <WikiSub id="upload-duplicates" title="Duplicates and automatic PDFs">
           <P>
             Re-imports are rejected across every route. An exact DOI match or a title similarity of at
-            least 0.85 blocks the save with a message that names the existing record. For
+            least 0.85 blocks the save with a message that names the existing record, and the review form
+            warns you before you press Save ("Already in the repository: #…"). For
             citation-only imports the system looks for the best open-access PDF (Unpaywall, Crossref,
             Semantic Scholar, arXiv, OpenAlex) and attaches it automatically when a candidate clears
             the confidence bar.
@@ -92,14 +96,14 @@ export function MyLibraryPage() {
         </WikiSub>
 
         <WikiSub id="lib-pro" title="The Pro tabs: Dashboard, Graph and Chat">
-          <WikiThumb id="library-dashboard" width={380} />
+          <WikiThumb id="library-dashboard" width={320} />
           <P>
             <Chip>Dashboard</Chip> summarizes the collection: saved papers, the repository size and its
             number of subjects, how many papers are valid for ranking, and the document types; then
             papers by publication year in five-year bins, the subject spread, the most cited papers,
             the newest additions and the document-type counts.
           </P>
-          <WikiThumb id="library-graph-selected" float="left" width={420} />
+          <WikiThumb id="library-graph-selected" width={300} />
           <P>
             <Chip>Graph</Chip> lists your papers on the left; pick one and the graph draws its nearest
             neighbors in the whole repository (the <Chip>Neighbors</Chip> slider sets how many, up to 40).
@@ -109,7 +113,7 @@ export function MyLibraryPage() {
             Selecting a node opens a card with its abstract, the most similar papers and{" "}
             <Chip>Ask about this paper</Chip> and <Chip>Open in library</Chip> buttons.
           </P>
-          <WikiThumb id="library-chat-answer" float="right" width={420} />
+          <WikiThumb id="library-chat-answer" width={300} />
           <P>
             <Chip>Chat</Chip> is the research assistant. Choose where it searches (<Chip>Collection</Chip>,{" "}
             <Chip>Repository</Chip> or <Chip>Web</Chip>), ask a question, and the answer cites the sources

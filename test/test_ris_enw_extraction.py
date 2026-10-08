@@ -58,7 +58,7 @@ class RisExtractionTest(unittest.TestCase):
         )
         self.assertEqual(
             metadata["author"],
-            "Reimers, Nils, Gurevych, Iryna",
+            "Reimers, Nils; Gurevych, Iryna",
         )
         self.assertEqual(metadata["abstract"], metadata["abstract"])
         self.assertTrue(
@@ -126,7 +126,7 @@ class EnwExtractionTest(unittest.TestCase):
         )
         self.assertEqual(
             metadata["author"],
-            "Reimers, Nils, Gurevych, Iryna",
+            "Reimers, Nils; Gurevych, Iryna",
         )
         self.assertTrue(
             metadata["abstract"].startswith("BERT output")

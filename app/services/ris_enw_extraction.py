@@ -9,6 +9,8 @@
 # ============================================================
 
 import re
+
+from app.services.document_types import from_endnote, from_ris
 from typing import Optional
 
 # ------------------------------------------------------------------
@@ -67,7 +69,7 @@ def _first(values: list[str]) -> Optional[str]:
     return None
 
 
-def _join(values: list[str], separator: str = ", ") -> Optional[str]:
+def _join(values: list[str], separator: str = "; ") -> Optional[str]:
     cleaned = [
         _clean(value)
         for value in values
@@ -109,6 +111,7 @@ def _missing() -> dict:
         "keywords": None,
         "publication_year": None,
         "doi": None,
+        "document_type": None,
     }
 
 
@@ -117,6 +120,8 @@ def _parse_tagged(
     tag_pattern: re.Pattern,
     field_tags: dict,
     journal_tags: tuple[str, ...] | None = None,
+    type_tag: str = "TY",
+    type_mapper=from_ris,
 ) -> dict:
     """Shared body: collect every value per tag, then map to fields."""
     collected: dict[str, list[str]] = {}
@@ -171,6 +176,11 @@ def _parse_tagged(
         )
     if doi:
         metadata["doi"] = doi
+
+    kind = _first(collected.get(type_tag, []))
+    document_type = type_mapper(kind)
+    if document_type:
+        metadata["document_type"] = document_type
 
     return metadata
 
@@ -244,6 +254,8 @@ def extract_metadata_from_enw(enw_path: str) -> dict:
         _ENW_TAG,
         _ENW_FIELD_TAGS,
         journal_tags=("U",),
+        type_tag="0",
+        type_mapper=from_endnote,
     )
 
 
