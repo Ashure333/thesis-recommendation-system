@@ -31,6 +31,7 @@ That gives this module its two-phase shape:
 
 import json
 import os
+import threading
 
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -89,15 +90,34 @@ def fit_and_store_tfidf_vectors(db: Session) -> TfidfVectorizer:
     return vectorizer
 
 
+_VECTORIZER_CACHE: dict = {}
+_VECTORIZER_LOCK = threading.Lock()
+
+
 def _load_vectorizer() -> TfidfVectorizer:
-    if not os.path.exists(VECTORIZER_PATH):
+    try:
+        stat = os.stat(VECTORIZER_PATH)
+    except OSError:
         raise FileNotFoundError(
             "No fitted TF-IDF vectorizer found at "
             f"{VECTORIZER_PATH}. Run fit_and_store_tfidf_vectors(db) "
             "at least once (e.g. via scripts/rebuild_recommendation_index.py) "
             "before vectorizing a query or seed document."
-        )
-    return joblib.load(VECTORIZER_PATH)
+        ) from None
+
+    key = (os.path.abspath(VECTORIZER_PATH), stat.st_mtime_ns, stat.st_size)
+
+    with _VECTORIZER_LOCK:
+        cached = _VECTORIZER_CACHE.get(key)
+        if cached is not None:
+            return cached
+
+    vectorizer = joblib.load(VECTORIZER_PATH)
+
+    with _VECTORIZER_LOCK:
+        _VECTORIZER_CACHE.clear()
+        _VECTORIZER_CACHE[key] = vectorizer
+    return vectorizer
 
 
 def vectorize_query_or_seed(prepared_text: str) -> list[float]:

@@ -38,12 +38,12 @@ export const TIPS: Tip[] = [
   {
     id: "nav-repository",
     title: "Repository",
-    body: "Browse and filter every paper in the system: subject, category, document type and year range. You can also drop a PDF or .bib file onto the table to import it.",
+    body: "The merged browse-and-search screen: filter console on the left, document table in the middle, details inspector on the right. Filters (subject, category, document type, year range, authors) apply as you change them, and you can drop a PDF or citation file onto the table to import it.",
   },
   {
     id: "nav-recommendations",
-    title: "Recommendations",
-    body: "The results view: the selected pipeline ranks repository papers against your query or seed document. Adjust the pipeline and Top-K right on this page.",
+    title: "Recommend",
+    body: "The Recommend scope in the Repository's filter console: the selected pipeline ranks repository papers against your query. Tune Top-K and Diversify (MMR) right next to the query box.",
   },
   {
     id: "nav-upload",
@@ -53,7 +53,7 @@ export const TIPS: Tip[] = [
   {
     id: "nav-library",
     title: "My Library",
-    body: "Your personal shortlist. Save papers from the Repository or Recommendations to keep them one click away.",
+    body: "Your personal shortlist. Save papers from the Repository to keep them one click away — and once any garden tree grows past its Young stage, the same page offers a PRO mode: a research collection with a dashboard, a similar-papers graph, and a (placeholder) chat.",
   },
   {
     id: "nav-evaluation",
@@ -85,8 +85,13 @@ export const TIPS: Tip[] = [
 
   {
     id: "pipeline-chip",
-    title: "Active pipeline",
-    body: "The chip shows the active pipeline's codename: PIXEL PUNCH (TF-IDF), GHOST WIRE (S-BERT), DUO MODE, TRIVIA QUEST, ARCHIVE MAGE, or FINAL BOSS (all three signals). Switch on Search or Recommendations.",
+    title: "Active algorithm",
+    body: "The Algorithm bar at the top of the Repository shows the active pipeline's codename: PIXEL PUNCH (TF-IDF), GHOST WIRE (S-BERT), DUO MODE, TRIVIA QUEST, ARCHIVE MAGE, or FINAL BOSS (all three signals) — plus the custom dials. The Σ STATS switch next to it opens the live computations and interpretations.",
+  },
+  {
+    id: "stats-toggle",
+    title: "Statistics switch",
+    body: "The Σ STATS switch in the top bar opens the universal statistics panel: repository totals, the live computation of the most recent search, and a plain-language explanation of every formula. The full treatment lives in the Engine tab.",
   },
   {
     id: "theme-picker",
@@ -444,6 +449,3 @@ export const EXTRA_TIPS: DeepTip[] = [
   },
 ];
 
-export const EXTRA_TIP_BY_ID: Record<string, DeepTip> = Object.fromEntries(
-  EXTRA_TIPS.map((tip) => [tip.id, tip]),
-);

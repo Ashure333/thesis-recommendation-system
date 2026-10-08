@@ -48,7 +48,7 @@ export type TreeSpeciesId =
 export interface TreeSpecies {
   id: TreeSpeciesId;
   label: string;
-  /** Trunk colour (inline fill). */
+  /** Trunk color (inline fill). */
   trunk: string;
   /** Foliage ramp: highlight, mid, shade (pixel-art three-tone). */
   leafLight: string;
@@ -291,13 +291,14 @@ export const SPECIES_INFO: Record<
       "rises fast, brightening the woods it marches into.",
   },
   elm: {
-    name: "Water Elm",
+    name: "American Elm",
     fact:
       "Ulmus americana — the elm of the cathedral arch, the vase " +
       "shape of its crown copied by every laid-out avenue.",
     research:
-      "Historically grand, disease-thinned: the elm's arch survives " +
-      "in park avenues where its root systems linger long.",
+      "Dutch elm disease, a beetle-borne fungus, felled most of " +
+      "its kind since the 1930s. A few resistant lines are being " +
+      "planted back into the avenues it lost.",
   },
   redwood: {
     name: "Giant Redwood",
@@ -305,7 +306,7 @@ export const SPECIES_INFO: Record<
       "Sequoia sempervirens — the tallest living thing ever " +
       "measured, standing in fog belts along the Pacific coast.",
     research:
-      "Boughs almost a kilometre up, ringed like time itself. Its " +
+      "Boughs almost a kilometer up, ringed like time itself. Its " +
       "bark, thick and fibrous, shrugs off fire and beetle alike.",
   },
 };
@@ -345,69 +346,130 @@ export function nextKnowledgeHeight(
 
 /* ---------- tree idle speech (pet-style ambient lines) ---------- */
 
-export const TREE_IDLE_LINES: { text: string; topic: string }[] = [
-  { text: "Every ring remembers a feed.", topic: "Grove lore" },
-  { text: "Roots first. The rest follows.", topic: "Grove lore" },
-  { text: "I forget nothing I have learned.", topic: "Grove lore" },
-  { text: "A sun at a time, the world tree rises.", topic: "Grove lore" },
-  { text: "Ask me when I have grown taller.", topic: "Grove lore" },
-  { text: "The leaves tell the season. The rings tell the years.", topic: "Grove lore" },
-  { text: "Feed me what you find. I will keep it.", topic: "Grove lore" },
-  { text: "Even a seed knows its direction.", topic: "Grove lore" },
-  { text: "The deeper the root, the higher the crown.", topic: "Grove lore" },
-  { text: "A quiet tree still counts the sun.", topic: "Grove lore" },
-];
+/** Every line a tree can idly volunteer is a real fact about its
+ *  own species, spoken in its own first-person voice — not a
+ *  mystical riddle. The last line in every list is shared: it is
+ *  how each species nods to the pet that keeps it company (see
+ *  `data/petForms.ts` for the other half of that story). */
+export const SPECIES_IDLE_LINES: Record<
+  TreeSpeciesId,
+  { text: string; topic: string }[]
+> = {
+  crimson: [
+    { text: "My seeds spin like tiny helicopters — samaras, foresters call them.", topic: "Maple lore" },
+    { text: "I turn red earliest of all the maples; some years by August.", topic: "Maple lore" },
+    { text: "Tap my trunk in late winter and I'll give you sap, thinner than sugar maple's but sweet.", topic: "Maple lore" },
+    { text: "I'll root in a bog or a dry ridge — I'm not picky about my feet.", topic: "Maple lore" },
+    { text: "My flowers open before my leaves do, small and red, easy to miss.", topic: "Maple lore" },
+    { text: "Across eastern North America, more of my kind grows than any other tree.", topic: "Maple lore" },
+    { text: "A hard frost doesn't stop me — some years I flower with snow still on the ground.", topic: "Maple lore" },
+    { text: "My wood is pale and close-grained, softer than sugar maple's, still good for a chair.", topic: "Maple lore" },
+    { text: "A slime once slept in my roots, and it never quite left.", topic: "Grove lore" },
+  ],
+  oak: [
+    { text: "More insects call an oak home than any other tree in these isles.", topic: "Oak lore" },
+    { text: "My acorns ripen in a single season — some oaks make their children wait two.", topic: "Oak lore" },
+    { text: "I can live past a thousand years; a handful of my kind in Europe already have.", topic: "Oak lore" },
+    { text: "My timber resists rot: Viking ships and cathedral roofs were built from oaks like me.", topic: "Oak lore" },
+    { text: "Jays bury my acorns and forget most of them. That's half my planting done for me.", topic: "Oak lore" },
+    { text: "Wasp galls on my leaves once made the world's ink, iron gall ink, for centuries.", topic: "Oak lore" },
+    { text: "I hold onto my dead leaves well into winter, longest on my youngest branches.", topic: "Oak lore" },
+    { text: "My bark splits into deep ridges as I age — smooth bark always means a young oak.", topic: "Oak lore" },
+    { text: "A slime once slept in my roots, and it never quite left.", topic: "Grove lore" },
+  ],
+  birch: [
+    { text: "My bark peels in papery curls, thin enough that people once wrote letters on it.", topic: "Birch lore" },
+    { text: "I'm often first back after a fire or a cleared field; foresters call that pioneering.", topic: "Birch lore" },
+    { text: "My seeds are so light the wind carries them for miles, tucked in tiny winged nutlets.", topic: "Birch lore" },
+    { text: "Tap me in early spring and clear sap runs. People call it birch water, and drink it.", topic: "Birch lore" },
+    { text: "My roots don't go deep, but they spread wide, holding thin soils together.", topic: "Birch lore" },
+    { text: "I rarely see a hundred years; I grow fast, and I go fast too.", topic: "Birch lore" },
+    { text: "My bark holds betulin, a wax that sheds water and still catches a flame when wet.", topic: "Birch lore" },
+    { text: "Finland calls me its national tree; more than one country claims me as home.", topic: "Birch lore" },
+    { text: "A slime once slept in my roots, and it never quite left.", topic: "Grove lore" },
+  ],
+  elm: [
+    { text: "My vase-shaped crown lined a thousand American streets before a blight found it.", topic: "Elm lore" },
+    { text: "Dutch elm disease, a fungus a beetle carries, has killed most of my kind since the 1930s.", topic: "Elm lore" },
+    { text: "A few of us carry resistance now, bred and planted back into the avenues we lost.", topic: "Elm lore" },
+    { text: "My grain interlocks as it grows, hard to split: good for wheel hubs, and coffins too.", topic: "Elm lore" },
+    { text: "Where the blight hasn't reached, I can live past two centuries.", topic: "Elm lore" },
+    { text: "My flowers are small and reddish and open well before my leaves, easy to miss.", topic: "Elm lore" },
+    { text: "My seeds ride flat papery wings, samaras like a maple's, just rounder.", topic: "Elm lore" },
+    { text: "My wood resists rot underwater; old London ran its water mains through elm trunks.", topic: "Elm lore" },
+    { text: "A slime once slept in my roots, and it never quite left.", topic: "Grove lore" },
+  ],
+  redwood: [
+    { text: "The tallest of my kind, Hyperion, tops out near 380 feet, longer than a football field.", topic: "Redwood lore" },
+    { text: "My bark can grow a foot thick, spongy and fire-resistant; fire passes more than it takes.", topic: "Redwood lore" },
+    { text: "I don't live on rain alone: fog dripping off my needles can be half my summer drink.", topic: "Redwood lore" },
+    { text: "My cousin, the giant sequoia, outweighs me; I'm only the tallest, not the biggest.", topic: "Redwood lore" },
+    { text: "My seed is barely bigger than a tomato's, and from it I can grow past 300 feet.", topic: "Redwood lore" },
+    { text: "I can resprout from a stump or a fallen branch — few conifers can do that.", topic: "Redwood lore" },
+    { text: "My whole range hugs a narrow fog belt along the Pacific coast, rarely far from the sea.", topic: "Redwood lore" },
+    { text: "The oldest of my kind have stood for more than two thousand years.", topic: "Redwood lore" },
+    { text: "A slime once slept in my roots, and it never quite left.", topic: "Grove lore" },
+  ],
+};
 
 /* ---------- per-species cheats and growth progress ---------- */
 
-/** Cheat unlock heights, shared by every species — tuned to the
- *  REAL relative foot scale (ancient = 1000 ft):
- *    250 ft  ~ the Seedling/Sapling turn  (word 1)
- *    650 ft  ~ the Young/Mature turn      (word 2)
- *    1000 ft ~ the Ancient crown          (word 3)
+/** Cheat unlock heights, shared by every species and tuned to the REAL
+ *  relative foot scale (ancient = 1000 ft). A cheat is a garden charm:
+ *  a living or drawn element of the garden that the player can switch on
+ *  and off once the tree is tall enough to hold it.
  *
- *  Review of the cheat ladder (5 species x 3 cheats):
- *    oak      daisies / dance / pinata      — pet eats papers
- *    crimson  syrup / blaze / amber         — maple syrup, autumn
- *    birch    paper / silver / ribbon       — barky paper trail
- *    elm      vase / ridge / shade          — arced shade forms
- *    redwood  grove / mist / elder          — coastal tower
- *  Arming a word toggles it in `activeCheats`: the pet reacts
- *  (daisies/candy bursts on eaten papers), the CheatFoliage
- *  overlay starts drifting the cheat's foliage over the pages,
- *  and the word stays armed until typed again. Each unlock is
- *  announced exactly once (announcedCheats) with a themed burst. */
-export const CHEAT_HEIGHTS = [250, 650, 1000];
+ *    250 ft  ~ the Seedling/Sapling turn   charm 1  foliage
+ *    450 ft  ~ the Sapling/Young turn      charm 2  plant
+ *    650 ft  ~ the Young/Mature turn       charm 3  creature
+ *    850 ft  ~ the Mature/Giant turn       charm 4  light and weather
+ *   1000 ft  ~ the Ancient crown           charm 5  relic
+ *
+ *  Each tree has five of its own (see data/charms.ts for what each one
+ *  draws). Arming a word toggles it in `activeCheats`; it stays armed
+ *  until typed or switched off again. Each unlock is announced exactly
+ *  once (announcedCheats). */
+export const CHEAT_HEIGHTS = [250, 450, 650, 850, 1000];
 
-/** Each tree offers its own three cheat words. */
+/** Each tree offers its own five cheat words. */
 export const CHEAT_SETS: Record<
   TreeSpeciesId,
   { word: string; effect: string }[]
 > = {
-  oak: [
-    { word: "daisies", effect: "Papers the pet eats leave little daisies behind." },
-    { word: "dance", effect: "The pet dances on the spot." },
-    { word: "pinata", effect: "Every paper the pet eats bursts into candy." },
-  ],
   crimson: [
-    { word: "syrup", effect: "The pet drips maple syrup from its whiskers." },
-    { word: "blaze", effect: "The pet blazes autumn-orange for a while." },
-    { word: "amber", effect: "Every paper the pet eats bursts into amber confetti." },
+    { word: "keys", effect: "Maple keys whirl down from the crown, spinning like tiny helicopters." },
+    { word: "creeper", effect: "Scarlet Virginia creeper winds up the trunk, red as the maple's own leaves." },
+    { word: "squirrel", effect: "A red squirrel takes up residence on the trunk and flicks its tail at you." },
+    { word: "blaze", effect: "The autumn glow: embers of red and gold rise through the crown." },
+    { word: "syrup", effect: "A sap bucket hangs from a tap in the trunk, dripping real maple syrup." },
+  ],
+  oak: [
+    { word: "mast", effect: "Acorns ripen in the crown and drop, the way a jay remembers them." },
+    { word: "daisies", effect: "A ring of oxeye daisies blooms at the foot of the oak." },
+    { word: "jay", effect: "A blue jay hops about the roots, burying acorns it will forget." },
+    { word: "dapple", effect: "Light dapples through the leaves and drifts across the ground and bark." },
+    { word: "hollow", effect: "A knothole opens in the bark, with two owl eyes blinking inside." },
   ],
   birch: [
-    { word: "paper", effect: "The pet wraps papers in thin papery sheets." },
-    { word: "silver", effect: "The pet's trail silvers like birch bark." },
-    { word: "ribbon", effect: "The pet unfurls a pale birch ribbon." },
+    { word: "catkins", effect: "Catkins hang from the twigs and sway, pale gold tassels in the wind." },
+    { word: "anemone", effect: "Wood anemones star the ground in white, the birch wood's first spring flower." },
+    { word: "woodpecker", effect: "A woodpecker taps at the trunk, chips flying, red cap bobbing." },
+    { word: "moonbeam", effect: "Silver light slants through the crown, with pale motes drifting in it." },
+    { word: "ribbons", effect: "Strips of birch bark curl away from the trunk and flutter like ribbons." },
   ],
   elm: [
-    { word: "vase", effect: "The pet sweeps a vase-crown shadow." },
-    { word: "ridge", effect: "The pet's fur grows deep elm ridges." },
-    { word: "shade", effect: "The pet rests in an elm's shade." },
+    { word: "coins", effect: "Elm seeds drift down like papery coins, each one a tiny round wing." },
+    { word: "wisteria", effect: "Wisteria swags hang from the boughs in violet, thick with blossom." },
+    { word: "oriole", effect: "An oriole's woven nest hangs from a bough, the bird singing beside it." },
+    { word: "shade", effect: "A cool arch of shade falls over the avenue, dappled and dim." },
+    { word: "lantern", effect: "An old iron lamp glows beside the tree, as it did along the elm avenues." },
   ],
   redwood: [
-    { word: "grove", effect: "The pet hums from a redwood grove." },
-    { word: "mist", effect: "The pet gives off coastal mist." },
-    { word: "elder", effect: "The pet stands tall as an elder redwood." },
+    { word: "drip", effect: "Fog condenses on the needles and falls in slow drops." },
+    { word: "ferns", effect: "Sword ferns arch around the roots, the redwood understory." },
+    { word: "slug", effect: "A banana slug crawls up the bark, leaving a shining trail." },
+    { word: "mist", effect: "Coastal fog drifts low through the grove, thickest at the ground." },
+    { word: "grove", effect: "A ring of young redwood sprouts stands around the elder, family circle." },
   ],
 };
 
@@ -417,62 +479,101 @@ export const CHEAT_SETS: Record<
 export const SPECIES_STAGE_LINES: Record<TreeSpeciesId, string[]> = {
   crimson: [
     "",
-    "A Seedling maple — the first leaves uncurl toward the light.",
-    "Sapling now: the trunk seals its first rings.",
-    "Young maple — the canopy begins to arch overhead.",
-    "A Mature maple spreads its boughs to full reach.",
-    "Giant — the trunk towers over the meadow.",
-    "Ancient maple — it has known every season since the seed.",
+    "A Seedling maple. The first leaves uncurl toward the light.",
+    "Sapling now. The trunk seals its first rings.",
+    "Young maple. The canopy begins to arch overhead.",
+    "Mature maple. My roots creep out and my boughs reach.",
+    "Giant. The trunk towers and my crown hides in the clouds.",
+    "Ancient maple. Every bough forks into a hundred twigs of fire.",
   ],
   oak: [
     "",
-    "A Seedling oak — one small true leaf, already stubborn.",
-    "Sapling oak: the bark starts its deep furrows.",
-    "Young oak — the crown rounds out above the roods.",
-    "A Mature oak holds the centre of its glade.",
-    "Giant — boughs cast a very wide afternoon.",
-    "Ancient oak — a landmark now, and patient.",
+    "A Seedling oak. One small true leaf, already stubborn.",
+    "Sapling oak. The bark starts its deep furrows.",
+    "Young oak. The crown rounds out over the glade.",
+    "Mature oak. My roots grip the ground and my boughs spread.",
+    "Giant. My boughs cast a very wide afternoon.",
+    "Ancient oak. A landmark now, thick with leaf and patient.",
   ],
   birch: [
     "",
-    "A Seedling birch — silver peeling already.",
-    "Sapling birch: the white bark catches the light.",
-    "Young birch — the airy crown shimmers at the top.",
-    "A Mature birch rustles like paper in wind.",
-    "Giant — the silver trunk bends to no storm.",
-    "Ancient birch — every coat of bark written in.",
+    "A Seedling birch. Silver already, and peeling.",
+    "Sapling birch. The white bark catches the light.",
+    "Young birch. The airy crown shimmers at the top.",
+    "Mature birch. I rustle like paper, roots and all.",
+    "Giant. The silver trunk bends to no storm.",
+    "Ancient birch. Gold leaves on a thousand slender twigs.",
   ],
   elm: [
     "",
-    "A Seedling elm — the arch dreams in its twigs.",
-    "Sapling elm: the vase shape begins to show.",
-    "Young elm — a fountain of branches overhead.",
-    "A Mature elm keeps the avenue in shade.",
-    "Giant — the elm's arch spans the whole walk.",
-    "Ancient elm — the cathedral of the lane.",
+    "A Seedling elm. The arch dreams in its twigs.",
+    "Sapling elm. The vase shape begins to show.",
+    "Young elm. A fountain of branches overhead.",
+    "Mature elm. My roots spread and the avenue gets its shade.",
+    "Giant. My arch spans the whole walk.",
+    "Ancient elm. The cathedral of the lane, in full leaf.",
   ],
   redwood: [
     "",
-    "A Seedling redwood — bound for the sky already.",
-    "Sapling redwood: the red bark thickens.",
-    "Young redwood — it outgrows the meadow's edge.",
-    "A Mature redwood meets the fog line.",
-    "Giant — the tallest thing the coast has seen.",
-    "Ancient redwood — the world tree crowns the sky.",
+    "A Seedling redwood. Bound for the sky already.",
+    "Sapling redwood. The red bark thickens.",
+    "Young redwood. I outgrow the meadow's edge.",
+    "Mature redwood. My roots meet the fog line.",
+    "Giant. The tallest thing the coast has seen.",
+    "Ancient redwood. The world tree crowns the sky.",
   ],
 };
 
 /** Honest between-stage whispers: no filler — real progress
  *  toward the next stage follows on every feed. */
 export const PROGRESS_LINES = [
-  "The crown rises — every packet rings in the trunk.",
+  "The crown rises. Every packet rings in the trunk.",
   "Roots settle deeper with each feed.",
   "The meadow grows small below the canopy.",
   "Growth is patient, but the rings keep their promise.",
+  "A new twig forks. Each feed adds a little more branch.",
+  "The vines climb a little higher with every feed.",
+  "I can feel the clouds from up here. Keep feeding.",
 ];
 
-/** Each species matures on its own curve: the seven stage fert
- *  positions differ per tree while the march stays 3,000. */
+/** What the tree says about itself at each growth stage (index 0 is the
+ *  seed, 6 the ancient tree), in the tree's own first-person voice and
+ *  describing what the garden is showing at that moment. They mix into
+ *  the idle chatter alongside the species lore. */
+export const STAGE_IDLE_LINES: { text: string; topic: string }[][] = [
+  [
+    { text: "Still a seed. Everything I'll be is folded in here.", topic: "Seed" },
+    { text: "It's quiet down in the soil. I like it.", topic: "Seed" },
+  ],
+  [
+    { text: "My first leaves are out. The light is enormous.", topic: "Seedling" },
+    { text: "Small, but I'm already reaching up.", topic: "Seedling" },
+  ],
+  [
+    { text: "My trunk is thickening. Feel the first ring?", topic: "Sapling" },
+    { text: "Branches now. Not many, but they're mine.", topic: "Sapling" },
+  ],
+  [
+    { text: "My crown is filling out. Birds are asking about it.", topic: "Young tree" },
+    { text: "Every branch forks into two, and again, and again.", topic: "Young tree" },
+  ],
+  [
+    { text: "My roots are creeping out across the ground. Watch them.", topic: "Mature" },
+    { text: "Vines have found my bark. I let them stay.", topic: "Mature" },
+    { text: "Look up. My crown is a shadow among the leaves.", topic: "Mature" },
+  ],
+  [
+    { text: "Climb with me. The meadow shrinks below.", topic: "Giant" },
+    { text: "Twigs sprout off my trunk like handwriting.", topic: "Giant" },
+    { text: "My boughs are forking now, each one into two.", topic: "Giant" },
+  ],
+  [
+    { text: "At the top the crown is thick with leaves and the clouds drift through.", topic: "Ancient" },
+    { text: "Every bough forks into twigs, every twig into leaves.", topic: "Ancient" },
+    { text: "You made it to the summit. The view is all leaf and sky.", topic: "Ancient" },
+  ],
+];
+
 export const SPECIES_GROWTH_MARKERS: Record<
   TreeSpeciesId,
   { label: string; fert: number }[]
@@ -523,3 +624,21 @@ export const SPECIES_GROWTH_MARKERS: Record<
     { label: "Ancient redwood", fert: TREE_GROWTH_TARGET },
   ],
 };
+
+/** The stage index of a tree at a fertilizer count: 0 = Seed,
+ *  3 = Young, 6 = Ancient. */
+export function treeStageIndex(
+  fert: number,
+  species: TreeSpeciesId = DEFAULT_SPECIES,
+): number {
+  const markers = SPECIES_GROWTH_MARKERS[species];
+  let stage = 0;
+
+  for (const marker of markers) {
+    if (fert >= marker.fert) {
+      stage += 1;
+    }
+  }
+
+  return Math.max(0, stage - 1);
+}

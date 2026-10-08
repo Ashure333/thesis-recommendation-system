@@ -485,15 +485,6 @@ def _openalex_numeric_id(raw_id: str) -> int | None:
     return int(tail)
 
 
-def _work_doi(work: Mapping) -> str | None:
-    raw_doi = work.get("doi")
-
-    if isinstance(raw_doi, str) and raw_doi.strip():
-        return normalize_doi(raw_doi)
-
-    return None
-
-
 def _target_paper_id(
     work_id: str,
     target_doi: str,

@@ -36,7 +36,7 @@ STORAGE_ROOT = BASE_DIR / "storage"
 # Correct papers directory
 PAPERS_DIR = STORAGE_ROOT / "papers"
 
-ALLOWED_EXTENSIONS = {".pdf", ".bib", ".tex"}
+ALLOWED_EXTENSIONS = {".pdf", ".bib", ".tex", ".ris", ".enw"}
 
 
 def ensure_storage_ready() -> None:
@@ -48,7 +48,7 @@ def ensure_storage_ready() -> None:
 
 def save_paper_file(paper_id: int, source_path: str) -> str:
     """
-    Copy an uploaded PDF, BibTeX, or LaTeX file into:
+    Copy an uploaded PDF, BibTeX, RIS, EndNote or LaTeX file into:
 
         project_root/storage/papers/{paper_id}{original extension}
 
@@ -73,7 +73,10 @@ def save_paper_file(paper_id: int, source_path: str) -> str:
 
     extension = source.suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
-        raise ValueError("Only PDF, BibTeX (.bib), and LaTeX (.tex) files are allowed.")
+        raise ValueError(
+            "Only PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw), "
+            "and LaTeX (.tex) files are allowed."
+        )
 
     destination = PAPERS_DIR / f"{paper_id}{extension}"
 

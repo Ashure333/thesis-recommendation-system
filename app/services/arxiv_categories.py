@@ -83,16 +83,6 @@ ARXIV_CATEGORY_MAP: dict[str, tuple[str, str]] = {
     "physics.optics": ("Physics", "Optics"),
 }
 
-# Some arXiv codes map to "no category" but still identify a subject
-# well enough to label the paper under that subject with its own
-# category synthesized from the code's expansion.
-ARXIV_SUBJECT_ONLY: dict[str, str] = {
-    "cs.IT": "Computer Science",
-    "cs.GR": "Computer Science",
-    "cs.PL": "Computer Science",
-    "cs.OH": "Computer Science",
-}
-
 
 def arxiv_to_subject_category(
     primary_category: str | None,

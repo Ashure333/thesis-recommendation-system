@@ -141,7 +141,6 @@ _GENERIC_CATEGORY_WORDS = {
     "effect",
     "impact",
     "new",
-    "toward",
 }
 
 
@@ -324,7 +323,7 @@ def _classify_paper_category(paper: Paper) -> str | None:
         keyword in text
         for keyword in [
             "mathematical modeling of epidemic",
-            "mathematical modelling of epidemic",
+            "mathematical modeling of epidemic",
             "epidemic diseases",
             "sir model",
             "sir family of compartmental models",
@@ -524,7 +523,7 @@ def _classify_paper_category(paper: Paper) -> str | None:
         for keyword in [
             "mathematical model",
             "mathematical modeling",
-            "mathematical modelling",
+            "mathematical modeling",
             "epidemic model",
             "epidemic models",
             "predator-prey",

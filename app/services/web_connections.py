@@ -1,5 +1,5 @@
 """
-Web connections -- a paper's OpenAlex citation neighbourhood.
+Web connections -- a paper's OpenAlex citation neighborhood.
 
 The local graph draws on the repository's own embeddings and cached
 citations; this module answers the "WEB" side of the scope switch in
@@ -178,7 +178,7 @@ def _build_edges(
     min_shared: int = 2,
     limit: int = 160,
 ) -> list[list]:
-    """Connection list for the web graph — a rich neighbourhood
+    """Connection list for the web graph — a rich neighborhood
     instead of a plain star, using the reference lists OpenAlex
     already returned alongside each work:
 
@@ -233,7 +233,7 @@ def _build_edges(
     return edges[:limit]
 
 
-def fetch_web_neighbourhood(
+def fetch_web_neighborhood(
     paper,
     *,
     fetch=None,

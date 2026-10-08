@@ -19,7 +19,6 @@
  */
 
 import type { Paper } from "../api";
-import { citationKey } from "./exportCitations";
 import type { CitationStyle } from "./preferences";
 
 function author(paper: Paper): string {
@@ -164,19 +163,4 @@ export function citationParts(
       };
     }
   }
-}
-
-/** Plain-text citation (kept for callers that only show text). */
-export function formatPaperCitation(
-  paper: Paper,
-  style: CitationStyle,
-  includeDoi: boolean,
-  index?: number
-): string {
-  return citationParts(paper, style, includeDoi, index).text;
-}
-
-/** LaTeX citation command for a paper's generated BibTeX key. */
-export function paperLatexCitation(paper: Paper): string {
-  return `\\cite{${citationKey(paper)}}`;
 }

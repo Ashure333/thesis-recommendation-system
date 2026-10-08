@@ -1,3 +1,5 @@
+import { isPresentationStored } from "../utils/presentation";
+
 export interface PipelineWeight {
   name: string;
   pct: number;
@@ -269,4 +271,12 @@ export function customPipelineConfig(
       { name: "Metadata", pct: shares.metadata, colorClass: "bg-meta" },
     ].filter((weight) => weight.pct > 0),
   };
+}
+
+/**
+ * What to call a pipeline on screen: the arcade codename in the app, the
+ * formal name (TF-IDF, S-BERT + Metadata, ...) in the shipped Presentation.
+ */
+export function pipelineName(config: Pick<PipelineConfig, "label" | "codename">): string {
+  return isPresentationStored() ? config.label : config.codename;
 }

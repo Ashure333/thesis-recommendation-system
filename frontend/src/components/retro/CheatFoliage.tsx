@@ -10,6 +10,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { useSceneLayers } from "../../state/sceneLayers";
+
 const SUN_KEY = "paperrec_sun";
 
 /* Cheat id -> foliage palette + sprite mix. Fallbacks use the
@@ -59,7 +61,22 @@ interface Particle {
   wob: number;
   stuck: { x: number; y: number } | null;
   alpha: number;
+  /** A twinkling glint instead of a drifting leaf: no gravity, a
+      quick fade in/out, and a brighter blended color. */
+  sparkle: boolean;
+  /** Breathing phase so particles don't all pulse in lockstep. */
+  pulsePhase: number;
 }
+
+/** A small five-cell glint — the "magic" twinkle sparkles use
+    this instead of a leaf/droplet/ember shape. */
+const SPARKLE_SHAPE: number[][] = [
+  [1, 0],
+  [0, 1],
+  [1, 1],
+  [2, 1],
+  [1, 2],
+];
 
 function appBox() {
   const app = document.getElementById("app-shell");
@@ -84,10 +101,29 @@ function readFoligeFlavour(): string[] {
 
 export default function CheatFoliage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  /* The specks drifting over the pages are a scenery switch, off until the
+     player turns them on (Almanac, Scene; or Settings, Developer). */
+  const { isOn } = useSceneLayers();
+  const enabled = isOn("pagefoliage");
   const [active, setActive] = useState<string[]>(readFoligeFlavour);
+  /** The previously-seen armed set, so a freshly-typed cheat can
+      get its own activation burst instead of just joining the
+      drip silently. */
+  const prevActiveRef = useRef<string[]>([]);
 
   useEffect(() => {
-    const sync = () => setActive(readFoligeFlavour());
+    /* Bail out on an equal-content poll instead of handing down a
+       fresh array reference every 1.2s — otherwise the particle
+       effect below (keyed on `active`) would restart from scratch
+       on every tick, never letting a leaf finish its arc. */
+    const sync = () => {
+      const next = readFoligeFlavour();
+      setActive((prev) =>
+        prev.length === next.length && prev.every((id, i) => id === next[i])
+          ? prev
+          : next,
+      );
+    };
     window.addEventListener("storage", sync);
     const timer = window.setInterval(sync, 1200);
     return () => {
@@ -97,7 +133,7 @@ export default function CheatFoliage() {
   }, []);
 
   useEffect(() => {
-    if (active.length === 0) return;
+    if (!enabled || active.length === 0) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -107,25 +143,94 @@ export default function CheatFoliage() {
     const particles: Particle[] = [];
     let running = true;
     let accumulator = 0;
+    let sparkleAccumulator = 0;
     let last = performance.now();
 
-    const palette =
-      FOLIAGE_BY_CHEAT[active[0]]?.colors ??
-      ["#d9b382", "#8a5a2b", "#b8772a"];
-    const shapeNames = FOLIAGE_BY_CHEAT[active[0]]?.shapes ?? ["round"];
+    /* Blend every armed cheat's palette/shapes together — stacking
+       cheats should look richer, not just replace one flavor with
+       another. */
+    const sets = active.map((id) => FOLIAGE_BY_CHEAT[id]).filter(Boolean) as {
+      colors: string[];
+      shapes: string[];
+    }[];
+    const palette = sets.length
+      ? sets.flatMap((s) => s.colors)
+      : ["#d9b382", "#8a5a2b", "#b8772a"];
+    const shapeNames = sets.length
+      ? sets.flatMap((s) => s.shapes)
+      : ["round"];
+    const sparkleColors = ["#ffffff", "#ffe9a8", "#fff3cf"];
+
+    const spawnSparkle = (sx: number, sy: number, spread: number) => {
+      particles.push({
+        x: sx + (Math.random() - 0.5) * spread,
+        y: sy + (Math.random() - 0.5) * spread,
+        vx: (Math.random() - 0.5) * 10,
+        vy: -4 - Math.random() * 10,
+        color: sparkleColors[Math.floor(Math.random() * sparkleColors.length)],
+        shape: SPARKLE_SHAPE,
+        size: 1,
+        life: 0,
+        ttl: 0.7 + Math.random() * 0.7,
+        wob: 0,
+        stuck: null,
+        alpha: 1,
+        sparkle: true,
+        pulsePhase: Math.random() * 6.283,
+      });
+    };
+
+    /* A satisfying pop the instant a new cheat is typed: a ring of
+       sparkles bursts from the tree card instead of the usual
+       slow drip picking up on its own. */
+    const freshlyArmed = active.filter(
+      (id) => !prevActiveRef.current.includes(id),
+    );
+    if (freshlyArmed.length > 0) {
+      const tree = document.querySelector("[data-tree-card]");
+      const box = appBox();
+      const rect = tree?.getBoundingClientRect() ?? {
+        left: box.left + box.width * 0.4,
+        top: box.top + box.height * 0.55,
+        width: 0,
+        height: 0,
+      };
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + Math.min(24, rect.height * 0.15);
+      for (let burst = 0; burst < freshlyArmed.length; burst += 1) {
+        for (let i = 0; i < 18; i += 1) {
+          const angle = (i / 18) * 6.283 + burst * 0.6;
+          const dist = 10 + Math.random() * 30;
+          spawnSparkle(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist, 6);
+        }
+      }
+    }
+    prevActiveRef.current = active;
 
     const draw = () => {
-      context.clearRect(0, 0, canvas.width, canvas.height);
+      /* A soft trail instead of a hard wipe: erode the previous
+         frame's alpha rather than clearing it outright, so leaves
+         and sparkles leave a brief glowing afterimage — magic, not
+         a smear — while the canvas stays transparent elsewhere. */
+      context.globalCompositeOperation = "destination-out";
+      context.fillStyle = "rgba(0,0,0,0.32)";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.globalCompositeOperation = "source-over";
+
       for (const p of particles) {
         if (p.alpha <= 0) continue;
+        /* Breathing: a gentle size pulse so the drift shimmers
+           instead of holding a flat silhouette. */
+        const pulse = 1 + 0.18 * Math.sin(p.life * 5 + p.pulsePhase);
+        const drawSize = Math.max(1, p.size * pulse);
         context.globalAlpha = p.alpha;
         context.fillStyle = p.color;
         for (const cell of p.shape) {
           context.fillRect(
             (p.x + cell[0] * p.size) | 0,
             (p.y + cell[1] * p.size) | 0,
-            p.size,
-            p.size,
+            drawSize,
+            drawSize,
           );
         }
       }
@@ -148,7 +253,7 @@ export default function CheatFoliage() {
         height: 0,
       };
 
-      const rate = active.length > 0 ? 11 : 0;
+      const rate = active.length > 0 ? 11 + (active.length - 1) * 4 : 0;
       accumulator += elapsed * rate;
       while (accumulator >= 1) {
         accumulator -= 1;
@@ -170,7 +275,20 @@ export default function CheatFoliage() {
           wob: 2 + Math.random() * 3.5,
           stuck: null,
           alpha: 0.9,
+          sparkle: false,
+          pulsePhase: Math.random() * 6.283,
         });
+      }
+
+      /* A thin steady trickle of magic twinkle, on top of the
+         leaf/ember drip — the "breathing" the user can feel even
+         when no leaf is mid-flight. */
+      sparkleAccumulator += elapsed * (2 + (active.length - 1));
+      while (sparkleAccumulator >= 1 && particles.length < 90) {
+        sparkleAccumulator -= 1;
+        const sx = source.left + Math.random() * Math.max(40, source.width * 0.6);
+        const sy = source.top + Math.random() * 40 - 10;
+        spawnSparkle(sx, sy, 4);
       }
 
       /* Gather a few UI anchors for leaves to stick on. */
@@ -187,22 +305,33 @@ export default function CheatFoliage() {
 
       for (const p of particles) {
         p.life += 1 / 60;
-        const fadeAt = p.ttl - 2;
-        if (p.life > fadeAt) p.alpha = Math.max(0, 0.9 * (1 - (p.life - fadeAt) / 2));
 
-        if (!p.stuck) {
+        if (p.sparkle) {
+          /* A twinkle, not a falling leaf: fades in, holds a
+             glint, fades out — barely any gravity, never sticks. */
+          const t = p.life / p.ttl;
+          p.alpha = t < 0.3 ? t / 0.3 : Math.max(0, 1 - (t - 0.3) / 0.7);
           p.x += p.vx / 60;
           p.y += p.vy / 60;
-          p.vy += 7 / 60;
-          p.vx += Math.sin((p.life * p.wob + p.y / 40) * 2) * 0.32;
-          if (p.vy > 0 && anchors.length > 0 && Math.random() < 0.004) {
-            const spot = anchors[Math.floor(Math.random() * anchors.length)];
-            p.x = spot.left + spot.width * (0.5 + Math.random() * 0.5);
-            p.y = spot.top + Math.random() * Math.min(14, spot.height * 0.3);
-            p.stuck = { x: p.x, y: p.y };
+          p.vy += 2 / 60;
+        } else {
+          const fadeAt = p.ttl - 2;
+          if (p.life > fadeAt) p.alpha = Math.max(0, 0.9 * (1 - (p.life - fadeAt) / 2));
+
+          if (!p.stuck) {
+            p.x += p.vx / 60;
+            p.y += p.vy / 60;
+            p.vy += 7 / 60;
+            p.vx += Math.sin((p.life * p.wob + p.y / 40) * 2) * 0.32;
+            if (p.vy > 0 && anchors.length > 0 && Math.random() < 0.004) {
+              const spot = anchors[Math.floor(Math.random() * anchors.length)];
+              p.x = spot.left + spot.width * (0.5 + Math.random() * 0.5);
+              p.y = spot.top + Math.random() * Math.min(14, spot.height * 0.3);
+              p.stuck = { x: p.x, y: p.y };
+            }
+          } else if (p.life > Math.min(p.ttl - 0.8, 7)) {
+            p.stuck = null;
           }
-        } else if (p.life > Math.min(p.ttl - 0.8, 7)) {
-          p.stuck = null;
         }
 
         if (
@@ -242,7 +371,9 @@ export default function CheatFoliage() {
       context.clearRect(0, 0, canvas.width, canvas.height);
       window.removeEventListener("resize", resize);
     };
-  }, [active]);
+  }, [active, enabled]);
+
+  if (!enabled) return null;
 
   return (
     <canvas

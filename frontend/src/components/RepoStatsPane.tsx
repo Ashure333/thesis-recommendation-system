@@ -4,7 +4,7 @@
  * The repository search is live, so this pane recomputes from the
  * currently filtered papers on every keystroke: a short COMPUTING
  * beat plays (the same stepped bar as the mode-switch screen), then
- * the snapshot and the pipeline pseudocode animate in.
+ * the snapshot and the computation trace animate in.
  *
  * Toggled from the page header; the preference persists per browser.
  */
@@ -139,7 +139,7 @@ export default function RepoStatsPane({
               )}
             </section>
 
-            {/* MATH — the pipeline pseudocode, live trace on query */}
+            {/* TRACE — the live computation follows the query */}
             <StatsForNerds
               hideHeader
               inputs={
@@ -147,7 +147,7 @@ export default function RepoStatsPane({
                   ? { mode: "keyword", query: query.trim(), topK: 10 }
                   : null
               }
-              contextNote="Computed live as you search: the snapshot follows the filters, the pseudocode follows the active pipeline."
+              contextNote="Computed live as you search: the snapshot follows the filters, the trace follows the active pipeline."
             />
           </div>
         </div>

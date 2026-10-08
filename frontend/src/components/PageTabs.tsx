@@ -6,6 +6,8 @@
 export interface PageTabOption<T extends string> {
   id: T;
   label: string;
+  /** A Stats for Nerds control: the nerd switch removes it. */
+  nerd?: boolean;
 }
 
 export default function PageTabs<T extends string>({
@@ -19,6 +21,9 @@ export default function PageTabs<T extends string>({
   active: T;
   onChange: (id: T) => void;
 }) {
+  // One tab is no choice at all.
+  if (options.length < 2) return null;
+
   return (
     <div
       role="tablist"
@@ -33,9 +38,10 @@ export default function PageTabs<T extends string>({
             key={option.id}
             type="button"
             role="tab"
+            data-nerd={option.nerd ? "" : undefined}
             aria-selected={isActive}
             onClick={() => onChange(option.id)}
-            className={`rounded border-[3px] border-gray-900 px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.12em] transition-colors pixel-ease ${
+            className={`${option.nerd ? "nerd-glitch-in " : ""}rounded border-[3px] border-gray-900 px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.12em] transition-colors pixel-ease ${
               isActive
                 ? "bg-accent text-onAccent"
                 : "bg-white text-ink hover:bg-accentSoft"

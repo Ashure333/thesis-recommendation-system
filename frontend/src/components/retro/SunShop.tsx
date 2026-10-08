@@ -3,7 +3,8 @@
 
    A Plants-vs-Zombies-style storefront: sun tokens on the left
    (your tree's current stage and growth breakdown) and the
-   fertilizer item on the right, sold in packs of 1, 5, or 10
+   fertilizer item on the right, sold at scales of 10 to 10,000,
+   alternating sun and tree tokens; purchases credit the HOLD (badge)
    with bulk discounts. Every packet adds growth points to the
    Tree of Knowledge, so the earnings loop feeds the tree.
 
@@ -12,10 +13,11 @@
    bounties for treasures, achievements, and tip milestones.
    ============================================================ */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 
 import {
   KNOWLEDGE_STAGES,
+  SPECIES_INFO,
   knowledgePoints,
   knowledgeStageFromHeight,
   nextKnowledgeHeight,
@@ -27,34 +29,44 @@ import {
   ACHIEVEMENT_BOUNTY,
   ASK_SUN_CAP,
   DAILY_BONUS,
-  FEET_PER_FERTILIZER,
+  FERTILIZER_SCALES,
   GROWTH_PER_FERTILIZER,
   PETS_PER_SUN,
   PET_SUN_CAP,
   readSeenTipCount,
+  SUN_PRICE_PER_FERTILIZER,
   TIP_BOUNTY,
   TIPS_PER_BOUNTY,
   TREASURE_BOUNTY,
   useSun,
 } from "../../state/sun";
+import { Palette, Sparkles, Sprout } from "lucide-react";
 import { useHunt } from "../../state/hunt";
 import { useAchievements } from "../../state/achievements";
 import { addOwnedSkin, useOwnedSkins } from "../../state/skins";
-import { CHEAT_HEIGHTS } from "../../data/knowledge";
+import DevPanel from "../DevPanel";
 import KnowledgeTree from "./KnowledgeTree";
+import { CardBadge, CardButton, CardTag, ShopCard } from "./ShopCard";
+import SpeciesPreview from "./SpeciesPreview";
 import SparkleGlyph from "./SparkleGlyph";
 import SunGlyph from "./SunGlyph";
 import TokenGlyph from "./TokenGlyph";
 import RetroDialog from "./RetroDialog";
+import ThemeShop from "./ThemeShop";
+import { DEFAULT_BACKDROP_THEME, type BackdropThemeId } from "../../data/backdrops";
+
+export type ShopTabId = "shop" | "skins" | "themes" | "earn" | "wallet";
 
 const RAIL_TABS: {
-  id: "shop" | "skins" | "wallet";
+  id: ShopTabId;
   label: string;
   glyph: JSX.Element;
 }[] = [
   { id: "shop", label: "Sun shop", glyph: <SunGlyph className="h-3 w-3" /> },
   { id: "skins", label: "Tree skins", glyph: <TokenGlyph className="h-3 w-3" /> },
-  { id: "wallet", label: "Wallet", glyph: <TokenGlyph className="h-3 w-3" /> },
+  { id: "themes", label: "Theme shop", glyph: <Palette className="h-3 w-3" /> },
+  { id: "earn", label: "Earn sun", glyph: <Sparkles className="h-3 w-3" /> },
+  { id: "wallet", label: "Developer", glyph: <TokenGlyph className="h-3 w-3" /> },
 ];
 
 const TREE_SPECIES_CARDS: {
@@ -117,6 +129,26 @@ function FertilizerIcon() {
   );
 }
 
+/* A fertilizer pack's preview: the bag with its multiplier, framed like
+   the Theme shop's scene stills. */
+function PackIcon({ count }: { count: number }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative grid h-16 w-16 place-items-center rounded border-[2px] border-gray-900 bg-accentSoft"
+    >
+      <svg viewBox="0 0 32 32" className="h-11 w-11" aria-hidden="true">
+        <rect x="7" y="10" width="18" height="18" rx="2" fill="#a9762f" stroke="#5a3a14" strokeWidth="2" />
+        <rect x="10" y="4" width="12" height="8" rx="2" fill="#8a5a2b" stroke="#5a3a14" strokeWidth="2" />
+        <path d="M16 14 l4 5 h-3 v5 h-2 v-5 h-3 z" fill="#7ec850" stroke="#3b6d11" strokeWidth="1" />
+      </svg>
+      <span className="absolute bottom-0 right-0 rounded-tl border-l-[2px] border-t-[2px] border-gray-900 bg-accent px-1 font-mono text-[9px] font-bold text-onAccent">
+        {count}&times;
+      </span>
+    </div>
+  );
+}
+
 export default function SunShop({
   hidePreview = false,
   embedded = false,
@@ -124,37 +156,49 @@ export default function SunShop({
   onSelect,
   hidePicker = false,
   onWhisper,
-  onCheatFx,
+  themes,
+  activeTheme,
+  onThemeChanged,
+  plantedSpecies,
+  onPlantSpecies,
 }: {
   /** Hide the "Your tree" preview when the real tree sits beside it. */
   hidePreview?: boolean;
   /** Embedded in the tree card: no frame — the tree's own menu
       chips drive `tab`; picker events flow through `onSelect`. */
   embedded?: boolean;
-  tab?: "shop" | "skins" | "wallet";
-  onSelect?: (id: "shop" | "skins" | "wallet") => void;
+  tab?: ShopTabId;
+  onSelect?: (id: ShopTabId) => void;
   /** The tree's sidebar draws its own picker rail (with the info
       card); pass true to skip this bundled one. */
   hidePicker?: boolean;
   /** Whisper purchases into the tree's speech bubble. */
   onWhisper?: (text: string) => void;
-  /** A cheat just bloomed: fire the themed unlock animation. */
-  onCheatFx?: (word: string) => void;
+  /** Backdrop themes for the Theme shop pane (meadow default). */
+  themes?: BackdropThemeId[];
+  activeTheme?: BackdropThemeId;
+  onThemeChanged?: (
+    owned: BackdropThemeId[],
+    active: BackdropThemeId,
+  ) => void;
+  /** The species growing in the garden now, and how to plant another
+   *  one you own: the Tree skins cards then offer "Plant". */
+  plantedSpecies?: TreeSpeciesId;
+  onPlantSpecies?: (id: TreeSpeciesId) => void;
 }) {
   const {
     balance,
     fertilizer,
+    fertilizerHold,
     bonusGrowth,
     height,
     nextMilestone,
-    cheats,
-    activeCheats,
-    buy,
-    redeemCheat,
+    purchaseFertilizer,
     tokens,
     spendTokens,
     testTopUp,
-    cheatSet,
+    proOverride,
+    setProOverride,
   } = useSun();
   const { count: treasures } = useHunt();
   const { unlocked } = useAchievements();
@@ -162,7 +206,6 @@ export default function SunShop({
   const [tips] = useState<number>(readSeenTipCount);
   const [species] = useState<TreeSpeciesId>(readSpecies);
   const ownedSkins = useOwnedSkins();
-  const [cheatWord, setCheatWord] = useState("");
   /* Themed pop-ups: purchase summary, confirmations, notices. */
   const [purchase, setPurchase] = useState<{
     title: string;
@@ -176,9 +219,9 @@ export default function SunShop({
   const [notice, setNotice] = useState<string | null>(null);
 
   /* Greenhouse panes: one open at a time, inside the rail. */
-  const [popupState, setPopup] = useState<"shop" | "skins" | "wallet">(
-    "shop",
-  );
+  const [popupState, setPopup] = useState<
+    ShopTabId
+  >("shop");
   const popup = embedded && tab ? tab : popupState;
   const railRef = useRef<HTMLDivElement | null>(null);
 
@@ -217,25 +260,13 @@ export default function SunShop({
     );
   }
 
-  function handleBuy(count: 1 | 5 | 10) {
-    const result = buy(count);
+  function handleBuy(count: number, currency: "sun" | "tokens") {
+    const result = purchaseFertilizer(count, currency);
     if (result.ok && typeof onWhisper === "function") {
       onWhisper(result.text);
     }
     if (result.ok) {
       spawnSparkles(6);
-      /* No pop-up for an ordinary purchase — the inline line below
-         already says it. The pop-up is reserved for the moment the
-         tree crosses a milestone and a cheat blooms. */
-      if (result.unlocked.length > 0) {
-        setPurchase({
-          title: "A cheat bloomed",
-          body: result.text,
-        });
-        if (typeof onCheatFx === "function") {
-          onCheatFx(result.unlocked[0]);
-        }
-      }
     }
   }
 
@@ -273,11 +304,7 @@ export default function SunShop({
   const nextAt = nextKnowledgeHeight(height);
   const tree = treeSpecies(species);
 
-  const packs = [
-    { count: 1 as const, price: 20, discount: null },
-    { count: 5 as const, price: 90, discount: "save 10%" },
-    { count: 10 as const, price: 160, discount: "save 20%" },
-  ];
+
 
   return (
     <div className={embedded ? "w-full" : "grid gap-6 lg:grid-cols-2"}>
@@ -368,7 +395,7 @@ export default function SunShop({
         }`}
         onKeyDown={(event) => {
           const index = RAIL_TABS.findIndex((entry) => entry.id === popup);
-          const pick = (id: "shop" | "skins" | "wallet") => {
+          const pick = (id: ShopTabId) => {
             if (embedded && onSelect) onSelect(id);
             else setPopup(id);
           };
@@ -414,14 +441,14 @@ export default function SunShop({
               className={`flex min-w-[76px] shrink-0 flex-col items-center gap-1.5 rounded-lg border-[3px] px-2.5 py-2 transition-all duration-150 pixel-ease ${
                 active
                   ? "border-gray-900 bg-white text-gray-900 shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
-                  : "border-gray-800/40 bg-white/60 text-gray-700/70 hover:border-gray-900 hover:text-gray-900"
+                  : "border-gray-600 bg-accentSoft/60 text-ink/90 hover:border-gray-900 hover:text-ink"
               }`}
             >
               <span
                 className={`grid h-9 w-9 place-items-center rounded border-[3px] transition-colors ${
                   active
                     ? "border-gray-900 bg-accentSoft"
-                    : "border-gray-700/40 bg-white/70"
+                    : "border-gray-600/60 bg-accentSoft"
                 }`}
               >
                 {entry.glyph}
@@ -439,18 +466,35 @@ export default function SunShop({
       <div
         data-shop-panel
         className="min-h-0 w-full flex-1 overflow-y-auto"
-        style={embedded ? { maxHeight: 420 } : undefined}
+        style={embedded ? { maxHeight: "min(68vh, 640px)" } : undefined}
         role="group"
           aria-label={
             popup === "shop"
               ? "Sun shop"
               : popup === "skins"
                 ? "Tree skins"
-                : "Test wallet"
+                : popup === "themes"
+                  ? "Theme shop"
+                  : popup === "earn"
+                    ? "Earn sun"
+                    : "Developer"
           }
         >
           <div className="p-4">
-            {popup === "shop" && (
+            {popup === "themes" ? (
+              onThemeChanged ? (
+                <ThemeShop
+                  owned={themes ?? []}
+                  active={activeTheme ?? DEFAULT_BACKDROP_THEME}
+                  onChanged={onThemeChanged}
+                />
+              ) : (
+                <p className="text-xs leading-5 text-muted">
+                  Theme collection lives with the tree — open the
+                  garden to change your backdrop.
+                </p>
+              )
+            ) : popup === "shop" && (
               <>
 <div className="rounded border-[3px] border-gray-900 bg-accentSoft/60 p-3">
           <div className="flex items-start gap-3">
@@ -461,184 +505,77 @@ export default function SunShop({
                 Fertilizer
               </p>
               <p className="mt-0.5 text-xs leading-5 text-gray-800">
-                Feeds the Tree of Knowledge: each packet adds{" "}
+                Buy fertilizer into your hold — it does not feed the
+                tree until you drag it from the garden's fertilizer
+                counter (1×, 2×, or 10×). Each packet adds{" "}
                 {GROWTH_PER_FERTILIZER} growth points. Height follows
                 the tree's stage — from seed at 0 ft to the ancient
                 tree at 1000 ft across all 10,000 packets — and
-                feeding dispenses wisdom: a cheat word at 250, 650, 1000,
+                feeding dispenses wisdom: a new charm at 250, 450, 650, 850
                 and 1000 feet, a garden tip otherwise.
               </p>
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {packs.map((pack) => {
-              const affordable = balance >= pack.price;
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-ink">
+              <SunGlyph className="h-3.5 w-3.5" /> {balance}
+            </span>
+            <span className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-ink">
+              <TokenGlyph className="h-3.5 w-3.5" /> {tokens}
+            </span>
+            <span
+              className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-xs font-bold text-ink"
+              title="Purchased fertilizer waiting to be dragged onto the tree"
+            >
+              <Sprout className="h-3.5 w-3.5 text-[#2b8a3e] [[data-mode=dark]_&]:text-[#7ddf8a]" />×{fertilizerHold}
+            </span>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2">
+            {FERTILIZER_SCALES.map((scale) => {
+              const affordable =
+                scale.currency === "sun"
+                  ? balance >= scale.price
+                  : tokens >= scale.price;
+              const unit = scale.currency === "sun" ? "sun" : "tokens";
 
               return (
-                <button
-                  key={pack.count}
-                  type="button"
-                  disabled={!affordable}
-                  onClick={() => handleBuy(pack.count)}
-                  draggable={affordable}
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData(
-                      "application/x-fertilizer",
-                      String(pack.count),
-                    );
-                    event.dataTransfer.effectAllowed = "copy";
-
-                    /* The drag ghost is the fertilizer icon itself,
-                       badge-styled, with the pack count on it. */
-                    const svgNS = "http://www.w3.org/2000/svg";
-                    const icon = document.createElementNS(svgNS, "svg");
-                    icon.setAttribute("viewBox", "0 0 32 32");
-                    icon.setAttribute("width", "40");
-                    icon.setAttribute("height", "40");
-                    icon.setAttribute("aria-hidden", "true");
-                    icon.style.display = "block";
-                    icon.innerHTML =
-                      '<rect x="7" y="10" width="18" height="18" rx="2" fill="#a9762f" stroke="#5a3a14" stroke-width="2"></rect>' +
-                      '<rect x="10" y="4" width="12" height="8" rx="2" fill="#8a5a2b" stroke="#5a3a14" stroke-width="2"></rect>' +
-                      '<path d="M16 14 l4 5 h-3 v5 h-2 v-5 h-3 z" fill="#7ec850" stroke="#3b6d11" stroke-width="1"></path>';
-
-                    const ghost = document.createElement("div");
-                    ghost.style.cssText =
-                      "position:fixed;left:0;top:0;display:grid;place-items:center;" +
-                      "gap:2px;width:56px;height:56px;border:3px solid #1a1a1a;" +
-                      "border-radius:10px;background:#d9b382;box-shadow:3px 3px 0 rgba(0,0,0,0.35);";
-                    ghost.appendChild(icon);
-                    const badge = document.createElement("span");
-                    badge.textContent = `${pack.count}x`;
-                    badge.style.cssText =
-                      "font:700 11px ui-monospace,monospace;color:#3b6d11;background:#f5e08a;" +
-                      "border:2px solid #1a1a1a;border-radius:4px;padding:0 4px;";
-                    ghost.appendChild(badge);
-                    document.body.appendChild(ghost);
-                    event.dataTransfer.setDragImage(ghost, 28, 28);
-                    window.setTimeout(() => ghost.remove(), 0);
-                  }}
-                  title={
-                    affordable
-                      ? `Buy or drag ${pack.count} fertilizer onto the tree for ${pack.price} sun`
-                      : `Needs ${pack.price} sun`
-                  }
-                  className={`flex flex-col items-center gap-0.5 rounded border-[3px] border-gray-900 px-1 py-2 font-mono text-[11px] font-bold transition-colors pixel-ease ${
-                    affordable
-                      ? "bg-accent text-[#2b3347] hover:brightness-110 hover:bg-accent active:translate-y-[1px]"
-                      : "cursor-not-allowed bg-[#cbb894] text-[#6a6053]"
-                  }`}
+                <ShopCard
+                  key={`${scale.count}-${scale.currency}`}
+                  layout="side"
+                  preview={<PackIcon count={scale.count} />}
+                  title={`${scale.count}\u00D7 fertilizer`}
+                  blurb={`+${scale.count * GROWTH_PER_FERTILIZER} growth points once fed to the tree. It lands in your hold.`}
                 >
-                  <span>{pack.count}×</span>
-                  <span className="flex items-center gap-1">
-                    <SunGlyph className="h-3 w-3" />
-                    {pack.price}
-                  </span>
-                  <span className="text-[9px] font-bold uppercase text-accent">
-                    {pack.discount ?? "\u00a0"}
-                  </span>
-                </button>
+                  <CardButton
+                    disabled={!affordable}
+                    onClick={() => handleBuy(scale.count, scale.currency)}
+                    title={
+                      affordable
+                        ? `Add ${scale.count} fertilizer to your hold for ${scale.price} ${unit}`
+                        : `Needs ${scale.price} ${unit}`
+                    }
+                  >
+                    {scale.currency === "sun" ? (
+                      <SunGlyph className="h-3 w-3" />
+                    ) : (
+                      <TokenGlyph className="h-3 w-3" />
+                    )}
+                    {scale.price} {unit}
+                  </CardButton>
+                </ShopCard>
               );
             })}
           </div>
 
-          <p className="mt-2 text-right font-mono text-[9px] font-bold uppercase tracking-wider text-[#6a4a20]/80">
-            drag a pack onto the tree to feed it
+          <p className="mt-2 text-right font-mono text-[9px] font-bold uppercase tracking-wider text-muted">
+            purchases land in your hold — drag the garden's fertilizer
+            counter onto the tree
           </p>
 
         </div>
 
-        <p className="mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
-          How to earn sun
-        </p>
-        <ul className="mt-1 space-y-0.5 text-xs leading-5 text-muted">
-          <li>Daily visit: +{DAILY_BONUS}</li>
-          <li>
-            Every {PETS_PER_SUN} pets: +1 (max {PET_SUN_CAP}/day)
-          </li>
-          <li>
-            Every help question: +1 (max {ASK_SUN_CAP}/day)
-          </li>
-          <li>Each treasure: +{TREASURE_BOUNTY}</li>
-          <li>Each achievement: +{ACHIEVEMENT_BOUNTY}</li>
-          <li>
-            Every {TIPS_PER_BOUNTY} tips discovered: +{TIP_BOUNTY}
-          </li>
-        </ul>
-
-        <p className="mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
-          Cheat words
-        </p>
-
-        {cheatSet.length === 0 ? (
-          <p className="mt-1 text-xs leading-5 text-muted">
-            The tree keeps its cheats until it grows taller.
-          </p>
-        ) : (
-          <ul className="mt-1 space-y-1">
-            {cheatSet.map((entry, index) => {
-              const unlocked = cheats.includes(entry.word);
-              const armed = activeCheats.includes(entry.word);
-              return (
-                <li key={entry.word} className="flex items-start gap-2">
-                  <span className={`shrink-0 rounded border-[2px] border-gray-900 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase transition-colors pixel-ease ${
-                    unlocked
-                      ? "bg-[#d3f9d8] text-[#2b8a3e]"
-                      : "bg-white/60 text-gray-400"
-                  }`}>
-                    {entry.word}
-                    {armed
-                      ? " \u2713"
-                      : unlocked
-                        ? ""
-                        : ` (${CHEAT_HEIGHTS[index]} ft)`}
-                  </span>
-                  <span className="text-xs leading-5 text-muted">
-                    {entry.effect}
-                  </span>
-                  {unlocked && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const out = redeemCheat(entry.word);
-                        if (typeof onWhisper === "function") onWhisper(out.text);
-                      }}
-                      title={armed ? "Disarm this cheat" : "Arm this cheat"}
-                      className="ml-auto shrink-0 rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase transition-colors pixel-ease hover:bg-accentSoft"
-                    >
-                      {armed ? "on" : "arm"}
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const out = redeemCheat(cheatWord);
-            if (typeof onWhisper === "function") onWhisper(out.text);
-            setCheatWord("");
-          }}
-          className="mt-2 flex gap-1.5"
-        >
-          <input
-            value={cheatWord}
-            onChange={(event) => setCheatWord(event.target.value)}
-            placeholder="type a cheat word…"
-            aria-label="Cheat word"
-            className="min-h-7 min-w-0 flex-1 rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[11px] text-ink placeholder:text-muted"
-          />
-          <button
-            type="submit"
-            className="rounded border-[2px] border-gray-900 bg-accent px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-[#2b3347] transition-colors pixel-ease hover:brightness-110 hover:bg-accent"
-          >
-            Cast
-          </button>
-        </form>
               </>
             )}
             {popup === "skins" && (
@@ -658,36 +595,47 @@ export default function SunShop({
           every skin will come home.
         </p>
 
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className="flex flex-col gap-3">
           {TREE_SPECIES_CARDS.map((entry) => {
             const owned = ownedSkins.includes(entry.id);
             const price = TREE_SKIN_PRICES[entry.id];
+            const planted = plantedSpecies === entry.id;
+            const info = SPECIES_INFO[entry.id];
 
             return (
-              <div
+              <ShopCard
                 key={entry.id}
-                className={`flex flex-col items-center gap-1.5 rounded-lg border-[3px] p-2.5 transition-all duration-150 pixel-ease ${
-                  owned
-                    ? "border-[#2b8a3e] bg-accentSoft"
-                    : "border-gray-900 bg-gradient-to-b from-[#e2c091] to-[#d3a971] hover:-translate-y-[1px] hover:shadow-[2px_2px_0_rgba(0,0,0,0.15)]"
-                }`}
+                layout="side"
+                active={planted}
+                preview={
+                  <SpeciesPreview
+                    speciesId={entry.id}
+                    theme={activeTheme ?? DEFAULT_BACKDROP_THEME}
+                    dim={!owned}
+                  />
+                }
+                title={info.name}
+                badge={
+                  planted ? (
+                    <CardBadge>Planted</CardBadge>
+                  ) : owned ? (
+                    <CardBadge tone="muted">Owned</CardBadge>
+                  ) : undefined
+                }
+                blurb={info.fact}
               >
-                <KnowledgeTree
-                  stage={stage}
-                  species={entry.id}
-                  size={44}
-                />
-                <span className="font-mono text-[10px] font-bold uppercase text-gray-900">
-                  {entry.label}
-                </span>
-
                 {owned ? (
-                  <span className="rounded border-[2px] border-[#2b8a3e] bg-white px-2 py-0.5 font-mono text-[9px] font-bold uppercase text-[#2b8a3e]">
-                    Owned
-                  </span>
+                  planted ? (
+                    <CardTag>Planted</CardTag>
+                  ) : onPlantSpecies ? (
+                    <CardButton onClick={() => onPlantSpecies(entry.id)}>
+                      Plant
+                    </CardButton>
+                  ) : (
+                    <CardTag>Owned</CardTag>
+                  )
                 ) : (
-                  <button
-                    type="button"
+                  <CardButton
                     onClick={() => buySkin(entry.id)}
                     disabled={tokens < price}
                     title={
@@ -695,37 +643,60 @@ export default function SunShop({
                         ? `Buy for ${price} growth tokens`
                         : `Needs ${price - tokens} more growth tokens`
                     }
-                    className={`flex items-center gap-1 rounded border-[3px] border-gray-900 px-2 py-0.5 font-mono text-[9px] font-bold uppercase transition-colors pixel-ease ${
-                      tokens >= price
-                        ? "bg-accent text-[#2b3347] hover:brightness-110 hover:bg-accent active:translate-y-[1px]"
-                        : "cursor-not-allowed bg-[#cbb894] text-[#6a6053]"
-                    }`}
                   >
                     <TokenGlyph className="h-2.5 w-2.5" />
                     {price}
-                  </button>
+                  </CardButton>
                 )}
-              </div>
+              </ShopCard>
             );
           })}
         </div>
               </>
             )}
+            {popup === "earn" && (
+              <>
+        <p className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+          How to earn sun
+        </p>
+        <ul className="mt-1 space-y-0.5 text-xs leading-5 text-muted">
+          <li>Daily visit: +{DAILY_BONUS}</li>
+          <li>
+            Every {PETS_PER_SUN} pets: +1 (max {PET_SUN_CAP}/day)
+          </li>
+          <li>
+            Every help question: +1 (max {ASK_SUN_CAP}/day)
+          </li>
+          <li>Each treasure: +{TREASURE_BOUNTY}</li>
+          <li>Each achievement: +{ACHIEVEMENT_BOUNTY}</li>
+          <li>
+            Every {TIPS_PER_BOUNTY} tips discovered: +{TIP_BOUNTY}
+          </li>
+        </ul>
+
+        <p className="mt-3 text-xs leading-5 text-muted">
+          The tree's cheat words are now garden charms. Open the Almanac
+          (Charms) to see what each one unlocks and to switch them on and
+          off.
+        </p>
+              </>
+            )}
             {popup === "wallet" && (
               <>
-        <section className="rounded-xl border-[2px] border-dashed border-[#b45309]/55 bg-[#fff7e6] p-3.5">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-[#b45309]">
-            Test wallet (temporary)
+        <section className="rounded-xl border-[2px] border-dashed border-[#b45309]/70 bg-accentSoft/50 p-3.5">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-[#b45309] [[data-mode=dark]_&]:text-[#f5b861]">
+            Developer · test wallet (temporary)
           </p>
-          <p className="mt-1 text-xs leading-5 text-muted">
+          <p className="mt-1 text-xs leading-5 text-ink">
             Dev only: top up instantly to stress the shop and the Tree
-            of Knowledge. Remove before launch.
+            of Knowledge, or force My Library PRO on without growing
+            a tree. Remove before launch.
           </p>
           <div className="mt-3 flex flex-col gap-2">
             <button
               type="button"
               onClick={() => testTopUp(1000, 0)}
-              className="flex w-full items-center justify-between rounded border-[3px] border-[#b45309] bg-white px-3 py-1.5 font-mono text-[11px] font-bold text-[#b45309] transition-colors pixel-ease hover:bg-[#fde68a]"
+              className="flex w-full items-center justify-between rounded border-[3px] border-[#b45309] bg-white px-3 py-1.5 font-mono text-[11px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
             >
               <span>+1,000 sun</span>
             <SunGlyph className="h-3 w-3" />
@@ -733,7 +704,7 @@ export default function SunShop({
             <button
               type="button"
               onClick={() => testTopUp(0, 1000)}
-              className="flex w-full items-center justify-between rounded border-[3px] border-[#b45309] bg-white px-3 py-1.5 font-mono text-[11px] font-bold text-[#b45309] transition-colors pixel-ease hover:bg-[#fde68a]"
+              className="flex w-full items-center justify-between rounded border-[3px] border-[#b45309] bg-white px-3 py-1.5 font-mono text-[11px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
             >
               <span>+1,000 growth tokens</span>
             <TokenGlyph className="h-3 w-3" />
@@ -741,7 +712,7 @@ export default function SunShop({
             <button
               type="button"
               onClick={() => testTopUp(1000, 1000)}
-              className="flex w-full items-center justify-between rounded border-[3px] border-[#b45309] bg-white px-3 py-1.5 font-mono text-[11px] font-bold text-[#b45309] transition-colors pixel-ease hover:bg-[#fde68a]"
+              className="flex w-full items-center justify-between rounded border-[3px] border-[#b45309] bg-white px-3 py-1.5 font-mono text-[11px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
             >
               <span>both</span>
             <span className="flex items-center gap-1">
@@ -749,8 +720,30 @@ export default function SunShop({
               <TokenGlyph className="h-3 w-3" />
             </span>
             </button>
+            <button
+              type="button"
+              aria-pressed={proOverride}
+              onClick={() => setProOverride(!proOverride)}
+              className={`flex w-full items-center justify-between rounded border-[3px] border-[#b45309] px-3 py-1.5 font-mono text-[11px] font-bold transition-colors pixel-ease hover:bg-accentSoft ${
+                proOverride
+                  ? "bg-[#8a3d05] text-[#ffffff]"
+                  : "bg-accentSoft text-ink"
+              }`}
+            >
+              <span>PRO mode (temporary)</span>
+              <span>{proOverride ? "ON" : "OFF"}</span>
+            </button>
           </div>
         </section>
+
+        {/* the garden's controls: looks, scenery, charms, the tree's growth */}
+        <div className="mt-4">
+          <DevPanel garden />
+          <p className="mt-3 text-xs leading-5 text-muted">
+            The full control panel (all looks, tree colors, backup) is under
+            Settings, Developer. Press ` anywhere for the cheat console.
+          </p>
+        </div>
               </>
             )}
           </div>
@@ -760,6 +753,7 @@ export default function SunShop({
       <RetroDialog
         open={purchase !== null}
         title={purchase?.title ?? ""}
+        autoCloseMs={10_000}
         onCancel={() => setPurchase(null)}
         onConfirm={() => setPurchase(null)}
         confirmLabel="Done"
@@ -770,6 +764,7 @@ export default function SunShop({
       <RetroDialog
         open={confirm !== null}
         title={confirm?.title ?? ""}
+        size="sm"
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
           confirm?.onYes();
@@ -782,6 +777,8 @@ export default function SunShop({
       <RetroDialog
         open={notice !== null}
         title="Heads up"
+        size="sm"
+        autoCloseMs={10_000}
         onCancel={() => setNotice(null)}
         onConfirm={() => setNotice(null)}
         confirmLabel="OK"

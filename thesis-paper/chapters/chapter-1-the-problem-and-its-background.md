@@ -6,7 +6,7 @@ Chapter I sets out the background of the problem, the statement of the problem, 
 
 ### Introduction
 
-Thesis writing begins with locating related literature: researchers must find prior studies, position their work against them, and avoid duplicating completed research, and each move depends on retrieving the right papers. The volume of published research makes that a retrieval problem in its own right, and research-paper recommender systems have been built to address it (Beel et al., 2016; Bai et al., 2019). This study designs and builds a recommendation system for that setting, then evaluates its configurations against one another.
+Thesis writing begins with locating related literature: researchers must find prior studies, position their work against them, and avoid duplicating completed research, and each move depends on retrieving the right papers. The volume of published research makes that a retrieval problem in its own right, and research-paper recommender systems have been built to address it (Beel et al., 2016; Bai et al., 2019). This study designs and builds a recommendation system for that setting, then evaluates its configurations against one another and appraises the developed system's acceptability and software quality.
 
 Philippine undergraduates typically find related literature by typing keywords into Google Scholar and library catalogs. Keyword retrieval works by exact term matching, and the vocabulary mismatch problem breaks it whenever authors and searchers use different words for the same idea: synonymy lets a paper on "neural networks" escape a search for "deep learning," and polysemy lets one term pull in unrelated senses (Manning et al., 2008). Keyword search also ignores structured metadata such as publication year and venue, so a chronological search can surface dated work. Content-based research documents the same weakness: keyword profiles over-emphasize surface terms and under-use structured fields (Lops et al., 2011).
 
@@ -43,11 +43,11 @@ Arena Comparison Measures
 | Independence-weighted consensus | Winner by weighted vote share, discounted for shared components |
 | Win tally and battle history | Wins per pipeline, champion, and streak |
 
-Local prototypes rarely integrate lexical, semantic, and metadata signals, and fewer still evaluate the configurations against one another. Re:Search builds that integration, and the Arena supplies the comparison. The study will report which configurations capture consensus best and how single-signal and hybrid pipelines agree in ranking, within the Re:Search corpus and protocol. The aim is a working prototype and an evidence-based account of its configurations.
+Local prototypes rarely integrate lexical, semantic, and metadata signals, and fewer still evaluate the configurations against one another. Re:Search builds that integration, and the Arena supplies the comparison. The study will report which configurations capture consensus best and how single-signal and hybrid pipelines agree in ranking, within the Re:Search corpus and protocol. The aim is a working prototype, an evidence-based account of its configurations, and an appraisal of the system's acceptability and software quality.
 
 ### Statement of the Problem
 
-Undergraduate thesis writing at Bulacan State University depends on related literature, yet the retrieval tools students use, keyword search in Google Scholar and library catalogs, break under vocabulary mismatch and ignore structured metadata (Manning et al., 2008). Content-based recommenders can recover relevant literature, yet single-signal approaches fail in opposite directions: lexical matching misses paraphrase, and semantic matching drifts from the topical and temporal constraints a thesis imposes (Lops et al., 2011; Reimers & Gurevych, 2019). Hybrid systems combine signals to offset these weaknesses (Burke, 2002), but comparative evidence on how configurations behave is scarce (Beel et al., 2016; Bai et al., 2019), and local prototypes integrating all three signals are rare. This study will therefore design and develop Re:Search, a hybrid content-based recommendation system for academic papers, and comparatively evaluate its six pipeline configurations, addressing the following specific questions:
+Undergraduate thesis writing at Bulacan State University depends on related literature, yet the retrieval tools students use, keyword search in Google Scholar and library catalogs, break under vocabulary mismatch and ignore structured metadata (Manning et al., 2008). Content-based recommenders can recover relevant literature, yet single-signal approaches fail in opposite directions: lexical matching misses paraphrase, and semantic matching drifts from the topical and temporal constraints a thesis imposes (Lops et al., 2011; Reimers & Gurevych, 2019). Hybrid systems combine signals to offset these weaknesses (Burke, 2002), but comparative evidence on how configurations behave is scarce (Beel et al., 2016; Bai et al., 2019), and local prototypes integrating all three signals are rare. This study will therefore design and develop Re:Search, a hybrid content-based recommendation system for academic papers, comparatively evaluate its six pipeline configurations, and assess the developed system's acceptability and software quality. The acceptability assessment follows the Technology Acceptance Model (Davis, 1989), and the quality assessment follows the ISO/IEC 25010 product quality model (ISO/IEC 25010:2023), addressing the following specific questions:
 
 1. How can a hybrid content-based recommendation system for academic papers be designed and developed, specifically through:
 
@@ -71,6 +71,36 @@ Undergraduate thesis writing at Bulacan State University depends on related lite
 
 3. How do hybrid configurations compare with single-signal configurations in consensus capture and ranking agreement?
 
+4. How acceptable is Re:Search under the Technology Acceptance Model (TAM), considering:
+
+   4.1 perceived usefulness,
+
+   4.2 perceived ease of use,
+
+   4.3 attitude toward using, and
+
+   4.4 behavioral intention?
+
+5. How well does Re:Search meet ISO/IEC 25010 quality requirements, considering:
+
+   5.1 functional suitability,
+
+   5.2 performance efficiency,
+
+   5.3 compatibility,
+
+   5.4 interaction capability,
+
+   5.5 reliability,
+
+   5.6 security,
+
+   5.7 maintainability,
+
+   5.8 flexibility, and
+
+   5.9 safety?
+
 To answer the third question, this study will examine the following hypotheses descriptively:
 
 H₀: There is no difference in consensus capture between single-signal and hybrid pipeline configurations, as measured by the independence-weighted consensus winner.
@@ -93,15 +123,15 @@ This study will benefit the following parties:
 
 **System developers.** Developers receive an open account of how the six configurations were built: prepared-text normalization, TF-IDF and S-BERT representations, the metadata component, weighted combination, and the Arena's metrics (Burke, 2002; Reimers & Gurevych, 2019).
 
-**Future researchers.** Future researchers will inherit the Arena as an evaluation instrument and the study's bounded findings as a baseline, with delimitations that give later work a clear starting point for extending the corpus, adding models, or moving to human evaluation (Beel et al., 2016; Bai et al., 2019).
+**Future researchers.** Future researchers will inherit the Arena as an evaluation instrument and the study's bounded findings as a baseline, with delimitations that give later work a clear starting point for extending the corpus, adding models, or evaluating ranking relevance with human judges (Beel et al., 2016; Bai et al., 2019).
 
 ### Scope and Delimitation
 
 This development study sets the following parameters.
 
-**Scope.** The study will cover the design, development, and comparative evaluation of Re:Search, a local academic paper repository and recommendation system. Functional scope: (a) repository import from PDF and BibTeX, including Google Scholar citations; (b) recommendation validation and prepared-text normalization; (c) TF-IDF, S-BERT, and metadata representations; (d) six fixed pipeline configurations plus a user-customizable dial allocation; (e) query-based and seed-paper-based search; and (f) the Arena evaluation instrument with consensus ranking, pairwise agreement, the independence-weighted consensus winner, and battle history. Evaluation will be system-internal: the Arena's agreement metrics, not a human user study. The corpus will be the locally collected academic papers stored in the repository, which held 168 records at the time of this revision, 145 of them valid for recommendation. The locale is Bulacan State University, Malolos, Bulacan.
+**Scope.** The study will cover the design, development, and comparative evaluation of Re:Search, a local academic paper repository and recommendation system. Functional scope: (a) repository import from PDF and BibTeX, including Google Scholar citations; (b) recommendation validation and prepared-text normalization; (c) TF-IDF, S-BERT, and metadata representations; (d) six fixed pipeline configurations plus a user-customizable dial allocation; (e) query-based and seed-paper-based search; (f) the Arena evaluation instrument with consensus ranking, pairwise agreement, the independence-weighted consensus winner, and battle history; and (g) a system evaluation combining a Technology Acceptance Model questionnaire for end-users with an ISO/IEC 25010 checklist for IT experts. The comparative evaluation of configurations is system-internal: the Arena's agreement metrics, not relevance judgments against human ratings. The acceptability and quality evaluation is human-rated by purposively selected respondents and is bounded to their ratings of the prototype. The corpus will be the locally collected academic papers stored in the repository, which held 168 records at the time of this revision, 145 of them valid for recommendation. The locale is Bulacan State University, Malolos, Bulacan.
 
-**Delimitations.** The study will exclude production deployment; collaborative filtering and user ratings; user-profile personalization; sentence-embedding models other than all-MiniLM-L6-v2; OCR for scanned PDFs, since extraction is heuristic and pdfplumber-based; and multi-node or server-class storage, since the database is SQLite on a single node. The findings will be bounded to the evaluated corpus and prototype. The study will not rank the surveyed algorithms in general.
+**Delimitations.** The study will exclude production deployment; collaborative filtering and user ratings; user-profile personalization; sentence-embedding models other than all-MiniLM-L6-v2; OCR for scanned PDFs, since extraction is heuristic and pdfplumber-based; multi-node or server-class storage, since the database is SQLite on a single node; and relevance judgments against human raters, since the human evaluation covers acceptability and ISO/IEC 25010 quality ratings only. The findings will be bounded to the evaluated corpus and prototype. The study will not rank the surveyed algorithms in general.
 
 ### Definition of Terms
 
@@ -123,6 +153,8 @@ The study defines key terms operationally as follows.
 
 **Independence-weighted consensus.** Refers to the Arena's winner metric, in which one pipeline's vote for a paper weighs 1 minus the Jaccard similarity of the two pipelines' component sets; the winner captures the largest share of available weighted consensus, ties breaking by the lower average consensus rank.
 
+**ISO/IEC 25010.** Refers to the international product quality model used for the study's expert evaluation, whose nine characteristics, functional suitability, performance efficiency, compatibility, interaction capability, reliability, security, maintainability, flexibility, and safety, structure the quality checklist (ISO/IEC 25010:2023).
+
 **Mean rank gap.** Refers to the mean absolute difference between the ranks two pipelines give to the papers both ranked.
 
 **Metadata component.** Refers to the Re:Search component that scores candidates on four signals, title, abstract, keywords, and publication year, each fixed at 25 percent; missing fields contribute zero, and publication-year similarity is 1 / (1 + |Δyear|). On seed-paper searches all four signals are active; on free-text queries the query text feeds the title, abstract, and keywords signals, while the year signal is absent.
@@ -142,6 +174,8 @@ The study defines key terms operationally as follows.
 **Seed paper.** Refers to a repository paper selected as the query; the system builds the query representation from its prepared text and excludes it from the results.
 
 **TF-IDF.** Refers to term frequency-inverse document frequency, a weighting scheme assigning weight by a term's frequency within a document and its rarity across the corpus (Salton & Buckley, 1988; Manning et al., 2008). Re:Search computes TF-IDF vectors with scikit-learn.
+
+**Technology Acceptance Model (TAM).** Refers to the model of user acceptance used for the study's end-user evaluation, assessed through perceived usefulness, perceived ease of use, attitude toward using, and behavioral intention (Davis, 1989).
 
 **Top-K.** Refers to the K highest-ranked papers a pipeline returns; the Arena interface offers K values of 5, 10, and 15, while the backend accepts up to 25.
 

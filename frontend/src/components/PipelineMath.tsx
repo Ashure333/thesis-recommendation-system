@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   getRecommendationTrace,
   TraceEvent,
 } from "../api";
-import { getPipelineMath } from "../data/pipelineMath";
-import type {
-  DialAllocation,
-  PipelineConfig,
+import {
+  pipelineConfigs,
+  type DialAllocation,
+  type PipelineConfig,
 } from "../data/pipelineConfigs";
 import { ArrowDown, ArrowUp, Dot } from "./retro/PixelIcons";
 
@@ -15,6 +16,8 @@ export interface PipelineMathInputs {
   query?: string;
   seedPaperId?: number;
   topK: number;
+  /** Set when Diversify (MMR) is on, so the trace explains that ranking. */
+  mmrLambda?: number;
 }
 
 interface PipelineMathProps {
@@ -24,7 +27,7 @@ interface PipelineMathProps {
   configOverride?: PipelineConfig;
   /** Dial allocation (0..100 per signal) for pipeline="custom". */
   weights?: DialAllocation;
-  /** Open the pseudocode card immediately (Stats for Nerds tab). */
+  /** Open the trace card immediately (Stats for Nerds tab). */
   defaultOpen?: boolean;
 }
 
@@ -35,10 +38,10 @@ const EVENT_LABELS: Record<string, string> = {
   "component.tfidf": "TF-IDF scores",
   "component.sbert": "S-BERT scores",
   "component.metadata.signals": "Metadata signals",
-  "component.metadata.summary": "Metadata scores",
   normalization: "Normalization",
   combine: "Combination",
   rank: "Final ranking",
+  "rerank.mmr": "MMR diversification",
 };
 
 function fmt(value: unknown): string {
@@ -49,6 +52,11 @@ function fmt(value: unknown): string {
     return "—";
   }
   return String(value);
+}
+
+/** Integer counts (top_k, dimensions, paper counts) print as-is, not as 10.0000. */
+function fmtCount(value: unknown): string {
+  return typeof value === "number" ? String(value) : fmt(value);
 }
 
 function truncate(title: string, max = 48): string {
@@ -214,10 +222,15 @@ export default function PipelineMath({
 }: PipelineMathProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [trace, setTrace] = useState<TraceEvent[] | null>(null);
+  // Paper ids in the order the engine actually returned them (after MMR).
+  const [finalIds, setFinalIds] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const math = getPipelineMath(pipelineId, configOverride);
+  const config =
+    configOverride ??
+    pipelineConfigs.find((item) => item.id === pipelineId) ??
+    pipelineConfigs[pipelineConfigs.length - 1];
 
   const hasInputs = Boolean(
     inputs &&
@@ -228,9 +241,31 @@ export default function PipelineMath({
 
   const canRunLive = open && hasInputs;
 
+  // The effect depends on primitive values, not on the `inputs` object:
+  // the pages build that object inline, so its identity changes on every
+  // render, and each unrelated re-render (a layout toggle, a hover) used to
+  // fire another full instrumented search. One trace now runs per distinct
+  // query / seed / depth / MMR / pipeline / weights.
+  const weightsRef = useRef(weights);
+  weightsRef.current = weights;
+
+  const inputMode = inputs?.mode;
+  const inputQuery = (inputs?.query ?? "").trim();
+  const inputSeedId = inputs?.seedPaperId;
+  const inputTopK = inputs?.topK;
+  const inputMmr = inputs?.mmrLambda;
+  const weightsKey = weights
+    ? `${weights.tfidf}|${weights.sbert}|${weights.metadata}`
+    : "";
+
   useEffect(() => {
-    if (!canRunLive || !inputs) {
+    if (
+      !canRunLive ||
+      inputMode === undefined ||
+      inputTopK === undefined
+    ) {
       setTrace(null);
+      setFinalIds(null);
       return;
     }
 
@@ -239,30 +274,28 @@ export default function PipelineMath({
     setLoading(true);
     setError(null);
 
-    // Debounced: dial drags emit a stream of weight updates and
-    // the `inputs` object is recreated each render — one trace
+    // Debounced: dial drags emit a stream of weight updates; one trace
     // fires once the interaction settles.
     const timeout = window.setTimeout(() => {
       getRecommendationTrace({
         pipeline: pipelineId,
-        query:
-          inputs.mode === "seed"
-            ? undefined
-            : inputs.query?.trim(),
-        seedPaperId:
-          inputs.mode === "seed"
-            ? inputs.seedPaperId
-            : undefined,
-        topK: inputs.topK,
-        ...(weights ? { weights } : {}),
+        query: inputMode === "seed" ? undefined : inputQuery,
+        seedPaperId: inputMode === "seed" ? inputSeedId : undefined,
+        topK: inputTopK,
+        ...(inputMmr !== undefined ? { mmrLambda: inputMmr } : {}),
+        ...(weightsRef.current ? { weights: weightsRef.current } : {}),
       })
         .then((data) => {
           if (cancelled) return;
           setTrace(data.events);
+          setFinalIds(
+            data.results.map((result) => String(result.paper.id))
+          );
         })
         .catch((err) => {
           if (cancelled) return;
           setTrace(null);
+          setFinalIds(null);
           setError(
             err instanceof Error
               ? err.message
@@ -280,7 +313,16 @@ export default function PipelineMath({
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [canRunLive, inputs, pipelineId, weights]);
+  }, [
+    canRunLive,
+    inputMode,
+    inputQuery,
+    inputSeedId,
+    inputTopK,
+    inputMmr,
+    pipelineId,
+    weightsKey,
+  ]);
 
   // ------------------------------------------------------------
   // Derived maps used by the trace renderer
@@ -319,6 +361,16 @@ export default function PipelineMath({
   const eventData = (eventName: string) =>
     trace?.find((event) => event.event === eventName)?.data;
 
+  // Which components are actually in this pipeline (weight > 0).
+  const inputWeights = (eventData("input")?.weights ?? {}) as Record<
+    string,
+    number
+  >;
+  const uses = (name: string) => (inputWeights[name] ?? 0) > 0;
+
+  const mmrEvent = eventData("rerank.mmr");
+  const isSeedQuery = eventData("prepared_query")?.source === "seed_paper";
+
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
@@ -333,7 +385,7 @@ export default function PipelineMath({
       >
         <span className="flex flex-col gap-0.5">
           <span className="flex items-center gap-2 text-sm font-bold text-ink">
-            Mathematical pseudocode
+            Computation trace
             {loading && (
               <span className="animate-pulse flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-accent">
                 <Dot className="animate-rec h-2 w-2" />
@@ -345,7 +397,7 @@ export default function PipelineMath({
           <span className="text-xs text-muted">
             The exact computation performed by the{" "}
             <span className="font-semibold text-ink">
-              {math.label}
+              {config.label}
             </span>{" "}
             pipeline, with the live values from the current search.
           </span>
@@ -377,15 +429,14 @@ export default function PipelineMath({
               </h4>
 
               <span className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-ink">
-                re-traced on every search
+                re-traced when the search changes
               </span>
             </div>
 
             {!hasInputs ? (
               <p className="text-xs leading-5 text-muted">
                 Enter a query and run a search to see the real numbers
-                flowing through this pipeline. Until then, only the
-                formulas are shown below.
+                flowing through this pipeline.
               </p>
             ) : error ? (
               <p className="text-xs leading-5 text-muted">
@@ -412,7 +463,7 @@ export default function PipelineMath({
                         {}) as Record<string, unknown>}
                     />
                     <span className="font-mono">
-                      top_k = {fmt(eventData("input")?.top_k)}
+                      top_k = {fmtCount(eventData("input")?.top_k)}
                     </span>
                   </div>
                 </section>
@@ -428,7 +479,7 @@ export default function PipelineMath({
                   </p>
 
                   <p className="mt-1 text-xs text-muted">
-                    {fmt(eventData("prepared_query")?.length)}{" "}
+                    {fmtCount(eventData("prepared_query")?.length)}{" "}
                     characters · source:{" "}
                     {fmt(eventData("prepared_query")?.source)}
                   </p>
@@ -441,9 +492,13 @@ export default function PipelineMath({
                   </h5>
 
                   <p className="text-xs text-ink">
-                    {fmt(eventData("candidates")?.count)} papers
+                    {fmtCount(eventData("candidates")?.count)} papers
                     passed the validity filter (valid for
-                    recommendation and has prepared text).
+                    recommendation and has prepared text)
+                    {isSeedQuery
+                      ? "; the seed paper itself is excluded from the ranking"
+                      : ""}
+                    .
                   </p>
                 </section>
 
@@ -457,17 +512,11 @@ export default function PipelineMath({
                     <p className="mb-2 text-xs text-ink">
                       query vector: dim ={" "}
                       <span className="font-mono">
-                        {fmt(
-                          eventData("component.tfidf")
-                            ?.vector_dim
-                        )}
+                        {fmtCount(eventData("component.tfidf")?.vector_dim)}
                       </span>
                       , nonzero terms ={" "}
                       <span className="font-mono">
-                        {fmt(
-                          eventData("component.tfidf")
-                            ?.nonzero_terms
-                        )}
+                        {fmtCount(eventData("component.tfidf")?.nonzero_terms)}
                       </span>
                       , top terms:{" "}
                       <TermChips
@@ -505,10 +554,7 @@ export default function PipelineMath({
                     <p className="mb-2 text-xs text-ink">
                       query embedding: dim ={" "}
                       <span className="font-mono">
-                        {fmt(
-                          eventData("component.sbert")
-                            ?.vector_dim
-                        )}
+                        {fmtCount(eventData("component.sbert")?.vector_dim)}
                       </span>{" "}
                       (all-MiniLM-L6-v2)
                     </p>
@@ -576,20 +622,26 @@ export default function PipelineMath({
                   </p>
 
                   <div className="space-y-1">
-                    <BoundRow
-                      label="TF-IDF"
-                      data={eventData("normalization")?.tfidf}
-                    />
-                    <BoundRow
-                      label="S-BERT"
-                      data={eventData("normalization")?.sbert}
-                    />
-                    <BoundRow
-                      label="Metadata (already 0–1, unnormalized)"
-                      data={
-                        eventData("normalization")?.metadata
-                      }
-                    />
+                    {uses("tfidf") && (
+                      <BoundRow
+                        label="TF-IDF"
+                        data={eventData("normalization")?.tfidf}
+                      />
+                    )}
+                    {uses("sbert") && (
+                      <BoundRow
+                        label="S-BERT"
+                        data={eventData("normalization")?.sbert}
+                      />
+                    )}
+                    {uses("metadata") && (
+                      <BoundRow
+                        label="Metadata (already 0–1, unnormalized)"
+                        data={
+                          eventData("normalization")?.metadata
+                        }
+                      />
+                    )}
                   </div>
                 </section>
 
@@ -628,7 +680,9 @@ export default function PipelineMath({
                 {/* Final ranking */}
                 <section>
                   <h5 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted">
-                    {EVENT_LABELS.rank}
+                    {mmrEvent
+                      ? "Ranking by relevance (before MMR)"
+                      : EVENT_LABELS.rank}
                   </h5>
 
                   <ScoreTable
@@ -654,26 +708,59 @@ export default function PipelineMath({
                     showRank
                   />
                 </section>
+
+                {/* MMR diversification (only when Diversify is on) */}
+                {mmrEvent && finalIds && (
+                  <section>
+                    <h5 className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted">
+                      {EVENT_LABELS["rerank.mmr"]} — final order
+                    </h5>
+
+                    <p className="mb-2 font-mono text-xs text-ink">
+                      λ = {String(mmrEvent.lambda)} · pool used ={" "}
+                      {fmtCount(mmrEvent.pool_used)} (of {fmtCount(mmrEvent.pool)}) ·
+                      similarity = {fmt(mmrEvent.similarity_source)}
+                    </p>
+
+                    <p className="mb-2 text-xs leading-5 text-muted">
+                      MMR only reorders the relevance ranking above; S(d)
+                      is unchanged. This is the order the Search page shows.
+                    </p>
+
+                    <ScoreTable
+                      scores={
+                        (eventData("combine")?.scores ??
+                          {}) as Record<string, unknown>
+                      }
+                      titleById={titleById}
+                      rankedIds={finalIds}
+                      columns={[
+                        { key: "s", label: "S(d)" },
+                      ]}
+                      showRank
+                    />
+                  </section>
+                )}
               </div>
             )}
           </div>
 
           {/* ------------------------------------------------ */}
-          {/* MATHEMATICAL PSEUDOCODE                           */}
+          {/* THE FORMULAS LIVE IN THE ENGINE                   */}
           {/* ------------------------------------------------ */}
 
-          <div className="space-y-4">
-            {math.blocks.map((block) => (
-              <section key={block.heading}>
-                <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">
-                  {block.heading}
-                </h4>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded border-[2px] border-gray-900 bg-white px-3 py-2">
+            <p className="text-xs leading-5 text-ink">
+              Looking for the how? Every formula behind these numbers is
+              explained in the Engine, with a worked example.
+            </p>
 
-                <pre className="overflow-x-auto whitespace-pre rounded border-[2px] border-gray-900 bg-white px-3 py-2 font-mono text-xs leading-5 text-ink">
-                  {block.lines.join("\n")}
-                </pre>
-              </section>
-            ))}
+            <Link
+              to="/walkthrough-engine"
+              className="shrink-0 rounded border-[2px] border-gray-900 bg-white px-2 py-1 text-xs font-bold text-ink transition-colors hover:bg-accentSoft"
+            >
+              Open the Engine
+            </Link>
           </div>
         </div>
       )}

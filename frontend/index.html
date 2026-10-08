@@ -142,11 +142,6 @@
               else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
               return Math.round((r + m) * 255) + " " + Math.round((g + m) * 255) + " " + Math.round((b + m) * 255);
             }
-            function tonal(acc, off) {
-              var x = hsl(acc);
-              var target = Math.max(0.18, Math.min(0.85, x.l + off));
-              return fromHsl(x.h, x.s, target);
-            }
             function signals(acc) {
               var x = hsl(acc);
               if (x.s < 0.15) {
@@ -168,6 +163,7 @@
             function legible(h) {
               return h >= 35 && h <= 165 ? 0.38 : 0.5;
             }
+            var x = hsl(palette.accent);
             if (x.s < 0.15) {
               root.style.setProperty("--tag-cs", "37 99 235");
               root.style.setProperty("--tag-math", "47 158 79");
@@ -177,7 +173,9 @@
             }
             root.dataset.accent = id;
           }
+        } catch (e) {}
 
+        try {
           // Pre-paint background: the dark boot color while the boot
           // splash is going to play (otherwise the unstyled white
           // body flashes before the stylesheet loads), the palette

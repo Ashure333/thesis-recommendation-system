@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.models import Paper
@@ -112,6 +113,42 @@ def _normalize_doi(doi: str | None) -> str | None:
     return doi or None
 
 
+_WORD = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def _title_words(normalized: str | None) -> set[str]:
+    return set(_WORD.findall(normalized or ""))
+
+
+def _could_be_duplicate(
+    wanted: str | None,
+    wanted_words: set[str],
+    other_title: str | None,
+) -> bool:
+    """
+    A fast screen in front of titles_are_duplicates(): titles that are
+    equal always pass, and fuzzy matches (>= 0.85 similar) share most of
+    their words, so titles sharing fewer than 40% of the shorter one's
+    words are skipped without computing a similarity.
+    """
+
+    other = _normalized_title(other_title)
+
+    if wanted is None or other is None:
+        return False
+
+    if wanted == other:
+        return True
+
+    other_words = _title_words(other)
+    smaller = min(len(wanted_words), len(other_words))
+
+    if smaller == 0:
+        return False
+
+    return len(wanted_words & other_words) >= max(1, 0.4 * smaller)
+
+
 def find_duplicate_paper(
     db: Session,
     title: str | None,
@@ -124,50 +161,73 @@ def find_duplicate_paper(
 
     # ---------------------------------------------------------
     # Signal 1: exact DOI match
+    #
+    # The database narrows the candidates (a LIKE over the lower-cased
+    # DOI); equality is then confirmed on the normalized value, so the
+    # answer is the same as comparing every stored DOI, without reading
+    # them all.
     # ---------------------------------------------------------
     normalized_doi = _normalize_doi(doi)
 
     if normalized_doi:
-        existing_with_doi = (
+        near_doi = (
             db.query(Paper)
             .filter(Paper.doi.isnot(None))
+            .filter(
+                func.lower(Paper.doi).contains(
+                    normalized_doi,
+                    autoescape=True,
+                )
+            )
             .all()
         )
 
-        for candidate in existing_with_doi:
+        for candidate in near_doi:
             if _normalize_doi(candidate.doi) == normalized_doi:
                 return candidate
 
     # ---------------------------------------------------------
     # Signal 2: high title similarity
+    #
+    # Only ids and titles are read, and a cheap word-overlap test skips
+    # the expensive similarity measure for titles that cannot possibly
+    # reach the threshold.
     # ---------------------------------------------------------
     if title and title.strip():
-        existing_with_title = (
-            db.query(Paper)
+        wanted = _normalized_title(title)
+        wanted_words = _title_words(wanted)
+
+        best_id: int | None = None
+        best_score = 0.0
+
+        rows = (
+            db.query(Paper.id, Paper.title)
             .filter(Paper.title.isnot(None))
             .all()
         )
 
-        best_match: Paper | None = None
-        best_score = 0.0
-
-        for candidate in existing_with_title:
-            if not titles_are_duplicates(title, candidate.title):
+        for paper_id, existing_title in rows:
+            if not _could_be_duplicate(
+                wanted,
+                wanted_words,
+                existing_title,
+            ):
                 continue
 
-            score = title_similarity(title, candidate.title)
+            if not titles_are_duplicates(title, existing_title):
+                continue
 
-            if _normalized_title(title) == _normalized_title(
-                candidate.title
-            ):
+            score = title_similarity(title, existing_title)
+
+            if wanted == _normalized_title(existing_title):
                 score = 1.0
 
             if score > best_score:
                 best_score = score
-                best_match = candidate
+                best_id = paper_id
 
-        if best_match is not None and best_score >= TITLE_DUPLICATE_THRESHOLD:
-            return best_match
+        if best_id is not None and best_score >= TITLE_DUPLICATE_THRESHOLD:
+            return db.get(Paper, best_id)
 
     return None
 

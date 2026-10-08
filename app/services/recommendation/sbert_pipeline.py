@@ -96,7 +96,9 @@ def _model_cached_locally() -> bool:
 
 def warm_up_model() -> None:
     """Pre-load the model off the request path (startup hook / scripts)."""
-    _get_model()
+    model = _get_model()
+    with _ENCODE_LOCK:
+        model.encode(["warm up"], show_progress_bar=False)
 
 
 def _get_model() -> SentenceTransformer:

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import AuthLayout from "./layouts/AuthLayout";
@@ -7,30 +8,34 @@ import BootSplash from "./components/retro/BootSplash";
 import ScanlineOverlay from "./components/retro/ScanlineOverlay";
 import FeatureGate from "./components/FeatureGate";
 
-import FAQ from "./pages/FAQ";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
-import Repository from "./pages/repository/Repository";
-import Recommendations from "./pages/evaluation/Recommendations";
-import Upload from "./pages/repository/Upload";
-import MyLibrary from "./pages/repository/MyLibrary";
-import Evaluation from "./pages/evaluation/Evaluation";
-import Lab from "./pages/lab/Lab";
-import Walkthrough from "./pages/walkthrough/Walkthrough";
-import MathWalkthrough from "./pages/walkthrough/MathWalkthrough";
-import Changelog from "./pages/Changelog";
-import LibraryHome from "./pages/home/LibraryHome";
-import Admin from "./pages/admin/Admin";
-import Settings from "./pages/Settings";
 
 import { SiteModeProvider } from "./state/siteMode";
+import { isPresentationStored } from "./utils/presentation";
+
+// Every page after sign-in is its own chunk, so the login screen does not
+// download the Garden, KaTeX, the graphs and the changelog up front.
+// AppLayout wraps its <Outlet /> in a Suspense boundary; /admin has its own.
+const FAQ = lazy(() => import("./pages/FAQ"));
+const Repository = lazy(() => import("./pages/repository/Repository"));
+const Upload = lazy(() => import("./pages/repository/Upload"));
+const MyLibrary = lazy(() => import("./pages/repository/MyLibrary"));
+const Evaluation = lazy(() => import("./pages/evaluation/Evaluation"));
+const Lab = lazy(() => import("./pages/lab/Lab"));
+const Walkthrough = lazy(() => import("./pages/walkthrough/Walkthrough"));
+const MathWalkthrough = lazy(() => import("./pages/walkthrough/MathWalkthrough"));
+const Changelog = lazy(() => import("./pages/Changelog"));
+const LibraryHome = lazy(() => import("./pages/home/LibraryHome"));
+const Admin = lazy(() => import("./pages/admin/Admin"));
+const Settings = lazy(() => import("./pages/Settings"));
 
 export default function App() {
   return (
     <>
-      <ScanlineOverlay />
-      <BootSplash />
+      {!isPresentationStored() && <ScanlineOverlay />}
+      {!isPresentationStored() && <BootSplash />}
       <BrowserRouter>
       <SiteModeProvider>
       <Routes>
@@ -42,18 +47,21 @@ export default function App() {
         </Route>
 
         {/* Library site editor -- its own chrome, admin login inside */}
-        <Route path="/admin" element={<Admin />} />
+        <Route
+          path="/admin"
+          element={
+            <Suspense fallback={null}>
+              <Admin />
+            </Suspense>
+          }
+        />
 
         {/* Everything after sign-in shares the top nav */}
         <Route element={<AppLayout />}>
           <Route path="/home" element={<LibraryHome />} />
           <Route
             path="/recommendations"
-            element={
-              <FeatureGate feature="search">
-                <Recommendations />
-              </FeatureGate>
-            }
+            element={<Navigate to="/repository" replace />}
           />
           <Route
             path="/repository"
@@ -104,7 +112,23 @@ export default function App() {
             }
           />
           <Route
+            path="/walkthrough/:page"
+            element={
+              <FeatureGate feature="walkthrough">
+                <Walkthrough />
+              </FeatureGate>
+            }
+          />
+          <Route
             path="/walkthrough-engine"
+            element={
+              <FeatureGate feature="engine">
+                <MathWalkthrough />
+              </FeatureGate>
+            }
+          />
+          <Route
+            path="/walkthrough-engine/:page"
             element={
               <FeatureGate feature="engine">
                 <MathWalkthrough />

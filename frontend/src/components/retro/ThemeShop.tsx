@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import TokenGlyph from "./TokenGlyph";
 import RetroDialog from "./RetroDialog";
+import { CardBadge, CardButton, CardTag, ShopCard } from "./ShopCard";
 import {
   BACKDROP_THEMES,
   backdropStill,
@@ -80,55 +81,29 @@ export default function ThemeShop({
           const isOwned = owned.includes(theme.id);
           const isActive = active === theme.id;
           return (
-            <div
+            <ShopCard
               key={theme.id}
-              className={`rounded-lg border-[3px] p-2 transition-colors pixel-ease ${
-                isActive
-                  ? "border-gray-900 bg-accentSoft/80 shadow-[3px_3px_0_rgba(0,0,0,0.15)]"
-                  : "border-gray-900 bg-white"
-              }`}
+              active={isActive}
+              preview={<ScenePreview id={theme.id} />}
+              title={theme.label}
+              badge={isActive && <CardBadge>In use</CardBadge>}
+              blurb={theme.blurb}
             >
-              <ScenePreview id={theme.id} />
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-mono text-[11px] font-bold uppercase tracking-wide text-ink">
-                    {theme.label}
-                    {isActive && (
-                      <span className="ml-2 rounded border-[2px] border-[#2b8a3e] bg-white px-1.5 py-0.5 text-[8px] text-[#2b8a3e]">
-                        In use
-                      </span>
-                    )}
-                  </p>
-                  <p className="mt-0.5 text-[10px] leading-4 text-muted">
-                    {theme.blurb}
-                  </p>
-                </div>
-                {isOwned ? (
-                  isActive ? (
-                    <span className="shrink-0 rounded border-[2px] border-gray-300 bg-[#eef0f2] px-2 py-1 font-mono text-[9px] font-bold uppercase text-gray-500">
-                      Active
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => onChanged(owned, theme.id)}
-                      className="shrink-0 rounded border-[3px] border-gray-900 bg-accent px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-onAccent transition-all pixel-ease hover:brightness-110 hover:bg-accent active:translate-y-[1px]"
-                    >
-                      Set scene
-                    </button>
-                  )
+              {isOwned ? (
+                isActive ? (
+                  <CardTag>Active</CardTag>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => adopt(theme)}
-                    className="flex shrink-0 items-center gap-1 rounded border-[3px] border-gray-900 bg-accent px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-onAccent transition-all pixel-ease hover:brightness-110 hover:bg-accent active:translate-y-[1px]"
-                  >
-                    <TokenGlyph className="h-2.5 w-2.5" />
-                    {theme.price}
-                  </button>
-                )}
-              </div>
-            </div>
+                  <CardButton onClick={() => onChanged(owned, theme.id)}>
+                    Set scene
+                  </CardButton>
+                )
+              ) : (
+                <CardButton onClick={() => adopt(theme)}>
+                  <TokenGlyph className="h-2.5 w-2.5" />
+                  {theme.price}
+                </CardButton>
+              )}
+            </ShopCard>
           );
         })}
       </div>

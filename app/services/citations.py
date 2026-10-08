@@ -252,7 +252,7 @@ def refresh_paper_citations(
     max_cited_by: int = 200,
 ) -> dict:
     """
-    Refresh one paper's cached OpenAlex citation neighbourhood.
+    Refresh one paper's cached OpenAlex citation neighborhood.
 
     Resolves https://api.openalex.org/works/doi:{doi}, stores
     referenced_works as direction "cites", then fetches
@@ -384,11 +384,19 @@ def citation_maps(
         if not wanted:
             return {}, {}
 
-        query = db.query(PaperCitation).filter(
-            PaperCitation.paper_id.in_(wanted)
-        )
+        query = db.query(
+            PaperCitation.paper_id,
+            PaperCitation.direction,
+            PaperCitation.external_work_id,
+            PaperCitation.matched_paper_id,
+        ).filter(PaperCitation.paper_id.in_(wanted))
     else:
-        query = db.query(PaperCitation)
+        query = db.query(
+            PaperCitation.paper_id,
+            PaperCitation.direction,
+            PaperCitation.external_work_id,
+            PaperCitation.matched_paper_id,
+        )
 
     references_by_paper: dict[int, set[str]] = {}
     citers_by_paper: dict[int, set[str]] = {}

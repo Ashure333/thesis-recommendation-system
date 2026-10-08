@@ -1,6 +1,6 @@
 /**
  * WEB CONTRAST — side-by-side comparison of the center paper and one
- * of its OpenAlex neighbours (reference or citer).
+ * of its OpenAlex neighbors (reference or citer).
  */
 
 import { useState } from "react";
@@ -28,7 +28,7 @@ export default function WebContrast({
   if (allWorks.length === 0) {
     return (
       <p className="p-6 text-center text-sm text-muted">
-        No OpenAlex neighbours to compare against.
+        No OpenAlex neighbors to compare against.
       </p>
     );
   }
@@ -40,8 +40,8 @@ export default function WebContrast({
   return (
     <div className="flex flex-col gap-4 p-4" data-web-contrast>
       <p className="max-w-3xl text-sm leading-6 text-muted">
-        Left: this paper. Right: a neighbour from its OpenAlex citation
-        neighbourhood.
+        Left: this paper. Right: a neighbor from its OpenAlex citation
+        neighborhood.
       </p>
 
       <label className="flex max-w-2xl flex-col gap-1">

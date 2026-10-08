@@ -57,7 +57,7 @@ export function Chip({ children }: { children: React.ReactNode }) {
 
 export function WikiInfobox({ rows }: { rows: [string, string][] }) {
   return (
-    <table className="w-full border-[3px] border-gray-900 bg-white text-left text-sm">
+    <table className="clear-both w-full border-[3px] border-gray-900 bg-white text-left text-sm">
       <tbody>
         {rows.map(([label, value]) => (
           <tr key={label} className="border-b-2 border-gray-200 last:border-b-0">
@@ -164,11 +164,12 @@ export function WikiSection({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-28">
+    <section id={id} className="clear-both scroll-mt-28">
       <h2 className="border-b-[3px] border-gray-900 pb-1 text-2xl font-bold tracking-tight text-ink">
         {title}
       </h2>
-      <div className="mt-4 space-y-4">{children}</div>
+      {/* flow-root: a floated thumbnail never spills past its own section. */}
+      <div className="mt-4 flow-root space-y-4">{children}</div>
     </section>
   );
 }
@@ -183,11 +184,11 @@ export function WikiSub({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-28">
+    <section id={id} className="clear-both scroll-mt-28">
       <h3 className="border-b-2 border-gray-300 pb-0.5 text-lg font-bold text-ink">
         {title}
       </h3>
-      <div className="mt-3 space-y-3">{children}</div>
+      <div className="mt-3 flow-root space-y-3">{children}</div>
     </section>
   );
 }
@@ -200,8 +201,8 @@ export function WikiTable({
   rows: ReadonlyArray<ReadonlyArray<string | React.ReactNode>>;
 }) {
   return (
-    <div className="overflow-x-auto rounded border-[3px] border-gray-900 bg-white">
-      <table className="w-full min-w-[560px] text-left text-sm">
+    <div className="min-w-[min(100%,26rem)] overflow-x-auto rounded border-[3px] border-gray-900 bg-white">
+      <table className="w-full min-w-[420px] text-left text-sm">
         <thead>
           <tr className="border-b-[3px] border-gray-900 bg-gray-900 text-onInk">
             {headers.map((header) => (
@@ -266,7 +267,7 @@ export function WikiFooter({ ctaTo, ctaLabel }: { ctaTo: string; ctaLabel: strin
 
 export function MathBlock({ lines }: { lines: string[] }) {
   return (
-    <pre className="overflow-x-auto rounded border-[3px] border-gray-900 bg-gray-900 p-3 font-mono text-xs leading-5 text-onInk">
+    <pre className="clear-both overflow-x-auto rounded border-[3px] border-gray-900 bg-gray-900 p-3 font-mono text-xs leading-5 text-onInk">
       {lines.join("\n")}
     </pre>
   );

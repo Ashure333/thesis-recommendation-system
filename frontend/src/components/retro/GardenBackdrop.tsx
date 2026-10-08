@@ -21,6 +21,7 @@ import {
   renderFrame,
   type BackdropThemeId,
 } from "../../data/backdrops";
+import type { TreeSpeciesId } from "../../data/knowledge";
 
 /* The day cycle no longer loops on its own timer: the scene is
    pinned to the viewer's own time zone, so the garden shows night
@@ -28,6 +29,11 @@ import {
    to the local clock. The animation clock (clouds, fireflies, the
    sun disc's shimmer) still runs freely on top. */
 const FADE_SECONDS = 0.7;
+
+/* The scene is CPU-rendered pixel art (about 2 ms a frame, 9 ms for the
+   three castle scenes). 30 fps reads as pixel-art motion, halves that
+   cost, and keeps a 120 Hz display from rendering it 120 times a second. */
+const DEFAULT_MAX_FPS = 30;
 
 function localTimeOfDay(): number {
   const d = new Date();
@@ -37,12 +43,24 @@ function localTimeOfDay(): number {
 export default function GardenBackdrop({
   theme = DEFAULT_BACKDROP_THEME,
   parallax = 0,
+  speciesId,
+  maxFps = DEFAULT_MAX_FPS,
+  layersOff,
 }: {
   theme?: BackdropThemeId;
   /** 0..1 — the tree's growth: layer parallax, and the drifting
       cloud sea that swallows the scene as the tree rises. */
   parallax?: number;
+  /** The planted tree's species — gives the haze-leaves that
+      drift through the climb their own color and silhouette. */
+  speciesId?: TreeSpeciesId;
+  /** Animation rate cap; the scene is redrawn at most this often. */
+  maxFps?: number;
+  /** Scenery the player has switched off (clouds, fence, house ...). */
+  layersOff?: string[];
 }) {
+  const offRef = useRef<ReadonlySet<string>>(new Set(layersOff ?? []));
+  offRef.current = new Set(layersOff ?? []);
   const curRef = useRef<HTMLCanvasElement | null>(null);
   const fadeRef = useRef<HTMLCanvasElement | null>(null);
   /* The day clock lives across themes: switching scenes keeps the
@@ -50,6 +68,11 @@ export default function GardenBackdrop({
   const clockRef = useRef({ t: 0.28, A: 0 });
   const prevThemeRef = useRef<BackdropThemeId | null>(null);
   const [fade, setFade] = useState<HTMLCanvasElement | null>(null);
+  /* Parallax tracks the growing tree continuously; it must NOT
+     restart the animation loop (the effect deps exclude it), so the
+     sky keeps moving even while the tree morphs. */
+  const parallaxRef = useRef(parallax);
+  parallaxRef.current = parallax;
 
   useEffect(() => {
     if (
@@ -80,11 +103,21 @@ export default function GardenBackdrop({
     /* Start the scene at the actual local time of day. */
     clock.t = localTimeOfDay();
 
+    /* One buffer for the life of the effect (the renderer writes every
+       pixel; it is cleared anyway so a frame never inherits the last). */
+    const img = ctx.createImageData(BACKDROP_W, BACKDROP_H);
+
+    const frameMs = 1000 / Math.max(1, maxFps);
     let fadeAlpha = 1;
     let last = performance.now();
     let raf = 0;
 
     const loop = (now: number) => {
+      raf = requestAnimationFrame(loop);
+
+      /* A couple of ms of slack: rAF timestamps jitter around the cap. */
+      if (now - last < frameMs - 2) return;
+
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       if (!reduced) {
@@ -94,8 +127,16 @@ export default function GardenBackdrop({
         clock.A += dt;
       }
 
-      const img = ctx.createImageData(BACKDROP_W, BACKDROP_H);
-      renderFrame(img.data, scene, clock.t, clock.A, parallax);
+      img.data.fill(0);
+      renderFrame(
+        img.data,
+        scene,
+        clock.t,
+        clock.A,
+        parallaxRef.current,
+        speciesId,
+        offRef.current,
+      );
       ctx.putImageData(img, 0, 0);
 
       /* The outgoing scene fades out on the overlay above. */
@@ -115,17 +156,24 @@ export default function GardenBackdrop({
           fadeAlpha = 1;
         }
       }
-
-      raf = requestAnimationFrame(loop);
     };
 
-    const img = ctx.createImageData(BACKDROP_W, BACKDROP_H);
-    renderFrame(img.data, scene, clock.t, clock.A, parallax);
+    /* First paint, with the species too (it used to be left out, so the
+       haze leaves flashed the wrong color for a frame). */
+    renderFrame(
+      img.data,
+      scene,
+      clock.t,
+      clock.A,
+      parallaxRef.current,
+      speciesId,
+      offRef.current,
+    );
     ctx.putImageData(img, 0, 0);
     if (!reduced) raf = requestAnimationFrame(loop);
 
     return () => cancelAnimationFrame(raf);
-  }, [theme, fade, parallax]);
+  }, [theme, fade, speciesId, maxFps]);
 
   return (
     <div className="absolute inset-0 overflow-hidden">

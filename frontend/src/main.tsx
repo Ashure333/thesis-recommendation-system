@@ -1,3 +1,4 @@
+import "./bootMode";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
@@ -6,6 +7,7 @@ import { PipelineModeProvider } from "./state/pipelineMode";
 import { HuntProvider } from "./state/hunt";
 import { AchievementsProvider } from "./state/achievements";
 import { LayoutPrefsProvider } from "./state/layoutPrefs";
+import { StatsDrawerProvider } from "./state/statsDrawer";
 import { PetFormProvider } from "./state/petForm";
 import { SunProvider } from "./state/sun";
 // @ts-ignore: CSS is handled by the bundler at runtime.
@@ -18,11 +20,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <AchievementsProvider>
           <PipelineModeProvider>
             <LayoutPrefsProvider>
-              <PetFormProvider>
-                <SunProvider>
-                  <App />
-                </SunProvider>
-              </PetFormProvider>
+              <StatsDrawerProvider>
+                <PetFormProvider>
+                  <SunProvider>
+                    <App />
+                  </SunProvider>
+                </PetFormProvider>
+              </StatsDrawerProvider>
             </LayoutPrefsProvider>
           </PipelineModeProvider>
         </AchievementsProvider>

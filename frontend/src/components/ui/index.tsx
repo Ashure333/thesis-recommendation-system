@@ -45,7 +45,7 @@ export function PageHeader({
   icon?: ReactNode;
 }) {
   return (
-    <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+    <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
       <div className="min-w-0">
         {eyebrow && (
           <p className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-600">
@@ -68,28 +68,8 @@ export function PageHeader({
           <p className="mt-3 max-w-2xl text-base font-medium leading-relaxed text-gray-600">{description}</p>
         )}
       </div>
-      {action && <div className="shrink-0">{action}</div>}
+      {action && <div className="min-w-0 lg:shrink-0">{action}</div>}
     </header>
-  );
-}
-
-export function SectionHeading({
-  title,
-  description,
-  action,
-}: {
-  title: string;
-  description?: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="min-w-0">
-        <h2 className="font-pixelify text-xl font-bold leading-snug text-gray-900">{title}</h2>
-        {description && <p className="mt-1 text-sm text-gray-600">{description}</p>}
-      </div>
-      {action}
-    </div>
   );
 }
 
@@ -100,7 +80,7 @@ export function SectionHeading({
    danger    → solid ink fill + slab   (no red: accents are never state)
 */
 
-type ButtonVariant = "primary" | "secondary" | "quiet" | "danger";
+type ButtonVariant = "primary" | "secondary" | "quiet";
 
 const BUTTON_BASE =
   "relative z-10 inline-flex items-center justify-center gap-2 rounded border-[3px] text-sm font-semibold tracking-[0.025em] " +
@@ -118,9 +98,6 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   quiet:
     "border-transparent bg-transparent px-3 py-1.5 leading-snug text-ink " +
     "enabled:hover:border-gray-900 enabled:hover:bg-white",
-  danger:
-    "border-gray-900 bg-gray-900 px-6 py-3 leading-relaxed text-onInk " +
-    "enabled:hover:translate-x-0.5 enabled:hover:translate-y-0.5 enabled:hover:brightness-125 enabled:active:translate-x-1 enabled:active:translate-y-1 enabled:active:brightness-90",
 };
 
 export function Button({
@@ -133,7 +110,7 @@ export function Button({
   variant?: ButtonVariant;
   fullWidth?: boolean;
 }) {
-  const hasSlab = variant === "primary" || variant === "danger";
+  const hasSlab = variant === "primary";
 
   const button = (
     <button
@@ -155,35 +132,6 @@ export function Button({
 }
 
 /* ---------- Forms ---------- */
-
-export function FieldLabel({
-  htmlFor,
-  children,
-  required = false,
-  hint,
-}: {
-  htmlFor?: string;
-  children: ReactNode;
-  required?: boolean;
-  hint?: string;
-}) {
-  return (
-    <div className="mb-2 flex items-baseline justify-between gap-3">
-      <label
-        htmlFor={htmlFor}
-        className="font-pixelify text-base font-bold tracking-[0.03em] text-gray-900"
-      >
-        {children}
-        {required && (
-          <span className="ml-0.5" aria-hidden="true">
-            *
-          </span>
-        )}
-      </label>
-      {hint && <span className="text-sm text-gray-600">{hint}</span>}
-    </div>
-  );
-}
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   const { className = "", ...rest } = props;
