@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.services.citation_format import CitationStyle, apply_style
 from app.services.recommendation.search_service import search_papers as run_search
 from app.services.web_search import search_web
 
@@ -46,6 +47,9 @@ class ResearchChatRequest(BaseModel):
     scope: ChatScope = "repo"
     """The collection's paper ids (used when scope = 'library')."""
     paper_ids: list[int] = Field(default_factory=list)
+    """The Settings citation style; None leaves the bracket numbers alone."""
+    citation_style: CitationStyle | None = None
+    include_doi: bool = True
 
 
 class ResearchChatSource(BaseModel):
@@ -58,6 +62,7 @@ class ResearchChatSource(BaseModel):
     abstract: str | None = None
     doi: str | None = None
     url: str | None = None
+    document_type: str | None = None
 
 
 class ResearchChatResponse(BaseModel):
@@ -86,6 +91,7 @@ def _sources_from_results(results) -> list[ResearchChatSource]:
             score=float(result["score"]),
             abstract=_clean_text(result["paper"].abstract, 1200),
             doi=result["paper"].doi,
+            document_type=getattr(result["paper"], "document_type", None),
         )
         for result in results
     ]
@@ -199,6 +205,9 @@ Citation rules:
 - Cite claims supported by a source with its bracket number, e.g. [1] or [2].
 - Use only the bracket numbers that exist in the retrieved evidence.
 - Do not invent citations.
+- Cite with the bracket numbers only. Do not write author names with years,
+  footnotes, or a reference list of your own; the application formats
+  citations and references.
 - If several sources support a claim, cite multiple sources such as [1][3].
 - If the retrieved sources are insufficient, say that the available evidence
   is insufficient instead of guessing.
@@ -565,7 +574,12 @@ def answer_research_question(
         answer = _groq_answer(prompt)
 
         return ResearchChatResponse(
-            answer=answer,
+            answer=apply_style(
+                answer,
+                sources,
+                request.citation_style,
+                request.include_doi,
+            ),
             sources=sources,
             used_fallback=False,
         )
@@ -576,9 +590,14 @@ def answer_research_question(
         )
 
         return ResearchChatResponse(
-            answer=_fallback_answer(
-                request.message,
+            answer=apply_style(
+                _fallback_answer(
+                    request.message,
+                    sources,
+                ),
                 sources,
+                request.citation_style,
+                request.include_doi,
             ),
             sources=sources,
             used_fallback=True,
