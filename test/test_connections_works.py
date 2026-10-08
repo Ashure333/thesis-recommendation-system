@@ -1,5 +1,5 @@
 """Connections data: local prior/derivative clustering and the
-OpenAlex web neighbourhood.
+OpenAlex web neighborhood.
 
 Run from the project root:
 
@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.models import Base, Paper, PaperCitation
 from app.services.citations import clustered_works
-from app.services.web_connections import fetch_web_neighbourhood
+from app.services.web_connections import fetch_web_neighborhood
 
 
 class ClusteredWorksTest(unittest.TestCase):
@@ -220,7 +220,7 @@ class WebNeighbourhoodTest(unittest.TestCase):
     def test_resolves_prior_and_derivative_works(self):
         paper = Paper(id=1, title="Center", doi="10.0/center")
 
-        result = fetch_web_neighbourhood(
+        result = fetch_web_neighborhood(
             paper,
             fetch=self._fake_fetch(),
         )
@@ -250,7 +250,7 @@ class WebNeighbourhoodTest(unittest.TestCase):
     def test_builds_inter_work_edges(self):
         paper = Paper(id=1, title="Center", doi="10.0/center")
 
-        result = fetch_web_neighbourhood(
+        result = fetch_web_neighborhood(
             paper,
             fetch=self._fake_fetch(),
         )
@@ -281,7 +281,7 @@ class WebNeighbourhoodTest(unittest.TestCase):
         )
 
     def test_requires_doi(self):
-        result = fetch_web_neighbourhood(
+        result = fetch_web_neighborhood(
             Paper(id=2, title="No DOI", doi=None),
             fetch=self._fake_fetch(),
         )
@@ -295,7 +295,7 @@ class WebNeighbourhoodTest(unittest.TestCase):
         def failing_fetch(_url: str) -> dict:
             raise OSError("connection refused")
 
-        result = fetch_web_neighbourhood(
+        result = fetch_web_neighborhood(
             Paper(id=3, title="Center", doi="10.0/center"),
             fetch=failing_fetch,
         )
@@ -353,7 +353,7 @@ class WebConnectionsEndpointTest(unittest.TestCase):
         }
 
         with mock.patch(
-            "app.api.fetch_web_neighbourhood",
+            "app.api.fetch_web_neighborhood",
             return_value=payload,
         ):
             response = self._client().get(
@@ -367,7 +367,7 @@ class WebConnectionsEndpointTest(unittest.TestCase):
 
     def test_endpoint_maps_no_doi_to_400(self):
         with mock.patch(
-            "app.api.fetch_web_neighbourhood",
+            "app.api.fetch_web_neighborhood",
             return_value={"ok": False, "reason": "no_doi"},
         ):
             response = self._client().get(
@@ -376,9 +376,68 @@ class WebConnectionsEndpointTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_similar_graph_nodes_carry_citation_count(self):
+        similar = Paper(
+            title="Neighbor",
+            doi="10.0/neighbor",
+            is_valid_for_recommendation=True,
+            citation_count=37,
+            prepared_text="neighbor prepared text",
+        )
+        self.db.add(similar)
+        self.db.commit()
+
+        self.paper.prepared_text = "center prepared text"
+        self.db.commit()
+
+        graph_fixture = {
+            "start_id": self.paper.id,
+            "edges": [[self.paper.id, similar.id, 0.6]],
+            "path_lengths": {self.paper.id: 0.0, similar.id: 0.4},
+            "node_paths": {
+                self.paper.id: [self.paper.id],
+                similar.id: [self.paper.id, similar.id],
+            },
+            "common_authors": [],
+            "common_topics": [],
+            "common_references": [],
+            "common_citers": [],
+        }
+
+        with mock.patch(
+            "app.api.run_search",
+            return_value=[{"paper": similar, "score": 0.6}],
+        ), mock.patch(
+            "app.api.build_connected_graph",
+            return_value=graph_fixture,
+        ), mock.patch(
+            "app.api.clustered_works",
+            return_value=([], []),
+        ), mock.patch(
+            "app.api.resolve_work_titles",
+            return_value={},
+        ):
+            response = self._client().get(
+                f"/api/papers/{self.paper.id}/similar-graph"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+
+        nodes = {node["id"]: node for node in body["nodes"]}
+
+        self.assertEqual(
+            nodes[self.paper.id]["citation_count"],
+            None,
+        )
+        self.assertEqual(
+            nodes[similar.id]["citation_count"],
+            37,
+        )
+
     def test_endpoint_maps_failure_to_502(self):
         with mock.patch(
-            "app.api.fetch_web_neighbourhood",
+            "app.api.fetch_web_neighborhood",
             return_value={"ok": False, "reason": "lookup_failed"},
         ):
             response = self._client().get(

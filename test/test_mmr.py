@@ -24,11 +24,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models.models import Base, Paper
 from app.services.recommendation import search_service
+from app.services.recommendation.trace_service import (
+    RecommendationTraceRequest,
+    run_traced_search,
+)
 from app.services.recommendation.mmr import (
     select_mmr,
     vector_similarity_getter,
@@ -511,6 +516,83 @@ class SearchMmrTest(unittest.TestCase):
     def test_invalid_mmr_pool_raises_without_lambda_too(self):
         with self.assertRaises(ValueError):
             self._search(mmr_pool=0)
+
+    # -----------------------------------------------------------------
+    # The trace endpoint (Stats for Nerds) carries MMR through
+    # -----------------------------------------------------------------
+
+    def _traced(self, **overrides):
+        kwargs = {
+            "db": self.db,
+            "query": self.query,
+            "seed_paper_id": None,
+            "pipeline": "custom",
+            "top_k": 10,
+            "custom_weights": self.weights,
+        }
+        kwargs.update(overrides)
+        return run_traced_search(**kwargs)
+
+    def test_traced_search_with_mmr_matches_the_untraced_search(self):
+        traced = self._traced(mmr_lambda=0.5)
+        plain = self._search(mmr_lambda=0.5)
+
+        self.assertEqual(
+            [result.paper.id for result in traced.results],
+            self._ids(plain),
+        )
+        self.assertEqual(
+            [result.paper.id for result in traced.results],
+            self.mmr_expected_ids,
+        )
+        self.assertEqual(
+            {result.paper.id: result.score for result in traced.results},
+            self._scores(plain),
+        )
+
+        names = [event.event for event in traced.events]
+        self.assertEqual(names.count("rerank.mmr"), 1)
+
+        mmr_event = next(
+            event for event in traced.events
+            if event.event == "rerank.mmr"
+        )
+        self.assertEqual(mmr_event.data["before"], self.expected_ids)
+        self.assertEqual(mmr_event.data["after"], self.mmr_expected_ids)
+
+    def test_traced_search_without_mmr_is_unchanged(self):
+        traced = self._traced()
+
+        self.assertNotIn(
+            "rerank.mmr",
+            [event.event for event in traced.events],
+        )
+        self.assertEqual(
+            [result.paper.id for result in traced.results],
+            self.expected_ids,
+        )
+
+    def test_trace_request_validates_the_mmr_fields(self):
+        defaults = RecommendationTraceRequest(query="ranking")
+        self.assertIsNone(defaults.mmr_lambda)
+        self.assertEqual(defaults.mmr_pool, 50)
+
+        accepted = RecommendationTraceRequest(
+            query="ranking",
+            mmr_lambda=0.7,
+            mmr_pool=20,
+        )
+        self.assertEqual(accepted.mmr_lambda, 0.7)
+        self.assertEqual(accepted.mmr_pool, 20)
+
+        for bad in (
+            {"mmr_lambda": -0.1},
+            {"mmr_lambda": 1.1},
+            {"mmr_pool": 0},
+            {"mmr_pool": 101},
+        ):
+            with self.assertRaises(ValidationError):
+                RecommendationTraceRequest(query="ranking", **bad)
 
 
 if __name__ == "__main__":

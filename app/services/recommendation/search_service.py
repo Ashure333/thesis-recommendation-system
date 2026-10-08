@@ -144,6 +144,7 @@ def _normalization_bounds(
 
 def _get_valid_candidates(
     db: Session,
+    paper_ids: list[int] | None = None,
 ) -> list[Paper]:
     """
     Return papers that are valid for recommendation and have
@@ -151,18 +152,22 @@ def _get_valid_candidates(
 
     The rebuild process is responsible for determining whether
     a paper is valid for recommendation.
+
+    ``paper_ids`` narrows the candidate set (the research chat
+    scopes retrieval to a saved collection this way); None means
+    the whole repository.
     """
 
-    return (
-        db.query(Paper)
-        .filter(
-            Paper.is_valid_for_recommendation.is_(True)
-        )
-        .filter(
-            Paper.prepared_text.isnot(None)
-        )
-        .all()
+    query = db.query(Paper).filter(
+        Paper.is_valid_for_recommendation.is_(True)
+    ).filter(
+        Paper.prepared_text.isnot(None)
     )
+
+    if paper_ids:
+        query = query.filter(Paper.id.in_(paper_ids))
+
+    return query.all()
 
 
 def _get_seed_paper(
@@ -334,6 +339,15 @@ def _component_contributions(
     return contributions
 
 
+def _parse_tfidf_vectors(pool_ids, candidate_by_id, tfidf_vectors) -> bool:
+    """Parse TF-IDF vectors lazily; True when at least two exist."""
+    for paper_id in pool_ids:
+        paper = candidate_by_id[paper_id]
+        if paper.tfidf_vector:
+            tfidf_vectors[paper_id] = json.loads(paper.tfidf_vector)
+    return len(tfidf_vectors) >= 2
+
+
 def _uninformative_similarity(
     left_id: int,
     right_id: int,
@@ -360,6 +374,7 @@ def search_papers(
     custom_weights: PipelineWeights | None = None,
     mmr_lambda: float | None = None,
     mmr_pool: int = 50,
+    paper_ids: list[int] | None = None,
 ) -> list[dict]:
     """
     Run one of the six configured recommendation pipelines — or the
@@ -496,7 +511,7 @@ def search_papers(
     # Get candidates
     # --------------------------------------------------------
 
-    candidates = _get_valid_candidates(db)
+    candidates = _get_valid_candidates(db, paper_ids=paper_ids)
 
     if not candidates:
         return []
@@ -780,10 +795,6 @@ def search_papers(
                     paper.sbert_vector
                 )
 
-            if paper.tfidf_vector:
-                tfidf_vectors[paper_id] = json.loads(
-                    paper.tfidf_vector
-                )
 
         # Redundancy signal preference: S-BERT (semantic) first, then
         # TF-IDF (lexical). Fewer than two vectors cannot distinguish
@@ -794,7 +805,7 @@ def search_papers(
                 sbert_vectors
             )
             similarity_source = "sbert"
-        elif len(tfidf_vectors) >= 2:
+        elif _parse_tfidf_vectors(pool_ids, candidate_by_id, tfidf_vectors):
             similarity = mmr.vector_similarity_getter(
                 tfidf_vectors
             )

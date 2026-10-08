@@ -12,14 +12,30 @@ regardless of which view the user is browsing.
 
 from sqlalchemy import asc, desc
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.models.models import Paper
+from difflib import SequenceMatcher
+
 from app.services.duplicate_detection import (
+    MIN_DUPLICATE_TITLE_LENGTH,
+    TITLE_DUPLICATE_THRESHOLD,
     _normalize_doi,
+    _normalized_title,
     titles_are_duplicates,
 )
+from app.services.pdf_finder import (
+    _normalize_title as _pdf_normalize_title,
+    _title_tokens as _pdf_title_tokens,
+)
 from app.services.fts_search import ranked_search
+
+# Columns the list/search views never read (PaperOut omits them).
+_LIST_DEFERS = (
+    defer(Paper.tfidf_vector),
+    defer(Paper.sbert_vector),
+    defer(Paper.prepared_text),
+)
 
 SORT_OPTIONS = {
     "alphabetical": (Paper.title, asc),
@@ -48,20 +64,6 @@ def list_papers(db: Session, sort_by: str = "date_added", ascending: bool | None
     return db.query(Paper).order_by(direction(column)).all()
 
 
-def search_papers(db: Session, query: str, sort_by: str = "alphabetical"):
-    """
-    Simple title/author/keyword text search, combined with one of the
-    same sort views above.
-    """
-    like = f"%{query}%"
-    q = db.query(Paper).filter(
-        (Paper.title.ilike(like))
-        | (Paper.author.ilike(like))
-        | (Paper.keywords.ilike(like))
-    )
-
-    column, default_direction = SORT_OPTIONS.get(sort_by, SORT_OPTIONS["alphabetical"])
-    return q.order_by(default_direction(column)).all()
 
 
 def _apply_sidebar_filters(
@@ -86,6 +88,52 @@ def _apply_sidebar_filters(
         q = q.filter(Paper.publication_year <= max_year)
 
     return q
+
+
+def _title_features(title):
+    normalized = _normalized_title(title)
+    if normalized is None:
+        return None
+    pdf_normalized = _pdf_normalize_title(normalized)
+    return (normalized, pdf_normalized, _pdf_title_tokens(normalized))
+
+
+def _features_are_duplicates(left, right) -> bool:
+    """Same decision as titles_are_duplicates(), with the cheap exact
+    checks first and difflib's upper bounds before the full ratio."""
+    if left is None or right is None:
+        return False
+
+    first, first_norm, first_tokens = left
+    second, second_norm, second_tokens = right
+
+    if first == second:
+        return True
+
+    if (
+        len(first) < MIN_DUPLICATE_TITLE_LENGTH
+        or len(second) < MIN_DUPLICATE_TITLE_LENGTH
+    ):
+        return False
+
+    if not first_norm or not second_norm:
+        return False
+
+    if first_tokens and second_tokens:
+        overlap = len(first_tokens & second_tokens) / len(
+            first_tokens | second_tokens
+        )
+        if overlap >= TITLE_DUPLICATE_THRESHOLD:
+            return True
+
+    matcher = SequenceMatcher(None, first_norm, second_norm)
+
+    if matcher.real_quick_ratio() < TITLE_DUPLICATE_THRESHOLD:
+        return False
+    if matcher.quick_ratio() < TITLE_DUPLICATE_THRESHOLD:
+        return False
+
+    return matcher.ratio() >= TITLE_DUPLICATE_THRESHOLD
 
 
 def _collapse_duplicate_papers(papers: list[Paper]) -> list[Paper]:
@@ -128,11 +176,16 @@ def _collapse_duplicate_papers(papers: list[Paper]) -> list[Paper]:
         for paper in papers
     ]
 
+    # Per-title features computed once instead of once per pair.
+    features = [_title_features(title) for title in titles]
+
     for i in range(len(papers)):
         for j in range(i + 1, len(papers)):
+            if find(i) == find(j):
+                continue  # already grouped: the union would be a no-op
             if dois[i] is not None and dois[i] == dois[j]:
                 union(i, j)
-            elif titles_are_duplicates(titles[i], titles[j]):
+            elif _features_are_duplicates(features[i], features[j]):
                 union(i, j)
 
     survivors: dict[int, Paper] = {}
@@ -192,7 +245,7 @@ def _relevance_search(
 
     paper_ids = [hit.paper_id for hit in hits]
 
-    q = db.query(Paper).filter(Paper.id.in_(paper_ids))
+    q = db.query(Paper).options(*_LIST_DEFERS).filter(Paper.id.in_(paper_ids))
     q = _apply_sidebar_filters(
         q,
         subject,
@@ -257,7 +310,7 @@ def filter_papers(
         if ranked is not None:
             return ranked
 
-    q = db.query(Paper)
+    q = db.query(Paper).options(*_LIST_DEFERS)
 
     if search:
         like = f"%{search}%"

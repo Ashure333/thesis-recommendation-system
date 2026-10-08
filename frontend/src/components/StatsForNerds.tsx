@@ -1,13 +1,12 @@
 /**
- * STATS FOR NERDS — the mathematical pseudocode tab, shared by
+ * STATS FOR NERDS — the live computation trace tab, shared by
  * Search, Repository, Arena, and Lab.
  *
- * Shows the ranking math for the currently active pipeline (preset
- * or the Lab's custom dial recipe), opened by default, plus a short
- * page-specific context note and optional extra sections.
+ * Shows the trace of the ranking computation for the currently
+ * active pipeline (preset or the Lab's custom dial recipe), opened
+ * by default, plus a short page-specific context note. The formulas
+ * themselves are explained on the Engine page.
  */
-
-import type { ReactNode } from "react";
 
 import {
   customPipelineConfig,
@@ -22,13 +21,11 @@ export default function StatsForNerds({
   inputs = null,
   contextNote,
   hideHeader = false,
-  children,
 }: {
   inputs?: PipelineMathInputs | null;
   contextNote?: string;
   /** Hide the intro header (embeds inside a pane that has its own). */
   hideHeader?: boolean;
-  children?: ReactNode;
 }) {
   const { pipelineId, customWeights } = usePipelineMode();
 
@@ -55,7 +52,7 @@ export default function StatsForNerds({
 
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
             {contextNote ??
-              "The active pipeline, its weights, and the exact pseudocode that produced the numbers on this page."}
+              "The active pipeline, its weights, and the live trace that produced the numbers on this page."}
           </p>
 
           <p className="mt-3 inline-flex flex-wrap items-center gap-2 rounded border-[2px] border-gray-900 bg-canvas px-2 py-1 font-mono text-xs font-bold text-ink">
@@ -76,8 +73,6 @@ export default function StatsForNerds({
         inputs={inputs}
         defaultOpen
       />
-
-      {children}
     </div>
   );
 }

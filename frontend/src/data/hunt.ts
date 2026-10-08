@@ -62,7 +62,3 @@ export const HUNT_ITEMS: HuntItem[] = [
     hint: "the key is chained to the left edge of the Arena page",
   },
 ];
-
-export const HUNT_ITEM_BY_ID: Record<string, HuntItem> = Object.fromEntries(
-  HUNT_ITEMS.map((item) => [item.id, item]),
-);

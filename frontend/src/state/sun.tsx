@@ -47,6 +47,19 @@ function currentCheatSet(): { word: string; effect: string }[] {
 const STORAGE_KEY = "paperrec_sun";
 const SEEN_TIPS_KEY = "paperrec_tips_seen";
 
+/** TEMPORARY dev override: unlock My Library PRO without growing a
+ *  tree. Remove when the PRO feature's real unlock is final. */
+export const PRO_OVERRIDE_KEY = "paperrec_pro_override_temp";
+
+function readProOverride(): boolean {
+  try {
+    return window.localStorage.getItem(PRO_OVERRIDE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+import { isPresentationStored } from "../utils/presentation";
 import {
   CHEAT_HEIGHTS,
   CHEAT_SETS,
@@ -55,6 +68,7 @@ import {
   SPECIES_STAGE_FERT,
   SPECIES_STAGE_LINES,
   treeHeightByFertilizer,
+  treeStageIndex,
   type TreeSpeciesId,
 } from "../data/knowledge";
 
@@ -67,44 +81,39 @@ export const ACHIEVEMENT_BOUNTY = 5;
 export const TIPS_PER_BOUNTY = 5;
 export const TIP_BOUNTY = 2;
 export const GROWTH_PER_FERTILIZER = 2;
-export const FEET_PER_FERTILIZER = 30;
-export const FEET_PER_POINT = 5;
 
-export interface SunPack {
-  count: 1 | 5 | 10;
+export interface FertilizerScale {
+  count: number;
+  currency: "sun" | "tokens";
   price: number;
-  discount: string | null;
 }
 
-export const SUN_PACKS: SunPack[] = [
-  { count: 1, price: 20, discount: null },
-  { count: 5, price: 90, discount: "save 10%" },
-  { count: 10, price: 160, discount: "save 20%" },
-];
+/* Sun is the expensive currency; tree tokens are cheaper. Purchases
+   credit the fertilizer HOLD — nothing fertilizes the tree until it
+   is applied (the drag). */
+export const SUN_PRICE_PER_FERTILIZER = 20;
+export const TREE_TOKEN_PRICE_PER_FERTILIZER = 5;
+
+export const FERTILIZER_SCALES: FertilizerScale[] = [
+  { count: 10, currency: "sun" },
+  { count: 20, currency: "tokens" },
+  { count: 100, currency: "sun" },
+  { count: 1000, currency: "tokens" },
+  { count: 10000, currency: "sun" },
+].map((scale) => ({
+  ...scale,
+  price:
+    scale.count *
+    (scale.currency === "sun"
+      ? SUN_PRICE_PER_FERTILIZER
+      : TREE_TOKEN_PRICE_PER_FERTILIZER),
+})) as FertilizerScale[];
 
 export interface CheatMilestone {
   height: number;
   word: string;
   effect: string;
 }
-
-export const CHEAT_MILESTONES: CheatMilestone[] = [
-  {
-    height: 100,
-    word: "daisies",
-    effect: "Papers the pet eats leave little daisies behind.",
-  },
-  {
-    height: 500,
-    word: "dance",
-    effect: "The pet dances on the spot.",
-  },
-  {
-    height: 1000,
-    word: "pinata",
-    effect: "Every paper the pet eats bursts into candy.",
-  },
-];
 
 interface SunState {
   balance: number;
@@ -118,6 +127,8 @@ interface SunState {
   fertilizer: number;
   /** Growth tokens: the Skin Shop currency. */
   tokens: number;
+  /** Purchased-but-unapplied fertilizer, ready to drag onto the tree. */
+  fertilizerHold: number;
   /** Grant registry keys: "once:<key>" or "daily:<day>:<key>". */
   tokenGrants: string[];
   /** Calendar day (UTC) the daily counters belong to. */
@@ -157,6 +168,7 @@ const EMPTY_STATE: SunState = {
   },
   fertilizer: 0,
   tokens: 0,
+  fertilizerHold: 0,
   tokenGrants: [],
   day: "",
   pets: 0,
@@ -219,6 +231,7 @@ function readState(): SunState {
       gardenProgress,
       fertilizer: gardenProgress[species],
       tokens: Number(parsed.tokens) || 0,
+      fertilizerHold: Number(parsed.fertilizerHold) || 0,
       tokenGrants: strings(parsed.tokenGrants),
       day: typeof parsed.day === "string" ? parsed.day : "",
       pets: Number(parsed.pets) || 0,
@@ -313,21 +326,15 @@ function claimMilestones(
 /** Tree height in feet — relative to the tree's stage: it climbs
  *  the stage ladder (Seed 0 ft … Ancient maple 1000 ft) as
  *  fertilizer marks progress, instead of a flat 30 ft per packet. */
-export function treeHeight(
-  state: Pick<SunState, "fertilizer" | "tipsSeen" | "species">,
-  treasureCount: number,
-  achievementCount: number,
+function treeHeight(
+  state: Pick<SunState, "fertilizer" | "species">,
 ): number {
   return treeHeightByFertilizer(state.fertilizer, state.species);
 }
 
 /** Unlock every cheat whose milestone the tree has reached. */
-function unlockCheats(
-  state: SunState,
-  treasureCount: number,
-  achievementCount: number,
-): SunState {
-  const height = treeHeight(state, treasureCount, achievementCount);
+function unlockCheats(state: SunState): SunState {
+  const height = treeHeight(state);
   const set = currentCheatSet();
   const reached = set
     .filter((_, index) => height >= CHEAT_HEIGHTS[index])
@@ -350,8 +357,6 @@ function reconcile(
 ): SunState {
   const base = unlockCheats(
     claimMilestones(rollDay(state), treasures, achievements),
-    treasures.length,
-    achievements.length,
   );
 
   /* One-time growth tokens for newly found treasures and
@@ -392,17 +397,31 @@ interface SunContextValue {
   spent: number;
   /** Growth tokens: the Skin Shop currency. */
   tokens: number;
+  /** Purchased-but-unapplied fertilizer (the badge counter). */
+  fertilizerHold: number;
   fertilizer: number;
   /** Growth the tree gains from bought fertilizer. */
   bonusGrowth: number;
   /** Tree height in feet. */
   height: number;
+  /** True once ANY planted tree reaches the Young stage (index 3):
+      unlocks My Library PRO mode. */
+  proUnlocked: boolean;
+  /** TEMPORARY dev override that forces proUnlocked on. */
+  proOverride: boolean;
+  setProOverride: (value: boolean) => void;
   /** Next height milestone, or undefined when everything blooms. */
   nextMilestone: CheatMilestone | undefined;
   cheats: string[];
   activeCheats: string[];
-  packs: SunPack[];
-  buy: (count: 1 | 5 | 10) => BuyResult;
+  /** Buy fertilizer for the HOLD (badge) — it does not fertilize
+   *  the tree until applied. */
+  purchaseFertilizer: (
+    count: number,
+    currency: "sun" | "tokens",
+  ) => BuyResult;
+  /** Apply held fertilizer to the tree (the drag interaction). */
+  applyFertilizer: (count: number) => BuyResult;
   redeemCheat: (word: string) => { ok: boolean; text: string };
   trackPet: () => void;
   trackAsk: () => void;
@@ -424,6 +443,12 @@ interface SunContextValue {
   /** The planted tree's own cheat words. */
   cheatSet: { word: string; effect: string }[];
   testTopUp: (sunAmount: number, tokenAmount: number) => void;
+  /** DEV: set the planted tree's fertilizer count (its growth) directly. */
+  testSetFertilizer: (count: number) => void;
+  /** DEV: arm every unlocked charm of the planted tree, or none. */
+  testArmCharms: (all: boolean) => void;
+  /** The planted species. */
+  species: TreeSpeciesId;
 }
 
 const SunContext = createContext<SunContextValue | null>(null);
@@ -432,10 +457,22 @@ export function SunProvider({ children }: { children: ReactNode }) {
   const { found } = useHunt();
   const { unlocked } = useAchievements();
   const [state, setState] = useState<SunState>(readState);
+  const [proOverride, setProOverride] = useState<boolean>(readProOverride);
 
   useEffect(() => {
     writeState(state);
   }, [state]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        PRO_OVERRIDE_KEY,
+        proOverride ? "1" : "0"
+      );
+    } catch {
+      // best-effort
+    }
+  }, [proOverride]);
 
   /* Daily bonus, bounties, and cheat unlocks whenever progress
      changes. */
@@ -443,8 +480,19 @@ export function SunProvider({ children }: { children: ReactNode }) {
     setState((current) => reconcile(current, found, unlocked));
   }, [found, unlocked]);
 
-  const height = treeHeight(state, found.length, unlocked.length);
+  const height = treeHeight(state);
   const set = currentCheatSet();
+
+  /* PRO unlock: any species' bed past its Young stage threshold —
+     the temporary dev override forces it on for this run. */
+  const proUnlocked =
+    !isPresentationStored() &&
+    (proOverride ||
+    Object.entries(state.gardenProgress).some(
+      ([species, fert]) =>
+        treeStageIndex(fert, species as TreeSpeciesId) >= 3,
+    ));
+
   const nextMilestone = CHEAT_HEIGHTS.map((heightFt, index) => ({
     height: heightFt,
     word: set[index]?.word ?? "",
@@ -502,6 +550,33 @@ export function SunProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /* DEV: put the planted tree at a chosen growth, for testing. The
+     cheats that growth reaches unlock as they would by feeding. */
+  function testSetFertilizer(count: number) {
+    const n = Math.max(0, Math.min(3000, Math.round(count)));
+
+    setState((current) =>
+      unlockCheats({
+        ...current,
+        fertilizer: n,
+        gardenProgress: { ...current.gardenProgress, [current.species]: n },
+      }),
+    );
+  }
+
+  function testArmCharms(all: boolean) {
+    setState((current) => {
+      const words = currentCheatSet().map((entry) => entry.word);
+
+      return {
+        ...current,
+        activeCheats: all
+          ? [...new Set([...current.activeCheats, ...words.filter((w) => current.cheats.includes(w))])]
+          : current.activeCheats.filter((w) => !words.includes(w)),
+      };
+    });
+  }
+
   /* Wipe every tree's progress: fertilizer and growth spent —
      the wallet, skins, and achievements stay. */
   function resetTree() {
@@ -545,16 +620,81 @@ export function SunProvider({ children }: { children: ReactNode }) {
     return ok;
   }
 
-  function buy(count: 1 | 5 | 10): BuyResult {
-    const pack = SUN_PACKS.find((entry) => entry.count === count);
-    if (!pack) {
-      return { ok: false, text: "Unknown pack.", unlocked: [] };
+  function purchaseFertilizer(
+    count: number,
+    currency: "sun" | "tokens",
+  ): BuyResult {
+    if (count <= 0) {
+      return { ok: false, text: "Invalid fertilizer amount.", unlocked: [] };
     }
 
-    if (state.balance < pack.price) {
+    const price =
+      count *
+      (currency === "sun"
+        ? SUN_PRICE_PER_FERTILIZER
+        : TREE_TOKEN_PRICE_PER_FERTILIZER);
+
+    if (currency === "sun" && state.balance < price) {
       return {
         ok: false,
-        text: `Not enough sun — ${pack.price - state.balance} more needed.`,
+        text: `Not enough sun — ${price - state.balance} more needed.`,
+        unlocked: [],
+      };
+    }
+
+    if (currency === "tokens" && state.tokens < price) {
+      return {
+        ok: false,
+        text: `Not enough tree tokens — ${price - state.tokens} more needed.`,
+        unlocked: [],
+      };
+    }
+
+    setState((current) => {
+      const rolled = rollDay(current);
+
+      return reconcile(
+        {
+          ...rolled,
+          balance:
+            currency === "sun"
+              ? rolled.balance - price
+              : rolled.balance,
+          tokens:
+            currency === "tokens"
+              ? rolled.tokens - price
+              : rolled.tokens,
+          spent:
+            currency === "sun"
+              ? rolled.spent + price
+              : rolled.spent,
+          fertilizerHold: rolled.fertilizerHold + count,
+        },
+        found,
+        unlocked,
+      );
+    });
+
+    return {
+      ok: true,
+      text: `Added ${count} fertilizer to your hold — drag it onto the tree to fertilize.`,
+      unlocked: [],
+    };
+  }
+
+  function applyFertilizer(count: number): BuyResult {
+    if (count <= 0) {
+      return {
+        ok: false,
+        text: "Drag further to fertilize.",
+        unlocked: [],
+      };
+    }
+
+    if (state.fertilizerHold < count) {
+      return {
+        ok: false,
+        text: `Only ${state.fertilizerHold} fertilizer in your hold — buy more in the Sun shop first.`,
         unlocked: [],
       };
     }
@@ -619,10 +759,9 @@ export function SunProvider({ children }: { children: ReactNode }) {
       };
       const planted: SunState = {
         ...rollDay(current),
-        balance: current.balance - pack.price,
-        spent: current.spent + pack.price,
         gardenProgress: bed,
         fertilizer: bed[current.species],
+        fertilizerHold: current.fertilizerHold - count,
         gardenTips: fresh.length > 0 ? current.gardenTips : current.gardenTips + 1,
         announcedCheats: fresh.length > 0
           ? [
@@ -638,12 +777,13 @@ export function SunProvider({ children }: { children: ReactNode }) {
     return {
       ok: true,
       text:
-        `Planted ${count} fertilizer${count === 1 ? "" : "s"} — ` +
+        `Fertilized with ${count} from your hold — ` +
         `+${count * GROWTH_PER_FERTILIZER} growth — ` +
         `${after} ft. ${wisdom}`,
       unlocked: fresh.map((milestone) => milestone.word),
     };
   }
+
 
   function redeemCheat(word: string) {
     const normalized = word.trim().toLowerCase();
@@ -729,15 +869,19 @@ export function SunProvider({ children }: { children: ReactNode }) {
         balance: state.balance,
         spent: state.spent,
         tokens: state.tokens,
+        fertilizerHold: state.fertilizerHold,
         fertilizer: state.fertilizer,
         bonusGrowth: state.fertilizer * GROWTH_PER_FERTILIZER,
         height,
+        proUnlocked,
+        proOverride,
+        setProOverride,
         nextMilestone,
         cheatSet: currentCheatSet(),
         cheats: state.cheats,
         activeCheats: state.activeCheats,
-        packs: SUN_PACKS,
-        buy,
+        purchaseFertilizer,
+        applyFertilizer,
         redeemCheat,
         trackPet,
         trackAsk,
@@ -745,6 +889,9 @@ export function SunProvider({ children }: { children: ReactNode }) {
         grantTokens,
         spendTokens,
         testTopUp,
+        testSetFertilizer,
+        testArmCharms,
+        species: state.species,
         resetTree,
         plantSpecies,
       }}

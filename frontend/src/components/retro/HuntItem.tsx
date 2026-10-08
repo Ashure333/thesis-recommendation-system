@@ -1,4 +1,6 @@
 import { useHunt } from "../../state/hunt";
+import { useSceneLayers } from "../../state/sceneLayers";
+import { isPresentationStored } from "../../utils/presentation";
 import type { HuntItem as HuntItemDef } from "../../data/hunt";
 
 /* ============================================================
@@ -10,8 +12,11 @@ import type { HuntItem as HuntItemDef } from "../../data/hunt";
 
 export default function HuntItem({ item }: { item: HuntItemDef }) {
   const { found, collect } = useHunt();
+  const { isOn } = useSceneLayers();
 
-  if (found.includes(item.id)) return null;
+  /* a switch in the Almanac's Scene page hides the glints (the treasures
+     are still there, and the hunt still counts them) */
+  if (found.includes(item.id) || !isOn("treasures") || isPresentationStored()) return null;
 
   return (
     <button

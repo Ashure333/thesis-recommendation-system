@@ -1,13 +1,18 @@
 const DROP_ZONE_SELECTOR = "[data-paperrec-dropzone]";
 
-function isScholarBibUrl(url) {
+function isScholarImportUrl(url) {
   if (typeof url !== "string") {
     return false;
   }
 
   return /^https?:\/\/(?:scholar\.googleusercontent\.com|scholar\.google\.com)\//i.test(
     url
-  ) && /\/scholar\.bib(?:\?|$)/i.test(url);
+  ) && /\/scholar\.(?:bib|enw|ris)(?:\?|$)/i.test(url);
+}
+
+function scholarFormat(url) {
+  const match = /\/scholar\.(bib|enw|ris)(?:\?|$)/i.exec(url);
+  return match ? match[1] : "bib";
 }
 
 function getDroppedUrl(dataTransfer) {
@@ -43,12 +48,13 @@ function getDroppedUrl(dataTransfer) {
   return null;
 }
 
-function sendBibtexToResearch(bibtex, sourceUrl) {
+function sendBibtexToResearch(bibtex, sourceUrl, format) {
   window.postMessage(
     {
       source: "paperrec-scholar-extension",
       type: "PAPERREC_SCHOLAR_BIBTEX",
       bibtex,
+      format,
       sourceUrl
     },
     window.location.origin
@@ -79,7 +85,7 @@ document.addEventListener(
 
     const url = getDroppedUrl(event.dataTransfer);
 
-    if (url && isScholarBibUrl(url)) {
+    if (url && isScholarImportUrl(url)) {
       event.preventDefault();
 
       if (event.dataTransfer) {
@@ -123,7 +129,7 @@ document.addEventListener(
 
     const url = getDroppedUrl(event.dataTransfer);
 
-    if (!url || !isScholarBibUrl(url)) {
+    if (!url || !isScholarImportUrl(url)) {
       return;
     }
 
@@ -156,7 +162,7 @@ document.addEventListener(
         if (!response?.ok) {
           sendErrorToResearch(
             response?.error ||
-            "Failed to retrieve the Google Scholar BibTeX citation."
+            "Failed to retrieve the Google Scholar citation."
           );
 
           return;
@@ -164,7 +170,8 @@ document.addEventListener(
 
         sendBibtexToResearch(
           response.bibtex,
-          url
+          url,
+          response.format || scholarFormat(url)
         );
       }
     );

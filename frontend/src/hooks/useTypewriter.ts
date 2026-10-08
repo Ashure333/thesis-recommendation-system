@@ -20,10 +20,13 @@ export function useTypewriter(
 
     setCount(0);
 
+    // Stop ticking once the text is fully typed instead of waking the
+    // main thread every `speed` ms for as long as the bubble stays open.
+    let typed = 0;
     const id = window.setInterval(() => {
-      setCount((current) =>
-        current >= text.length ? current : current + 1,
-      );
+      typed += 1;
+      setCount(typed);
+      if (typed >= text.length) window.clearInterval(id);
     }, speed);
 
     return () => window.clearInterval(id);

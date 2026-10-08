@@ -1,0 +1,327 @@
+%% =====================================================================
+%% thesis-template.sty
+%%
+%% Formatting for the full Re:Search thesis edition, measured from the
+%% BulSU peer thesis "MDASH" (City of Malolos health analytics dashboard):
+%%
+%%   page        US Letter; margins 1 in left/right/bottom, 1.03 in top
+%%               (calibrated so the first line of text sits at the same
+%%               height as the reference); no rule above the running head
+%%   type        Times New Roman 12 pt everywhere, black, justified
+%%   spacing     line pitch 25.4 pt (\setstretch{1.75}); 11 pt between
+%%               paragraphs; 0.5 in first-line indent (the first
+%%               paragraph of a section is indented too)
+%%   running head italic 10 pt: chapter mark flush left, page number
+%%               flush right, baseline at ~0.64 in; front matter and
+%%               appendix pages carry neither; the references page carries
+%%               only the number
+%%   chapters    new page; "CHAPTER I" and the chapter title centred,
+%%               bold, 12 pt, 29 pt apart; first body line at 2.00 in
+%%   front matter ACKNOWLEDGMENT / ABSTRACT / TABLE OF CONTENTS centred,
+%%               bold, 12 pt caps at the first-line position; the abstract
+%%               is set in a 5.08 in centred column at 1.3 line spacing;
+%%               the TOC is single-spaced with 7 pt between entries,
+%%               chapters bold flush left, sections at 0.25 in,
+%%               subsections at 0.50 in, dot leaders throughout
+%%   headings    section: bold, flush left; subsection: bold italic;
+%%               subsubsection: italic -- all 12 pt, unnumbered
+%%   tables      bold "Table N", italic title, then the table: thin top
+%%               and bottom rules, bold header row, single-spaced cells
+%%   figures     bold "Figure N", italic title, full-width image, italic
+%%               caption below
+%%   references  hanging indent of 0.5 in, justified, same pitch as body
+%%   title page  as measured from the reference: title at 1.11 in,
+%%               fixed blocks below, date anchored at the foot
+%%
+%% The front matter, chapters, reference list and appendices are generated
+%% from the Markdown sources by tools/md2tex.py; this file only holds the
+%% look.
+%% =====================================================================
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{thesis-template}[2026/10/07 full-thesis formatting]
+
+%% ---- page ------------------------------------------------------------
+\RequirePackage[letterpaper,left=1in,right=1in,top=1.03in,bottom=1in]{geometry}
+\pagestyle{empty}
+\pagenumbering{gobble}
+
+%% ---- fonts -----------------------------------------------------------
+%% Times New Roman as in the template; TeX Gyre Termes (metric-compatible)
+%% where Times New Roman is not installed. Menlo/DejaVu carry the box
+%% drawing and math glyphs used in the formula blocks.
+\RequirePackage{fontspec}
+\newif\ifthesis@fallbackfont
+\IfFontExistsTF{Times New Roman}%
+  {\setmainfont{Times New Roman}}%
+  {\thesis@fallbackfonttrue\setmainfont{TeX Gyre Termes}}
+\IfFontExistsTF{Menlo}%
+  {\setmonofont{Menlo}[Scale=MatchLowercase]}%
+  {\IfFontExistsTF{DejaVu Sans Mono}%
+    {\setmonofont{DejaVu Sans Mono}[Scale=MatchLowercase]}%
+    {\setmonofont{Courier New}[Scale=MatchLowercase]}}
+
+%% Glyphs Times New Roman lacks (reported as "Missing character" by the
+%% XeTeX log), set as small math/script text instead.
+\RequirePackage{newunicodechar}
+\newunicodechar{∪}{\ensuremath{\cup}}
+\newunicodechar{⇔}{\ensuremath{\Leftrightarrow}}
+\newunicodechar{₀}{\textsubscript{0}}
+\newunicodechar{₁}{\textsubscript{1}}
+\newunicodechar{₂}{\textsubscript{2}}
+\newunicodechar{⁻}{\textsuperscript{\ensuremath{-}}}
+\newunicodechar{⁹}{\textsuperscript{9}}
+\ifthesis@fallbackfont
+  % the Times-compatible fallback covers fewer symbols than Times New Roman
+  \newunicodechar{≤}{\ensuremath{\leq}}
+  \newunicodechar{≥}{\ensuremath{\geq}}
+  \newunicodechar{≠}{\ensuremath{\neq}}
+  \newunicodechar{∞}{\ensuremath{\infty}}
+  \newunicodechar{∩}{\ensuremath{\cap}}
+  \newunicodechar{→}{\ensuremath{\rightarrow}}
+  \newunicodechar{←}{\ensuremath{\leftarrow}}
+  \newunicodechar{−}{\ensuremath{-}}
+  \newunicodechar{Δ}{\ensuremath{\Delta}}
+  \newunicodechar{Σ}{\ensuremath{\Sigma}}
+  \newunicodechar{δ}{\ensuremath{\delta}}
+\fi
+
+%% ---- spacing and paragraphs -------------------------------------------
+\RequirePackage{setspace}
+\setstretch{1.75}            % line pitch 25.4 pt, as in the reference
+\setlength{\parindent}{0.5in}
+\setlength{\parskip}{11pt}
+\RequirePackage{indentfirst}
+\setlength{\emergencystretch}{3em}
+\widowpenalty=10000
+\clubpenalty=10000
+
+%% ---- headings ----------------------------------------------------------
+\RequirePackage{titlesec}
+\setcounter{secnumdepth}{0}
+\titleformat{\section}{\normalfont\normalsize\bfseries}{}{0pt}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries\itshape}{}{0pt}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\itshape}{}{0pt}{}
+\titleformat{\paragraph}[runin]{\normalfont\normalsize\bfseries}{}{0pt}{}[.]
+%% reference measurements: ~19 pt from the previous paragraph to a
+%% section heading, ~15 pt from the heading to the next line (the 11 pt
+%% \parskip is included in both)
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+\titlespacing*{\subsection}{0pt}{8pt}{4pt}
+\titlespacing*{\subsubsection}{0pt}{8pt}{4pt}
+\titlespacing*{\paragraph}{0pt}{0pt}{1em}
+\RequirePackage{needspace}
+
+%% ---- running head -------------------------------------------------------
+\RequirePackage{fancyhdr}
+%% fancyhdr's \f@nch@initialise gives article (default twoside) a section
+%% mark that overwrites the chapter mark on every \section; the reference
+%% running head carries only the chapter title, so gobble both marks.
+\let\sectionmark\@gobble
+\let\subsectionmark\@gobble
+\fancypagestyle{thesisbody}{%
+  \fancyhf{}%
+  \fancyhead[L]{\fontsize{10}{12}\selectfont\itshape\leftmark}%
+  \fancyhead[R]{\fontsize{10}{12}\selectfont\thepage\hspace{6.5pt}}%
+  \renewcommand{\headrulewidth}{0pt}%
+}
+\setlength{\headheight}{13pt}
+\setlength{\headsep}{21pt}
+
+%% ---- table of contents ---------------------------------------------------
+\setcounter{tocdepth}{2}
+\newcommand*\l@chapter[2]{%
+  \ifnum\c@tocdepth>\m@ne
+    \leavevmode
+    {\normalfont\bfseries #1}\nobreak
+    \leaders\hbox{$\m@th\mkern\@dotsep mu\hbox{.}\mkern\@dotsep mu$}\hfill
+    \nobreak\hb@xt@\@pnumwidth{\hfil\normalfont #2}\par
+  \fi
+}
+\newcommand*\l@thesisrefs{\@dottedtocline{1}{0in}{0pt}}
+\renewcommand*\l@section{\@dottedtocline{1}{0.25in}{0pt}}
+\renewcommand*\l@subsection{\@dottedtocline{2}{0.5in}{0pt}}
+
+%% The heading itself comes from front-matter.md; only the entries here.
+\newcommand{\thesistoc}{%
+  \begingroup
+  \setlength{\parskip}{7.5pt}%
+  \setlength{\parindent}{0pt}%
+  \singlespacing
+  \vspace{2pt}%
+  \@starttoc{toc}%
+  \endgroup
+}
+
+%% ---- front matter --------------------------------------------------------
+\newcommand{\thesisfrontheading}[1]{%
+  \clearpage
+  \begingroup\centering\bfseries\noindent #1\par\endgroup
+  \vspace{5pt}%
+}
+
+%% The title page: title at the top, the standing blocks held between
+%% \vfill so a two- or three-line title both fits, and the date anchored
+%% at the foot. Arguments: {title}{authors}{adviser}{date}.
+\newcommand{\thesistitlepage}[4]{%
+  \thispagestyle{empty}%
+  \begingroup
+  \singlespacing               % \setstretch{1.75} would scale these pitches
+  \centering
+  \setlength{\parskip}{0pt}%
+  \setlength{\parindent}{0pt}%
+  {\bfseries\fontsize{13}{23.8}\selectfont #1\par}%
+  \vspace{0.89in}%
+  {\fontsize{12}{20.9}\selectfont
+   An Undergraduate Thesis Presented to\\
+   the Faculty of the College of Science\\
+   of the Bulacan State University\\
+   City of Malolos, Bulacan\par}%
+  \vspace{41pt}%
+  {\fontsize{12}{20.9}\selectfont
+   In Partial Fulfillment of the Requirements for the Degree\\
+   Bachelor of Science in Mathematics with\\
+   specialization in Computer Science\par}%
+  \vspace{42pt}%
+  {\fontsize{12}{20.9}\selectfont\itshape by\par}%
+  \vspace{20pt}%
+  {\fontsize{12}{20.9}\selectfont #2\par}%
+  \vspace{41pt}%
+  {\fontsize{12}{20.9}\selectfont
+   Under the supervision of\newline
+   #3\par}%
+  \vfill
+  {\fontsize{12}{20.9}\selectfont #4\par}%
+  \vspace{6pt}%
+  \endgroup
+}
+
+%% The abstract: justified in a 5.08 in centred column, 1.3 line spacing,
+%% one blank line's worth of space between paragraphs. The minipage is
+%% dropped into a paragraph between \hspace*{\fill} so the column is
+%% centred on the text block.
+\newenvironment{thesisabstract}{%
+  \par\vspace{17pt}\begingroup
+  \setlength{\parindent}{0pt}%
+  \noindent\hspace*{\fill}%
+  \begin{minipage}{5.08in}%
+    \setstretch{1.303}%
+    \setlength{\parskip}{19pt}%
+    \setlength{\parindent}{0pt}%
+}{%
+  \end{minipage}%
+  \hspace*{\fill}\par
+  \endgroup
+}
+
+%% ---- chapters and appendices ----------------------------------------------
+%% Chapter opener: new page, two centred bold lines 29 pt apart, running
+%% head and Arabic page numbers from here on; the chapter title is the
+%% TOC entry (the reference TOC carries titles without "CHAPTER I").
+\newif\ifthesis@body
+\newcommand{\thesischapter}[2]{%
+  \clearpage
+  \ifthesis@body\else\pagenumbering{arabic}\thesis@bodytrue\fi
+  \pagestyle{thesisbody}%
+  \phantomsection
+  \addcontentsline{toc}{chapter}{#2}%
+  \markboth{#1: #2}{}%
+  \begingroup\centering\bfseries
+  \setlength{\parskip}{0pt}%
+  \noindent #1\par
+  \vspace{3.7pt}%
+  \noindent #2\par
+  \endgroup
+  \vspace{2pt}%
+}
+
+%% Appendix divider: blank page, "APPENDIX A" and its title centred at the
+%% middle; appendix pages carry no heads and no numbers at all.
+\newcommand{\thesisappendix}[2]{%
+  \clearpage
+  \pagestyle{empty}%
+  \null\vfill
+  \vspace{-0.2in}%
+  \begingroup\centering\bfseries
+  \setlength{\parskip}{0pt}%
+  \noindent #1\par
+  \noindent #2\par
+  \endgroup
+  \vfill\null
+  \clearpage
+}
+
+%% "References" style heading (bold, flush left, first line position);
+%% clears the running head so the page shows only its number.
+\newcommand{\thesisrefheading}[1]{%
+  \needspace{4\baselineskip}%
+  \markboth{}{}%
+  \begingroup\bfseries\noindent #1\par\endgroup
+}
+
+%% ---- captions: bold number, italic title ---------------------------------
+\newcommand{\tablecap}[2]{%
+  \Needspace{6\baselineskip}%
+  \noindent\textbf{#1}\par\nopagebreak
+  \noindent\textit{#2}\par\nopagebreak
+}
+%% The optional argument is the height (pt) of what follows, so that a
+%% caption is never stranded away from its figure or diagram.
+\newcommand{\figcap}[3][0]{%
+  \Needspace{\dimexpr 6\baselineskip+#1pt\relax}%
+  \noindent\textbf{#2}\par\nopagebreak
+  \noindent\textit{#3}\par\nopagebreak
+}
+%% Appendix screenshots: one figure per page, as in the template.
+\newcommand{\figcappage}[2]{\clearpage\figcap{#1}{#2}}
+
+%% ---- tables -------------------------------------------------------------
+\RequirePackage{longtable,booktabs,array,calc,etoolbox}
+\AtBeginEnvironment{longtable}{%
+  \singlespacing
+  \setlength{\parskip}{0pt}%
+  \renewcommand{\arraystretch}{1.2}%
+  \setlength{\tabcolsep}{6pt}%
+}
+\setlength{\LTpre}{0pt}
+\setlength{\LTpost}{9pt}
+\setlength{\LTleft}{0pt}
+\setlength{\LTright}{0pt}
+\RequirePackage{footnotehyper}
+\makesavenoteenv{longtable}
+\newcounter{none}                 % pandoc: unnumbered tables
+\newcommand{\tightlist}{}         % list spacing comes from enumitem below
+
+%% ---- lists ---------------------------------------------------------------
+\RequirePackage{enumitem}
+\setlist{itemsep=9pt,parsep=0pt,topsep=0pt,partopsep=0pt}
+
+%% ---- figures -------------------------------------------------------------
+\RequirePackage{graphicx}
+\graphicspath{{../}{./}}          % appendix/screenshots/ lives in thesis-paper/
+\RequirePackage{float}
+\floatplacement{figure}{H}
+\RequirePackage{caption}
+\captionsetup{labelformat=empty,font={singlespacing,it},
+  justification=raggedright,singlelinecheck=false,skip=6pt}
+
+%% ---- verbatim blocks (formulas, the architecture diagram) ----------------
+\RequirePackage{fvextra}          % fancyvrb + breaklines/breakanywhere
+
+%% ---- links ---------------------------------------------------------------
+\RequirePackage[hidelinks,breaklinks,pageanchor=false,
+  pdftitle={Re:Search: A Design and Comparative Evaluation of Hybrid Content-Based Recommendation Pipelines Integrating TF-IDF, SBERT, and Metadata Fusion},
+  pdflang={en-US}]{hyperref}
+\RequirePackage{xurl}
+\urlstyle{same}
+
+%% ---- references ------------------------------------------------------------
+%% Hanging indent of 0.5 in, justified, 11 pt between entries (the body
+%% paragraph settings do the rest).
+\newenvironment{thesisrefs}{%
+  \par\begingroup
+  \setlength{\leftskip}{0.5in}%
+  \setlength{\parindent}{-0.5in}%
+  \vspace{3pt}%
+}{\par\endgroup}
+
+\endinput

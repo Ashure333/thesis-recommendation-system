@@ -19,7 +19,7 @@ export default function RecommendationIndexAlert({
     <div className="bg-canvas px-4 py-4 sm:px-6">
       {/* result-panel: white fill, 3px outline, 4px radius, md padding.
           No gold/red: accents are never used for state, so the alert is
-          identified by role="alert" and its copy, not by colour. */}
+          identified by role="alert" and its copy, not by color. */}
       <div
         role="alert"
         className="mx-auto flex max-w-[1400px] flex-col gap-4 rounded border-[3px] border-gray-900 bg-white p-4 text-gray-900 sm:flex-row sm:items-center sm:justify-between"

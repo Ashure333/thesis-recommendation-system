@@ -8,8 +8,12 @@
  */
 
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
+
+import DevPanel from "../components/DevPanel";
 
 import { useSiteMode } from "../state/siteMode";
+import { useLayoutPrefs } from "../state/layoutPrefs";
 import {
   CITATION_STYLES,
   readSettings,
@@ -30,7 +34,10 @@ function readScope(): "local" | "web" {
 }
 
 export default function Settings() {
-  const { mode } = useSiteMode();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "dev" ? "dev" : "preferences";
+  const { mode, setMode } = useSiteMode();
+  const { prefs, setNavLabels } = useLayoutPrefs();
 
   const [settings, setSettings] = useState(readSettings);
   const [scope, setScope] = useState<"local" | "web">(readScope);
@@ -88,7 +95,120 @@ export default function Settings() {
           style sets the default for Copy as → Formatted citation
           in the paper context menu.
         </p>
+
+        <div role="tablist" aria-label="Settings pages" className="mt-4 flex gap-1.5">
+          {(
+            [
+              ["preferences", "Preferences"],
+              ["dev", "Developer"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => setParams(id === "dev" ? { tab: "dev" } : {})}
+              className={`rounded border-[3px] border-gray-900 px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.12em] transition-colors pixel-ease ${
+                tab === id ? "bg-accent text-onAccent" : "bg-white text-ink hover:bg-accentSoft"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </header>
+
+      {tab === "dev" && <DevPanel />}
+
+      {tab === "preferences" && (
+        <>
+      {/* MODE — moved here from the top bar */}
+      <section
+        data-settings-section="mode"
+        className="rounded border-[3px] border-gray-900 bg-white p-5"
+      >
+        <h2 className="font-pixelify text-xl font-bold text-ink">
+          Site mode
+        </h2>
+
+        <p className="mt-1 text-sm text-muted">
+          Library mode is the visitor-friendly librarian with the feature
+          set the admin exposes; Researcher mode is the full pro tool and
+          ignores feature locks. Switching is instant and persists in this
+          browser.
+        </p>
+
+        <div
+          role="radiogroup"
+          aria-label="Site mode"
+          className="mt-4 flex w-fit rounded border-[3px] border-gray-900 bg-white p-0.5"
+        >
+          {(
+            [
+              ["library", "LIBRARY", "Visitor view"],
+              ["researcher", "RESEARCHER", "Full pro tool"],
+              ["presentation", "PRESENTATION", "Shipped, free version"],
+            ] as const
+          ).map(([id, label, hint]) => {
+            const active = mode === id;
+
+            return (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setMode(id)}
+                className={`rounded border-[3px] px-4 py-2 text-left transition-colors pixel-ease ${
+                  active
+                    ? "border-gray-900 bg-accent text-onAccent"
+                    : "border-transparent text-muted hover:text-ink"
+                }`}
+              >
+                <span className="block font-mono text-xs font-bold uppercase tracking-[0.12em]">
+                  {label}
+                </span>
+                <span
+                  className={`mt-0.5 block text-[11px] ${
+                    active ? "text-onAccent/80" : ""
+                  }`}
+                >
+                  {hint}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* INTERFACE */}
+      <section
+        data-settings-section="interface"
+        className="rounded border-[3px] border-gray-900 bg-white p-5"
+      >
+        <h2 className="font-pixelify text-xl font-bold text-ink">
+          Interface
+        </h2>
+
+        <label className="mt-3 flex items-start gap-3 text-sm text-ink">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4"
+            checked={prefs.navLabels}
+            onChange={(event) => setNavLabels(event.target.checked)}
+          />
+
+          <span>
+            <span className="font-bold">Show menu labels in the top bar</span>
+            <span className="mt-0.5 block text-muted">
+              Turn this off for an icon-only navigation; the title of
+              each item remains available as a tooltip and to screen
+              readers.
+            </span>
+          </span>
+        </label>
+      </section>
 
       {/* CITATION STYLE */}
       <section
@@ -277,10 +397,12 @@ export default function Settings() {
       <p className="text-xs text-muted">
         Current mode:{" "}
         <span className="font-bold text-ink">
-          {mode === "library" ? "Library" : "Researcher"}
+          {mode === "library" ? "Library" : mode === "presentation" ? "Presentation" : "Researcher"}
         </span>{" "}
-        — switch from the toggle in the top bar.
+        — switch it in the Site mode section above.
       </p>
+        </>
+      )}
     </div>
   );
 }

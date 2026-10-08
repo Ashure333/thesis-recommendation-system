@@ -13,11 +13,20 @@
    bubble is a stored trivia from data/trivia.ts.
    ============================================================ */
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
+  CHEAT_HEIGHTS,
+  CHEAT_SETS,
   DEFAULT_SPECIES,
   KNOWLEDGE_STAGES,
+  STAGE_HEIGHTS,
   SPECIES_GROWTH_MARKERS,
   knowledgePoints,
   knowledgeStageFromHeight,
@@ -29,8 +38,22 @@ import {
 } from "../../data/knowledge";
 import { TRIVIA, type Trivia } from "../../data/trivia";
 import { SPECIES_INFO } from "../../data/knowledge";
-import { BACKDROP_THEMES, DEFAULT_BACKDROP_THEME } from "../../data/backdrops";
+import {
+  BACKDROP_H,
+  BACKDROP_THEMES,
+  BACKDROP_W,
+  DEFAULT_BACKDROP_THEME,
+} from "../../data/backdrops";
 import type { BackdropThemeId } from "../../data/backdrops";
+import { usePixelStage } from "../../hooks/usePixelStage";
+import { milestonesCrossed } from "../../utils/gardenMilestones";
+import { grumpyLine, registerAsk } from "../../utils/treeAsk";
+import { GardenToastStack, useGardenToasts } from "./GardenToasts";
+import TreeVariantPicker from "./TreeVariantPicker";
+import { useTreeVariant } from "../../state/treeVariant";
+import { useSceneLayers } from "../../state/sceneLayers";
+import { activeCharms, charmsFor } from "../../data/charms";
+import GardenAlmanac from "./GardenAlmanac";
 import { useHunt } from "../../state/hunt";
 import { useAchievements } from "../../state/achievements";
 import { readSeenTipCount, useSun } from "../../state/sun";
@@ -38,10 +61,11 @@ import { addOwnedSkin, SKINS_KEY, useOwnedSkins } from "../../state/skins";
 import {
   TREE_GROWTH_TARGET,
   treeHeightByFertilizer,
-  TREE_IDLE_LINES,
+  SPECIES_IDLE_LINES,
+  STAGE_IDLE_LINES,
   TREE_SKIN_PRICES,
 } from "../../data/knowledge";
-import KnowledgeTree from "./KnowledgeTree";
+import { PixelSprite } from "./PixelGrowthTree";
 import PixelGrowthTree from "./PixelGrowthTree";
 import GardenBackdrop from "./GardenBackdrop";
 import SunShop from "./SunShop";
@@ -50,6 +74,7 @@ import SparkleGlyph from "./SparkleGlyph";
 import SunGlyph from "./SunGlyph";
 import TokenGlyph from "./TokenGlyph";
 import RetroDialog from "./RetroDialog";
+import { Palette, Sparkles, Sprout } from "lucide-react";
 
 const BACKDROP_THEMES_KEY = "paperrec_backdrop_themes";
 const BACKDROP_ACTIVE_KEY = "paperrec_backdrop_theme";
@@ -163,6 +188,109 @@ function writeAskCount(count: number) {
   }
 }
 
+/* ---------------- menu bar pieces ----------------
+   The garden menu groups its controls by purpose (the tree, feeding it,
+   the shops). Every chip shows an icon, a word and, where it has one, a
+   value, and takes its colors from the adaptive theme tokens (ink,
+   surface, accentSoft): fixed navy text on the accent-soft fill was
+   unreadable in dark mode. */
+
+function MenuGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="wood-plaque flex flex-col gap-1 px-2 pb-2 pt-1.5"
+    >
+      <span className="wood-label font-mono text-[9px] font-bold uppercase tracking-[0.22em]">
+        {label}
+      </span>
+      <div className="flex flex-wrap items-center gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+const CHIP =
+  "flex items-center gap-1.5 rounded border-[3px] px-2 py-1 font-mono text-xs font-bold";
+
+function ChipBody({
+  icon,
+  label,
+  value,
+  test,
+}: {
+  icon?: ReactNode;
+  label: string;
+  value?: ReactNode;
+  test?: boolean;
+}) {
+  return (
+    <>
+      {icon}
+      <span className="text-[10px] uppercase tracking-wider">{label}</span>
+      {value !== undefined && (
+        <span className="rounded bg-[#2d1b0d] px-1 text-[#f6e3bd]">{value}</span>
+      )}
+      {test && (
+        <span className="rounded border-[2px] border-current px-1 text-[8px] tracking-widest">
+          TEST
+        </span>
+      )}
+    </>
+  );
+}
+
+/** A read-out in the menu bar (not clickable). */
+function MenuReadout(props: {
+  icon?: ReactNode;
+  label: string;
+  value?: ReactNode;
+  title: string;
+}) {
+  return (
+    <div title={props.title} className={`${CHIP} wood-chip-inset`}>
+      <ChipBody {...props} />
+    </div>
+  );
+}
+
+/** A button in the menu bar that opens a shop; `test` marks a developer tool. */
+function MenuButton({
+  active,
+  onClick,
+  title,
+  test,
+  ...body
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  test?: boolean;
+  icon?: ReactNode;
+  label: string;
+  value?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      title={title}
+      className={`${CHIP} transition-colors pixel-ease ${
+        test ? "border-dashed" : ""
+      } ${active ? "wood-chip-lit" : "wood-chip"}`}
+    >
+      <ChipBody {...body} test={test} />
+    </button>
+  );
+}
+
 export default function TreeOfKnowledge({
   onOpenShop,
   hideMarkers = false,
@@ -183,10 +311,31 @@ export default function TreeOfKnowledge({
     tokens,
     grantTokens,
     spendTokens,
-    buy,
+    fertilizerHold,
+    applyFertilizer,
     resetTree,
     plantSpecies,
+    cheats,
+    activeCheats,
   } = useSun();
+
+  /* The bottom-left Tree info card. */
+  const [infoOpen, setInfoOpen] = useState(true);
+
+  /* The shops open on click/tap only. The fertilizer HOLD applies
+     by clicking the badge or dragging its ghost onto the tree —
+     pick the amount below the badge first. */
+  const [fertMultiplier, setFertMultiplier] = useState<1 | 2 | 10>(1);
+  const [dropActive, setDropActive] = useState(false);
+  const dropDepthRef = useRef(0);
+
+  function applyHeldFertilizer(count: number) {
+    const result = applyFertilizer(count);
+    setFeedNote(result.text);
+    if (result.ok) {
+      spawnSparkles(6);
+    }
+  }
 
   const [triviaBank, setTriviaBank] = useState<Record<TreeSpeciesId, string[]>>(
     readTriviaBank,
@@ -197,7 +346,7 @@ export default function TreeOfKnowledge({
 
   /* The tree card's own menu: the shop, skins, and wallet panes. */
   const [menu, setMenu] = useState<
-    "info" | "shop" | "skins" | "themes" | "wallet" | null
+    "info" | "shop" | "skins" | "themes" | "earn" | "wallet" | "charms" | "scene" | null
   >(null);
   /* "Get info" reveals the research the tree holds; the default
      sidebar itself always shows the tree's name and fact card. */
@@ -245,17 +394,92 @@ export default function TreeOfKnowledge({
     }
   }
 
-  /* The tall tree window fits the stage's height. */
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const [stageH, setStageH] = useState(0);
+  /* The landscape stage is sized in WHOLE art pixels (usePixelStage):
+     the backdrop and the tree share one pixel grid at one whole-number
+     scale, so no art pixel is ever drawn wider than its neighbor.
+     "Immersive" is the full-screen view: the stage takes the whole
+     screen and the menus tuck into a drawer. */
+  const stageColRef = useRef<HTMLDivElement | null>(null);
+  const [immersive, setImmersive] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const pixelStage = usePixelStage(
+    stageColRef,
+    BACKDROP_W,
+    BACKDROP_H,
+    immersive,
+  );
+
+  /* The card itself is the fullscreen element. A CSS-only
+     `position: fixed` overlay cannot work here: the page's route
+     animation leaves a transform on <main>, which turns it into the
+     containing block and confines "fixed" children to its box. The
+     browser's top layer ignores ancestors' transforms. The dialogs
+     portal into the fullscreen element (see RetroDialog). */
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const canFullscreen =
+    typeof document !== "undefined" && document.fullscreenEnabled === true;
+
+  const enterImmersive = useCallback(() => {
+    void cardRef.current?.requestFullscreen?.().catch(() => undefined);
+  }, []);
+
+  const exitImmersive = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+  }, []);
+
+  /* The drawer sits between the menu bar and the action row, which are
+     overlays in full screen; their real heights are measured rather
+     than guessed. */
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const actionRef = useRef<HTMLDivElement | null>(null);
+  const [overlayH, setOverlayH] = useState({ top: 49, bottom: 60 });
+
   useEffect(() => {
-    const node = stageRef.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const measure = () => setStageH(node.clientHeight);
+    if (!immersive || !drawerOpen) return;
+
+    const measure = () =>
+      setOverlayH({
+        top: barRef.current?.offsetHeight ?? 49,
+        bottom: actionRef.current?.offsetHeight ?? 60,
+      });
+
     measure();
+
+    if (typeof ResizeObserver === "undefined") return;
+
     const observer = new ResizeObserver(measure);
-    observer.observe(node);
+
+    if (barRef.current) observer.observe(barRef.current);
+    if (actionRef.current) observer.observe(actionRef.current);
+
     return () => observer.disconnect();
+  }, [immersive, drawerOpen]);
+
+  /* The browser is the source of truth: Esc, the Exit button and a
+     denied request all arrive as a fullscreenchange. */
+  useEffect(() => {
+    const card = cardRef.current;
+
+    const onChange = () => {
+      const on = document.fullscreenElement === card;
+
+      setImmersive(on);
+
+      if (!on) setDrawerOpen(false);
+    };
+
+    document.addEventListener("fullscreenchange", onChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+
+      /* Leaving the page must not strand the browser in full screen. */
+      if (card && document.fullscreenElement === card) {
+        void document.exitFullscreen().catch(() => undefined);
+      }
+    };
   }, []);
   /* Themed confirm / notice pop-ups (no browser dialogs). */
   const [confirm, setConfirm] = useState<{
@@ -264,13 +488,17 @@ export default function TreeOfKnowledge({
     onYes: () => void;
   } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [dropActive, setDropActive] = useState(false);
+
   /* Toggled growth preview: tapping a stage chip shows the tree
      as it looks at that stage; tapping again returns to live. */
   const [previewStage, setPreviewStage] = useState<number | null>(null);
+  /* The stage strip is an accordion: collapsed to one small
+     trigger chip by default (hover peeks it open on desktop),
+     pressing the trigger pins it open for touch devices. */
+  const [stagesOpen, setStagesOpen] = useState(false);
 
   
-  const dropDepthRef = useRef(0);
+
   const [speciesId, setSpeciesId] =
     useState<TreeSpeciesId>(readSpecies);
   /* The ACTIVE tree's own trunk; every species keeps its own. */
@@ -278,6 +506,11 @@ export default function TreeOfKnowledge({
   const [current, setCurrent] = useState<Trivia | null>(null);
   const [tipsSeen] = useState<number>(readSeenTipCount);
   const ownedSkins = useOwnedSkins();
+  const [treeVariant] = useTreeVariant(speciesId);
+  const { off: layersOff } = useSceneLayers();
+  /* The garden charms that are unlocked and switched on. */
+  const charms = activeCharms(speciesId, cheats, activeCheats);
+  const charmCount = charmsFor(speciesId).filter((c) => cheats.includes(c.word)).length;
 
   /* The tree's growth: sun consumed by fertilizer, then extra sun
      zooms into the world tree. */
@@ -291,8 +524,8 @@ export default function TreeOfKnowledge({
   const [morphG, setMorphG] = useState(growth);
   const morphRef = useRef(growth);
   morphRef.current = morphG;
-  /* Bump to recentre the pan when a stage chip navigates. */
-  const [viewReset, setViewReset] = useState(0);
+  /* Bump the tree view when a stage chip navigates (the viewer
+     itself no longer pans or zooms). */
   /* Cheat-bloom burst: a golden ring + the word + extra sparkles. */
   const [cheatFx, setCheatFx] = useState<{
     id: number;
@@ -420,6 +653,78 @@ export default function TreeOfKnowledge({
 
   const nextAt = nextKnowledgeHeight(height);
 
+  /* Pop-ups at the tree's milestones: a height in feet is reached by
+     growing past it, so nothing fires on load, when another species is
+     planted (a different bed), or when the tree is reset. */
+  const { toasts, push: pushToast, dismiss: dismissToast } = useGardenToasts();
+  const heightRef = useRef<{ species: TreeSpeciesId; height: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    const before = heightRef.current;
+
+    heightRef.current = { species: speciesId, height };
+
+    if (!before || before.species !== speciesId) return;
+
+    for (const milestone of milestonesCrossed(
+      before.height,
+      height,
+      STAGE_HEIGHTS,
+      CHEAT_HEIGHTS,
+    )) {
+      if (milestone.kind === "knowledge") {
+        pushToast({
+          tone: "milestone",
+          title: `${milestone.at} ft reached`,
+          body:
+            milestone.index === STAGE_HEIGHTS.length - 1
+              ? "The tree stands ancient and knows everything it can hold. Ask it for its deepest facts."
+              : "The tree has grown wise enough for deeper questions. Ask it again.",
+        });
+      } else {
+        const cheat = CHEAT_SETS[speciesId][milestone.index];
+
+        if (!cheat) continue;
+
+        pushToast({
+          tone: "milestone",
+          title: `Charm unlocked: ${cheat.word}`,
+          body: `${milestone.at} ft reached. Open the Almanac and flip “${cheat.word}” on. ${cheat.effect}`,
+        });
+        triggerCheatFx(cheat.word);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [height, speciesId]);
+
+  /* A creature in the garden was clicked or tapped: it reacts on the
+     canvas, and the tree says what happened. */
+  function pokeCreature(kind: string) {
+    const lines: Record<string, string> = {
+      squirrel: "Chk-chk-chk! The squirrel scolds you and flings an acorn.",
+      jay: "Rakk! The jay bursts away, loops round and lands again.",
+      woodpecker: "Rat-a-tat-tat! A drumroll on the bark.",
+      oriole: "The oriole flits round its nest, singing.",
+      slug: "The slug curls up and blows a slow bubble.",
+      sylph: "A sylph giggles, spins away and bursts into glitter.",
+    };
+
+    setFeedNote(lines[kind] ?? "It notices you.");
+    setBubbleClosed(false);
+    spawnSparkles(4);
+  }
+
+  function announceCheat(word: string, armed: boolean, effect: string) {
+    pushToast({
+      tone: armed ? "cheat-on" : "cheat-off",
+      title: armed ? `“${word}” is armed` : `“${word}” is off`,
+      body: armed
+        ? effect || "The cheat is active until you type it again."
+        : "The cheat is switched off. Type it again to arm it.",
+    });
+  }
+
   function chooseSpecies(id: TreeSpeciesId) {
     setPreviewStage(null);
     setSpeciesId(id);
@@ -464,13 +769,7 @@ export default function TreeOfKnowledge({
     Math.min(78, 18 + 58 * growth + Math.min(5, height / 200)),
   );
 
-  function feedTree(count: 1 | 5 | 10) {
-    const result = buy(count);
-    setFeedNote(result.text);
-    if (result.ok) {
-      spawnSparkles(6);
-    }
-  }
+
 
   useEffect(() => {
     if (!feedNote) return;
@@ -478,7 +777,27 @@ export default function TreeOfKnowledge({
     return () => window.clearTimeout(id);
   }, [feedNote]);
 
+  /* Ask too much, too fast, and the tree sometimes just grumbles. */
+  const askTimes = useRef<number[]>([]);
+
   function askTree() {
+    const patience = registerAsk(askTimes.current, Date.now(), Math.random);
+
+    askTimes.current = patience.times;
+
+    if (patience.brushOff) {
+      /* No fact, no sparkles, no token: a grumble is not an answer. */
+      setCurrent({
+        id: `grumpy-${Date.now()}`,
+        tier: 0,
+        topic: "Not now",
+        text: grumpyLine(speciesId, Math.random),
+      });
+      setBubbleClosed(false);
+
+      return;
+    }
+
     const knowledgeHandout = nextTrivia(stage, seenTrivia);
     if (!knowledgeHandout) return;
 
@@ -519,6 +838,9 @@ export default function TreeOfKnowledge({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feedNote, current, bubbleClosed]);
   const hoverRef = useRef(false);
+  /* The idle timer reads the latest progress without restarting. */
+  const progressRef = useRef({ fertilizer, growthMarkers: [] as { fert: number }[] });
+  progressRef.current = { fertilizer, growthMarkers };
 
   useEffect(() => {
     if (bubbleClosed) return;
@@ -548,81 +870,55 @@ export default function TreeOfKnowledge({
         setIdleLine(null);
         return;
       }
-      const line =
-        TREE_IDLE_LINES[
-          Math.floor(Math.random() * TREE_IDLE_LINES.length)
-        ];
+      /* Half the time the tree speaks about where it is in its growth,
+         the rest it shares its species' lore. */
+      const growthStage = Math.max(
+        0,
+        progressRef.current.growthMarkers.reduce(
+          (found, marker, index) =>
+            progressRef.current.fertilizer >= marker.fert ? index : found,
+          0,
+        ),
+      );
+      const stagePool = STAGE_IDLE_LINES[growthStage] ?? [];
+      const pool =
+        stagePool.length > 0 && Math.random() < 0.5
+          ? stagePool
+          : SPECIES_IDLE_LINES[speciesId];
+      const line = pool[Math.floor(Math.random() * pool.length)];
       setIdleLine(line);
     }, 1_000 + Math.random() * 119_000);
     return () => window.clearTimeout(t);
-  }, [current, idleLine, bubbleClosed]);
+  }, [current, idleLine, bubbleClosed, speciesId]);
 
   return (
     <div
+      ref={cardRef}
       data-tree-card=""
-      className="overflow-hidden rounded border-[3px] border-gray-900 bg-white"
+      data-immersive={immersive ? "" : undefined}
+      className={
+        immersive
+          ? "overflow-hidden bg-[#14110c]"
+          : "overflow-hidden rounded border-[3px] border-gray-900 bg-white"
+      }
     >
-      {/* ---------------- menu bar: currency, menus, species ------ */}
-      <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap border-b-[3px] border-gray-900 bg-accent px-3 py-2">
-        <div className="flex items-center gap-1.5">
-        <div
-          className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
-          title={`Growth points: ${earnedPoints} earned + ${bonusGrowth} from fertilizer`}
-        >
-          <SunGlyph />
-          {points}
-        </div>
-
-        <button
-          type="button"
-          aria-pressed={menu === "shop"}
-          onClick={() => setMenu(menu === "shop" ? null : "shop")}
-          title="Sun shop — buy fertilizer"
-          className={`flex items-center gap-1.5 rounded border-[3px] border-gray-900 px-2 py-1 font-mono text-xs font-bold transition-colors pixel-ease ${
-            menu === "shop"
-              ? "bg-white text-gray-900"
-              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
-          }`}
-        >
-          <SunGlyph />
-          {balance}
-        </button>
-
-        <button
-          type="button"
-          aria-pressed={menu === "skins"}
-          onClick={() => setMenu(menu === "skins" ? null : "skins")}
-          title="Tree skins — buy with growth tokens"
-          className={`flex items-center gap-1.5 rounded border-[3px] border-gray-900 px-2 py-1 font-mono text-xs font-bold transition-colors pixel-ease ${
-            menu === "skins"
-              ? "bg-white text-gray-900"
-              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
-          }`}
-        >
-          <TokenGlyph />
-          {tokens}
-        </button>
-
-        <button
-          type="button"
-          aria-pressed={menu === "wallet"}
-          onClick={() => setMenu(menu === "wallet" ? null : "wallet")}
-          title="Test wallet (temporary)"
-          className={`rounded border-[3px] border-gray-900 px-2 py-[5px] font-mono text-[10px] font-bold uppercase tracking-wider transition-colors pixel-ease ${
-            menu === "wallet"
-              ? "bg-white text-gray-900"
-              : "bg-accentSoft text-[#2b3347] hover:brightness-105 hover:bg-accentSoft"
-          }`}
-        >
-          Wallet
-        </button>
-        </div>
-
+      {/* ---------------- menu bar: tree, feed, shop --------------- */}
+      <div
+        ref={barRef}
+        className={`wood-board wood-rope-top flex flex-wrap items-start gap-x-3 gap-y-2 rounded-none border-x-0 border-t-0 px-3 pb-2.5 pt-4 ${
+          immersive
+            ? drawerOpen
+              ? "absolute inset-x-0 top-0 z-40 pr-40"
+              : "hidden"
+            : ""
+        }`}
+      >
+        <MenuGroup label="Tree">
         {/* the species picker: character-selector cards */}
         <div
           role="group"
           aria-label="Species picker"
-          className="flex items-center gap-1.5 overflow-x-auto"
+          className="flex items-center gap-1.5"
           onKeyDown={(event) => {
             const owned = TREE_SPECIES.filter((sp) =>
               ownedSkins.includes(sp.id),
@@ -660,24 +956,17 @@ export default function TreeOfKnowledge({
                     : `Plant the ${species.label}`
                 }
                 className={`flex w-16 shrink-0 flex-col items-center gap-0.5 rounded-lg border-[3px] px-1 py-1 transition-all duration-150 pixel-ease ${
-                  planted
-                    ? "border-gray-900 bg-accentSoft/65 text-[#2b3347] dark:text-onAccent shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
-                    : "border-gray-900 bg-accentSoft/60 text-[#453b2f] dark:text-onAccent opacity-75 hover:opacity-100"
+                  planted ? "wood-chip-lit" : "wood-chip"
                 }`}
               >
-                <KnowledgeTree
-                  stage={stage}
-                  species={species.id}
-                  size={30}
+                <PixelSprite
+                  speciesId={species.id}
+                  scale={0.24}
                 />
-                <span className="font-mono text-[9px] font-bold uppercase text-gray-900">
+                <span className="font-mono text-[9px] font-bold uppercase">
                   {species.label}
                 </span>
-                <span
-                  className={`font-mono text-[8px] font-bold uppercase ${
-                    planted ? "text-[#3b6d11]" : "text-gray-700"
-                  }`}
-                >
+                <span className="font-mono text-[8px] font-bold uppercase opacity-80">
                   {planted ? "planted" : "seed"}
                 </span>
               </button>
@@ -690,18 +979,18 @@ export default function TreeOfKnowledge({
               type="button"
               onClick={() => buySkin(species.id)}
               title={`Locked — buy the ${species.label} skin for ${price} growth tokens`}
-              className="flex w-16 shrink-0 flex-col items-center gap-0.5 rounded-lg border-[3px] border-dashed border-gray-600 bg-[#e0cfb8]/70 px-1 py-1 opacity-60 grayscale transition-all duration-150 pixel-ease hover:opacity-90 hover:grayscale-0"
+              className="wood-chip-locked flex w-16 shrink-0 flex-col items-center gap-0.5 rounded-lg border-[3px] px-1 py-1 transition-all duration-150 pixel-ease hover:brightness-110"
             >
               <span
-                className="flex h-[30px] items-center justify-center text-[13px] text-gray-600"
+                className="flex h-[30px] items-center justify-center text-[13px]"
                 aria-hidden="true"
               >
                 {"\uD83D\uDD12"}
               </span>
-              <span className="font-mono text-[9px] font-bold uppercase text-gray-700">
+              <span className="font-mono text-[9px] font-bold uppercase">
                 {species.label}
               </span>
-              <span className="font-mono text-[8px] font-bold uppercase text-accent">
+              <span className="font-mono text-[8px] font-bold uppercase">
                 <TokenGlyph className="inline-block h-2.5 w-2.5" /> {price}
               </span>
             </button>
@@ -710,7 +999,156 @@ export default function TreeOfKnowledge({
 
         </div>
 
-        <span className="ml-auto font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-[#f5e08a]">
+        </MenuGroup>
+
+        <MenuGroup label="Feed">
+          <MenuReadout
+            icon={<Sprout className="h-3.5 w-3.5" />}
+            label="Growth"
+            value={points}
+            title={`Growth points: ${earnedPoints} earned + ${bonusGrowth} from fertilizer`}
+          />
+        {/* fertilizer: badge + amount selector, one compact unit */}
+        <div className="wood-chip flex items-stretch overflow-hidden rounded border-[3px]">
+          <button
+            type="button"
+            title="Click to fertilize with the selected amount, or drag the icon onto the tree"
+            onClick={() => applyHeldFertilizer(fertMultiplier)}
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.setData(
+                "application/x-fertilizer",
+                String(fertMultiplier),
+              );
+              event.dataTransfer.effectAllowed = "copy";
+
+              /* The drag ghost is the fertilizer icon itself,
+                 badge-styled, with the chosen amount on it. */
+              const svgNS = "http://www.w3.org/2000/svg";
+              const icon = document.createElementNS(svgNS, "svg");
+              icon.setAttribute("viewBox", "0 0 32 32");
+              icon.setAttribute("width", "40");
+              icon.setAttribute("height", "40");
+              icon.setAttribute("aria-hidden", "true");
+              icon.style.display = "block";
+              icon.innerHTML =
+                '<rect x="7" y="10" width="18" height="18" rx="2" fill="#a9762f" stroke="#5a3a14" stroke-width="2"></rect>' +
+                '<rect x="10" y="4" width="12" height="8" rx="2" fill="#8a5a2b" stroke="#5a3a14" stroke-width="2"></rect>' +
+                '<path d="M16 14 l4 5 h-3 v5 h-2 v-5 h-3 z" fill="#7ec850" stroke="#3b6d11" stroke-width="1"></path>';
+
+              const ghost = document.createElement("div");
+              ghost.style.cssText =
+                "position:fixed;left:0;top:0;display:grid;place-items:center;" +
+                "gap:2px;width:56px;height:56px;border:3px solid #1a1a1a;" +
+                "border-radius:10px;background:#d9b382;box-shadow:3px 3px 0 rgba(0,0,0,0.35);";
+              ghost.appendChild(icon);
+              const badge = document.createElement("span");
+              badge.textContent = `${fertMultiplier}x`;
+              badge.style.cssText =
+                "font:700 11px ui-monospace,monospace;color:#3b6d11;background:#f5e08a;" +
+                "border:2px solid #1a1a1a;border-radius:4px;padding:0 4px;";
+              ghost.appendChild(badge);
+              document.body.appendChild(ghost);
+              event.dataTransfer.setDragImage(ghost, 28, 28);
+              window.setTimeout(() => ghost.remove(), 0);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 font-mono text-xs font-bold hover:bg-white/15"
+          >
+            <svg viewBox="0 0 32 32" className="h-4 w-4" aria-hidden="true">
+              <rect x="6" y="11" width="20" height="17" rx="2" fill="#a9762f" stroke="#5a3a14" strokeWidth="2" />
+              <rect x="10" y="5" width="12" height="8" rx="2" fill="#8a5a2b" stroke="#5a3a14" strokeWidth="2" />
+              <path d="M16 15 l4 5 h-3 v5 h-2 v-5 h-3 z" fill="#7ec850" stroke="#3b6d11" strokeWidth="1" />
+            </svg>
+            <span className="text-[10px] uppercase tracking-wider">Fertilizer</span>
+            {fertilizerHold}
+          </button>
+
+          <span aria-hidden="true" className="w-[2px] bg-[#2a190b]" />
+
+          <div
+            className="flex items-stretch"
+            title="Amount applied per click or drop"
+          >
+            {([1, 2, 10] as const).map((amount) => (
+              <button
+                key={amount}
+                type="button"
+                onClick={() => setFertMultiplier(amount)}
+                aria-pressed={fertMultiplier === amount}
+                title={`Apply ${amount}× from your hold`}
+                className={`w-8 border-l-[2px] border-[#2a190b] font-mono text-[11px] font-bold transition-colors pixel-ease ${
+                  fertMultiplier === amount
+                    ? "wood-chip-lit"
+                    : "text-[#2b1a0a] hover:bg-white/15"
+                }`}
+              >
+                {amount}×
+              </button>
+            ))}
+          </div>
+        </div>
+
+        </MenuGroup>
+
+        <MenuGroup label="Almanac">
+          <MenuButton
+            active={menu === "charms"}
+            onClick={() => setMenu(menu === "charms" ? null : "charms")}
+            title="The tree's charms: parts of the garden it unlocks as it grows"
+            icon={<Sparkles className="h-3.5 w-3.5" />}
+            label="Charms"
+            value={`${charmCount}/5`}
+          />
+          <MenuButton
+            active={menu === "scene"}
+            onClick={() => setMenu(menu === "scene" ? null : "scene")}
+            title="Switch the garden's scenery on and off"
+            icon={<SunGlyph />}
+            label="Scene"
+          />
+          <MenuButton
+            active={menu === "earn"}
+            onClick={() => setMenu(menu === "earn" ? null : "earn")}
+            title="How to earn sun"
+            icon={<Sprout className="h-3.5 w-3.5" />}
+            label="Earn"
+          />
+        </MenuGroup>
+
+        <MenuGroup label="Shop">
+          <MenuButton
+            active={menu === "shop"}
+            onClick={() => setMenu(menu === "shop" ? null : "shop")}
+            title="Sun shop — buy fertilizer"
+            icon={<SunGlyph />}
+            label="Sun shop"
+            value={balance}
+          />
+          <MenuButton
+            active={menu === "skins"}
+            onClick={() => setMenu(menu === "skins" ? null : "skins")}
+            title="Tree skins — buy with growth tokens"
+            icon={<TokenGlyph />}
+            label="Skins"
+            value={tokens}
+          />
+          <MenuButton
+            active={menu === "themes"}
+            onClick={() => setMenu(menu === "themes" ? null : "themes")}
+            title="Theme shop — change the garden's scenery"
+            icon={<Palette className="h-3.5 w-3.5" />}
+            label="Themes"
+          />
+          <MenuButton
+            test
+            active={menu === "wallet"}
+            onClick={() => setMenu(menu === "wallet" ? null : "wallet")}
+            title="Developer tab: test wallet, growth, looks and scenery controls"
+            label="Dev"
+          />
+        </MenuGroup>
+
+        <span className="wood-label ml-auto self-end font-mono text-[10px] font-bold uppercase tracking-[0.15em]">
           {KNOWLEDGE_STAGES[stage]}
           {" · "}
           {height} ft
@@ -724,16 +1162,176 @@ export default function TreeOfKnowledge({
       {/* ---------------- garden bed: the animated landscape ------ */}
       {/* the tree and its menus sit side by side so the pop-ups
           always fit within the window */}
-      <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
-      <div className="relative w-full overflow-hidden px-3 pb-1.5 pt-6">
+      <div
+        className={
+          immersive
+            ? "absolute inset-0"
+            : "relative"
+        }
+      >
+      <div
+        ref={stageColRef}
+        className={
+          immersive
+            ? "absolute inset-0 flex items-center justify-center overflow-hidden bg-[#14110c]"
+            : "relative w-full overflow-hidden bg-[#14110c] px-3 pb-1.5 pt-6"
+        }
+      >
+        {/* TREE INFO — bottom-left card over the stage (in full
+            screen it clears the action row while the menu is open) */}
+        <div
+          className={`absolute left-3 z-30 w-[min(20rem,calc(100%-1.5rem))] ${
+            immersive && drawerOpen ? "bottom-16" : "bottom-3"
+          }`}
+        >
+          <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white/95">
+            <button
+              type="button"
+              onClick={() => setInfoOpen((value) => !value)}
+              aria-expanded={infoOpen}
+              className="flex w-full items-center justify-between gap-2 border-b-[2px] border-gray-900 bg-canvas px-3 py-1.5 font-pixelify text-xs font-bold uppercase tracking-[0.15em] text-ink"
+            >
+              Tree info
+              <span>{infoOpen ? "\u25BE" : "\u25B8"}</span>
+            </button>
+
+            {infoOpen && (
+              <div className="max-h-[36vh] overflow-y-auto p-3">
+                <p className="font-pixelify text-base font-bold leading-tight text-ink">
+                  {SPECIES_INFO[speciesId].name}
+                </p>
+                <p className="mt-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent">
+                  {treeSpecies(speciesId).label}
+                </p>
+
+                <p className="mt-2 text-xs leading-5 text-ink">
+                  {SPECIES_INFO[speciesId].fact}
+                </p>
+
+                {!infoExpanded ? (
+                  <button
+                    type="button"
+                    onClick={() => setInfoExpanded(true)}
+                    className="mt-3 w-full rounded border-[3px] border-gray-900 bg-accent px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-[#2b3347] transition-all pixel-ease hover:brightness-110"
+                  >
+                    Get info
+                  </button>
+                ) : (
+                  <div>
+                    <span
+                      role="status"
+                      className="mb-2 mt-3 inline-block rounded border-[2px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-[10px] font-bold text-[#2b6e1e]"
+                    >
+                      {handout && handout.eligible > 0
+                        ? `${handout.learned}/${handout.eligible} learned`
+                        : "0/0 learned"}
+                    </span>
+
+                    <p className="mt-1 font-mono text-[10px] font-bold uppercase tracking-wide text-muted">
+                      Research on the tree
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-ink">
+                      {SPECIES_INFO[speciesId].research}
+                    </p>
+
+                    <p className="mt-3 font-mono text-[10px] font-bold uppercase tracking-wide text-muted">
+                      The trunk's knowledge
+                    </p>
+                    {seenTrivia.length === 0 ? (
+                      <p className="mt-1 text-xs italic text-muted">
+                        Nothing yet — ask the tree while it grows.
+                      </p>
+                    ) : (
+                      <ul className="mt-2 flex flex-col gap-2">
+                        {TRIVIA.filter((item) =>
+                          seenTrivia.includes(item.id),
+                        ).map((item) => (
+                          <li
+                            key={item.id}
+                            className="rounded border-[2px] border-gray-900 bg-white px-2 py-1.5"
+                          >
+                            <p className="font-mono text-[9px] font-bold uppercase tracking-wide text-accent">
+                              {item.topic}
+                            </p>
+                            <p className="text-[11px] leading-4 text-ink">
+                              {item.text}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {nextAt !== undefined && (
+                      <p className="mt-3 font-mono text-[9px] font-bold uppercase tracking-wider text-muted">
+                        Next knowledge at {nextAt} ft — grow it to ask
+                        deeper.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
         {/* the landscape stage is an exact 16:9 box: wide enough to
             cover the column, never stretched, never letterboxed */}
-        <div ref={stageRef} className="relative aspect-[16/9] w-full">
-        <GardenBackdrop theme={activeTheme} parallax={morphG} />
+        <div
+          className={`relative ${
+            pixelStage
+              ? immersive
+                ? "shrink-0"
+                : "mx-auto"
+              : "aspect-[16/9] w-full"
+          }`}
+          style={
+            pixelStage
+              ? {
+                  width: `${pixelStage.cssW}px`,
+                  height: `${pixelStage.cssH}px`,
+                }
+              : undefined
+          }
+        >
+        <GardenBackdrop
+          theme={activeTheme}
+          parallax={morphG}
+          speciesId={speciesId}
+          layersOff={layersOff}
+        />
 
-      <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center justify-end pb-1">
+        <TreeVariantPicker
+          speciesId={speciesId}
+          className={`right-3 ${
+            immersive && drawerOpen ? "bottom-16" : "bottom-3"
+          }`}
+        />
+
+        {!immersive && canFullscreen && (
+          <button
+            type="button"
+            onClick={enterImmersive}
+            aria-label="Full screen"
+            title="Full screen (Esc to leave)"
+            className="retro-shadow-light absolute right-2 top-2 z-20 grid h-7 w-7 place-items-center rounded-md border-[2px] border-gray-900 bg-white/85 text-[#2b3347] transition-colors pixel-ease hover:bg-accentSoft dark:bg-[#241c12]/90 dark:text-[#cfc3b4]"
+          >
+            <svg
+              viewBox="0 0 12 12"
+              width="12"
+              height="12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              shapeRendering="crispEdges"
+              aria-hidden="true"
+            >
+              <path d="M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8" />
+            </svg>
+          </button>
+        )}
+
+      <div className="absolute inset-0 z-10">
           <div
-            className={`relative transition-all duration-200 pixel-ease ${
+            className={`relative h-full w-full transition-all duration-200 pixel-ease ${
               dropActive
                 ? "rounded-xl ring-4 ring-[#f5e08a]/90 ring-offset-2 ring-offset-[#8a5a2b]/20"
                 : ""
@@ -773,16 +1371,19 @@ export default function TreeOfKnowledge({
                 "application/x-fertilizer",
               );
               const count = Number(raw);
-              if (count === 1 || count === 5 || count === 10) {
-                feedTree(count);
+              if (count === 1 || count === 2 || count === 10) {
+                applyHeldFertilizer(count);
               }
             }}
           >
             <PixelGrowthTree
               speciesId={speciesId}
+              variantId={treeVariant}
+              layersOff={layersOff}
+              charms={charms}
+              onCreature={pokeCreature}
               growth={morphG}
-              viewerMax={stageH > 0 ? Math.round(stageH) - 6 : undefined}
-              viewResetKey={viewReset}
+              cssScale={pixelStage?.cssScale}
               onTreeClick={() => setBubbleClosed(false)}
             />
 
@@ -793,23 +1394,23 @@ export default function TreeOfKnowledge({
                 call it back. */}
             {!bubbleClosed && (
             <div
-              className="absolute left-[calc(50%+3.5rem)] z-10 w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded border-[3px] border-gray-900 bg-white px-2.5 py-1.5 font-mono text-[11px] leading-4 text-ink shadow-[3px_3px_0_rgba(0,0,0,0.25)] transition-[bottom] duration-700 pixel-ease"
+              className="absolute left-[calc(50%+3.5rem)] z-10 w-max max-w-[min(30rem,calc(100%-1.5rem))] -translate-x-1/2 rounded border-[3px] border-gray-900 bg-white px-3.5 py-2.5 font-mono text-[15px] leading-[22px] text-ink shadow-[3px_3px_0_rgba(0,0,0,0.25)] transition-[bottom] duration-700 pixel-ease"
               data-tree-bubble
               style={{
-                bottom: `${bubbleBottomPct}%`,
+                bottom: `${bubbleBottomPct * (128 / BACKDROP_H)}%`,
               }}
             >
               {feedNote ? (
                 <>
                   <span className="font-bold">{feedNote}</span>
-                  <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide text-muted">
+                  <span className="mt-1 block text-[11px] font-bold uppercase tracking-wide text-muted">
                     Garden
                   </span>
                 </>
               ) : current ? (
                 <>
                   <span className="font-bold">{current.text}</span>
-                  <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide text-muted">
+                  <span className="mt-1 block text-[11px] font-bold uppercase tracking-wide text-muted">
                     {current.topic}
                     {" · "}
                     {tree.label}
@@ -818,7 +1419,7 @@ export default function TreeOfKnowledge({
               ) : idleLine ? (
                 <>
                   <span className="font-bold">{idleLine.text}</span>
-                  <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide text-muted">
+                  <span className="mt-1 block text-[11px] font-bold uppercase tracking-wide text-muted">
                     {idleLine.topic}
                   </span>
                 </>
@@ -887,9 +1488,26 @@ export default function TreeOfKnowledge({
         </div>
             {/* growth markers: the tree visibly grows at each sun value;
                 relocated to the top-left corner of the meadow as a
-                toggleable stage strip */}
+                toggleable stage strip. Collapsed to one trigger chip
+                by default — hover peeks the full strip open, a press
+                pins it open (so it still works without a mouse). */}
             {!hideMarkers && (
-            <div className="absolute left-2 top-2 z-20 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-1">
+            <div className="group absolute left-2 top-2 z-20 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setStagesOpen((open) => !open)}
+                aria-expanded={stagesOpen}
+                aria-label="Show growth stages"
+                className="retro-shadow-light flex items-center gap-1 rounded-md border-[2px] border-gray-900 bg-white/85 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide text-[#2b3347] transition-colors pixel-ease hover:bg-accentSoft dark:bg-[#241c12]/90 dark:text-[#cfc3b4]"
+              >
+                <span aria-hidden="true" className="text-[8px]">
+                  {"○"}
+                </span>
+                {activeMarker?.label ?? "Stages"}
+                <span aria-hidden="true" className="text-[7px] opacity-70">
+                  {"▾"}
+                </span>
+              </button>
               {growthMarkers.map((marker, index) => {
                 const reached = fertilizer >= marker.fert;
                 const live = activeMarker?.label === marker.label;
@@ -909,9 +1527,10 @@ export default function TreeOfKnowledge({
                     }
                     onClick={() => {
                       setPreviewStage(active ? null : index);
-                      setViewReset((n) => n + 1);
                     }}
-                    className={`retro-shadow-light flex items-center gap-1 rounded-md border-[2px] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide transition-colors pixel-ease ${
+                    className={`${
+                      stagesOpen ? "flex" : "hidden group-hover:flex"
+                    } retro-shadow-light items-center gap-1 rounded-md border-[2px] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide transition-colors pixel-ease ${
                       active ? "animate-pulse" : ""
                     }
                     ${
@@ -948,257 +1567,96 @@ export default function TreeOfKnowledge({
         </div>
       </div>
 
-{/* the sidebar: the tree's info by default, the shops on
-          request; same height as the tree column either way */}
-      <aside
-        aria-label="Tree sidebar"
-        className="overflow-hidden border-t-[3px] border-gray-900 md:h-[500px] md:border-l-[3px] md:border-t-0"
-      >
-        <div className="flex h-[49px] items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-gradient-to-b from-accent to-accent/70 px-3 py-2">
-          <p className="retro-shadow-dark truncate font-mono text-xs font-bold uppercase tracking-[0.15em] text-onAccent">
-            {menu === "shop"
-              ? "Sun shop"
-              : menu === "skins"
-                ? "Tree skins"
-                : menu === "themes"
-                  ? "Theme shop"
-                  : menu === "wallet"
-                    ? "Token wallet"
-                    : "Tree info"}
-          </p>
-          <span className="flex items-center gap-2">
-            {menu === "shop" && (
-              <span
-                className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
-                title="Your sun tokens"
-              >
-                <SunGlyph />
-                {balance}
-              </span>
-            )}
-            {menu === "skins" && (
-              <span
-                className="flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-xs font-bold text-[#2b3347]"
-                title="Your growth tokens"
-              >
-                <TokenGlyph />
-                {tokens}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => setMenu(null)}
-              aria-label="Close sidebar"
-              title="Back to the tree info"
-              className="grid h-5 w-5 place-items-center rounded border-[2px] border-onAccent/80 font-mono text-[11px] font-bold leading-none text-onAccent transition-colors pixel-ease hover:bg-onAccent/15"
-            >
-              {"×"}
-            </button>
-          </span>
-        </div>
 
-        {/* picker rail: info + the three shops */}
-        <div
-          role="group"
-          aria-label="Tree sidebar menus"
-          className="flex w-full gap-2 overflow-x-auto border-b-[3px] border-gray-900 bg-accentSoft/45 dark:bg-[#2c2413]/70 px-2 py-2"
-          onKeyDown={(event) => {
-            const RAIL = [
-              { id: "info", label: "Tree info" },
-              { id: "shop", label: "Sun shop" },
-              { id: "skins", label: "Tree skins" },
-              { id: "themes", label: "Themes" },
-              { id: "wallet", label: "Wallet" },
-            ] as const;
-            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-              return;
-            }
-            event.preventDefault();
-            const index = RAIL.findIndex((entry) => entry.id === menu);
-            const next =
-              event.key === "ArrowRight"
-                ? RAIL[(index + 1) % RAIL.length].id
-                : RAIL[(index - 1 + RAIL.length) % RAIL.length].id;
-            setMenu(next);
-          }}
-        >
-          {(
-            [
-              { id: "info", label: "Tree info", glyph: "i" },
-              { id: "shop", label: "Sun shop", glyph: "\u2600" },
-              { id: "skins", label: "Tree skins", glyph: "\uD83C\uDF33" },
-              { id: "themes", label: "Themes", glyph: "\u25C8" },
-              { id: "wallet", label: "Wallet", glyph: "\u25C6" },
-            ] as const
-          ).map((entry) => {
-            const active = (menu ?? "info") === entry.id;
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setMenu(entry.id)}
-                onKeyDown={(event) => {
-                  if (
-                    event.key !== "ArrowLeft" &&
-                    event.key !== "ArrowRight"
-                  ) {
-                    return;
-                  }
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const RAIL = [
-                    { id: "info", label: "Tree info" },
-                    { id: "shop", label: "Sun shop" },
-                    { id: "skins", label: "Tree skins" },
-                    { id: "themes", label: "Themes" },
-                    { id: "wallet", label: "Wallet" },
-                  ] as const;
-                  const index = RAIL.findIndex(
-                    (entry2) => entry2.id === menu,
-                  );
-                  const next =
-                    event.key === "ArrowRight"
-                      ? RAIL[(index + 1) % RAIL.length].id
-                      : RAIL[(index - 1 + RAIL.length) % RAIL.length].id;
-                  setMenu(next);
-                }}
-                title={`${entry.label} — press \u2190 \u2192 to switch`}
-                className={`flex min-w-[68px] shrink-0 flex-col items-center gap-0.5 rounded-lg border-[3px] px-1.5 py-1 transition-all duration-150 pixel-ease ${
-                  active
-                    ? "border-gray-900 bg-white text-gray-900 shadow-[2px_2px_0_rgba(0,0,0,0.25)]"
-                    : "border-gray-800/40 bg-white/60 text-gray-700/70 dark:bg-[#262015]/70 hover:border-gray-900 hover:text-gray-900"
-                }`}
-              >
-                <span
-                  className="grid h-7 w-7 place-items-center rounded border-[3px] font-mono text-[11px] font-bold"
-                >
-                  <span
-                    className={`grid h-7 w-7 place-items-center rounded border-[3px] transition-colors ${
-                      active
-                        ? "border-gray-900 bg-accentSoft"
-                        : "border-gray-700/40 bg-white/70"
-                    }`}
-                  >
-                    {entry.glyph}
-                  </span>
-                </span>
-                <span className="font-mono text-[9px] font-bold uppercase">
-                  {entry.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="md:h-[376px] md:overflow-y-auto bg-white">
-          {(menu === "info" || menu === null) && (
-            <div className="p-4">
-              <p className="font-pixelify text-lg font-bold leading-tight text-ink">
-                {SPECIES_INFO[speciesId].name}
-              </p>
-              <p className="mt-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent">
-                {treeSpecies(speciesId).label}
-              </p>
-
-              <p className="mt-3 text-xs leading-5 text-ink">
-                {SPECIES_INFO[speciesId].fact}
-              </p>
-
-              {!infoExpanded ? (
-                <button
-                  type="button"
-                  onClick={() => setInfoExpanded(true)}
-                  className="mt-4 w-full rounded-lg border-[3px] border-gray-900 bg-accent px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-[#2b3347] shadow-[3px_3px_0_rgba(0,0,0,0.18)] transition-all pixel-ease hover:brightness-110 hover:bg-accent active:translate-y-[2px] active:shadow-none"
-                >
-                  Get info
-                </button>
-              ) : (
-                <div>
-                  <span
-                    role="status"
-                    className="mb-2 mt-4 inline-block rounded-md border-[2px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-[10px] font-bold text-[#2b6e1e]"
-                  >
-                    {handout && handout.eligible > 0
-                      ? `${handout.learned}/${handout.eligible} learned`
-                      : "0/0 learned"}
-                  </span>
-
-                  <p className="mt-1 font-mono text-[10px] font-bold uppercase tracking-wide text-muted">
-                    Research on the tree
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-ink">
-                    {SPECIES_INFO[speciesId].research}
-                  </p>
-
-                  <p className="mt-3 font-mono text-[10px] font-bold uppercase tracking-wide text-muted">
-                    The trunk's knowledge
-                  </p>
-                  {seenTrivia.length === 0 ? (
-                    <p className="mt-1 text-xs italic text-muted">
-                      Nothing yet — ask the tree while it grows.
-                    </p>
-                  ) : (
-                    <ul className="mt-2 flex flex-col gap-2">
-                      {TRIVIA.filter((item) =>
-                        seenTrivia.includes(item.id),
-                      ).map((item) => (
-                        <li
-                          key={item.id}
-                          className="rounded border-[2px] border-gray-900 bg-white px-2 py-1.5"
-                        >
-                          <p className="font-mono text-[9px] font-bold uppercase tracking-wide text-accent">
-                            {item.topic}
-                          </p>
-                          <p className="text-[11px] leading-4 text-ink">
-                            {item.text}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {nextAt !== undefined && (
-                    <p className="mt-3 font-mono text-[9px] font-bold uppercase tracking-wider text-muted">
-                      Next knowledge at {nextAt} ft — grow it to ask
-                      deeper.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {menu === "themes" && (
-            <ThemeShop
-              owned={themes}
-              active={activeTheme}
-              onChanged={adoptTheme}
-            />
-          )}
-
-          {menu !== null && menu !== "info" && menu !== "themes" && (
-        <div className="bg-white">
-            <SunShop
-              embedded
-              tab={menu}
-              onSelect={(id) => setMenu(id)}
-              hidePicker
-              hidePreview
-              onWhisper={(text) => {
-                setFeedNote(text);
-                setBubbleClosed(false);
-              }}
-              onCheatFx={triggerCheatFx}
-            />
-          </div>
-          )}
-        </div>
-      </aside>
       </div>
 
+      {/* The Sun shop / skins / wallet open as a pop-up now —
+          hover-opened, so focus is not seated into it. */}
+      <RetroDialog
+        open={menu === "charms" || menu === "scene"}
+        title="Garden almanac"
+        size="lg"
+        skin="wood"
+        woodBody
+        confirmLabel="Close"
+        onConfirm={() => setMenu(null)}
+        onCancel={() => setMenu(null)}
+        showCancelButton={false}
+        focusOnOpen={false}
+      >
+        {menu === "charms" || menu === "scene" ? (
+          <GardenAlmanac
+            key={menu}
+            speciesId={speciesId}
+            height={height}
+            tab={menu}
+            onToggled={announceCheat}
+          />
+        ) : null}
+      </RetroDialog>
+
+      <RetroDialog
+        skin="wood"
+        open={
+          menu === "shop" ||
+          menu === "skins" ||
+          menu === "themes" ||
+          menu === "earn" ||
+          menu === "wallet"
+        }
+        title={
+          menu === "shop"
+            ? "Sun shop"
+            : menu === "skins"
+              ? "Tree skins"
+              : menu === "themes"
+                ? "Theme shop"
+                : menu === "earn"
+                  ? "Earn sun"
+                  : "Developer"
+        }
+        size="lg"
+        confirmLabel="Close"
+        onConfirm={() => setMenu(null)}
+        onCancel={() => setMenu(null)}
+        showCancelButton={false}
+        focusOnOpen={false}
+      >
+        {menu === "shop" ||
+        menu === "skins" ||
+        menu === "themes" ||
+        menu === "earn" ||
+        menu === "wallet" ? (
+        <SunShop
+          embedded
+          tab={menu}
+          onSelect={(id) => setMenu(id)}
+          themes={themes}
+          activeTheme={activeTheme}
+          onThemeChanged={adoptTheme}
+          plantedSpecies={speciesId}
+          onPlantSpecies={chooseSpecies}
+          hidePreview
+          onWhisper={(text) => {
+            setFeedNote(text);
+            setBubbleClosed(false);
+          }}
+        />
+        ) : null}
+      </RetroDialog>
+
+
       {/* centered action row under the bed */}
-      <div className="flex flex-wrap items-center justify-center gap-2.5 border-t-[3px] border-gray-900 bg-accentSoft px-4 py-3">
+      <div
+        ref={actionRef}
+        className={`flex flex-wrap items-center justify-center gap-2.5 border-t-[3px] border-gray-900 bg-accentSoft px-4 py-3 ${
+          immersive
+            ? drawerOpen
+              ? "absolute inset-x-0 bottom-0 z-40"
+              : "hidden"
+            : ""
+        }`}
+      >
 
         <button
           type="button"
@@ -1234,6 +1692,38 @@ export default function TreeOfKnowledge({
         </button>
       </div>
 
+      {immersive && (
+        <>
+          <div className="absolute right-3 top-2 z-50 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen((open) => !open)}
+              aria-expanded={drawerOpen}
+              className="retro-shadow-dark rounded-lg border-[3px] border-gray-900 bg-accent px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.1em] text-onAccent transition-all pixel-ease hover:brightness-110"
+            >
+              {drawerOpen ? "Hide menu" : "Menu"}
+            </button>
+            <button
+              type="button"
+              onClick={exitImmersive}
+              className="retro-shadow-dark rounded-lg border-[3px] border-gray-900 bg-white px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.1em] text-ink transition-all pixel-ease hover:bg-accentSoft"
+            >
+              Exit
+            </button>
+          </div>
+
+          {!drawerOpen && (
+            <button
+              type="button"
+              onClick={askTree}
+              className="retro-shadow-dark absolute bottom-3 right-3 z-30 rounded-lg border-[3px] border-gray-900 bg-accent px-4 py-2 font-mono text-xs font-bold uppercase tracking-[0.1em] text-onAccent transition-all pixel-ease hover:brightness-110"
+            >
+              Ask the tree
+            </button>
+          )}
+        </>
+      )}
+
       <RetroDialog
         open={confirm !== null}
         title={confirm?.title ?? ""}
@@ -1246,9 +1736,12 @@ export default function TreeOfKnowledge({
         {confirm?.body}
       </RetroDialog>
 
+      <GardenToastStack toasts={toasts} onDismiss={dismissToast} />
+
       <RetroDialog
         open={notice !== null}
         title="Heads up"
+        autoCloseMs={10_000}
         onCancel={() => setNotice(null)}
         onConfirm={() => setNotice(null)}
         confirmLabel="OK"

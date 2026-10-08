@@ -1,3 +1,5 @@
+import threading
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -11,6 +13,10 @@ from app.services.classification import classify_paper
 from app.services.enrichment_queue import enqueue_paper_enrichment
 from app.services.extraction import extract_metadata_from_pdf
 from app.services.latex_extraction import extract_metadata_from_tex
+from app.services.ris_enw_extraction import (
+    extract_metadata_from_enw,
+    extract_metadata_from_ris,
+)
 from app.services.text_preparation import refresh_prepared_text
 from app.services.validation import validate_paper
 from app.services.storage import save_paper_file
@@ -187,10 +193,92 @@ def _try_auto_attach_pdf(
         return False
 
 
+# Imports that run at the same moment (Approve all, two tabs) must not
+# both pass the duplicate check before either has committed.
+IMPORT_LOCK = threading.Lock()
+
+EXTRACTION_METHODS = {
+    ".pdf": "pdf",
+    ".bib": "bibtex",
+    ".tex": "latex",
+    ".ris": "ris",
+    ".enw": "endnote",
+}
+
+# The years the review form accepts for a publication year.
+MIN_PUBLICATION_YEAR = 1400
+MAX_PUBLICATION_YEAR = datetime.now().year + 1
+
+# Fields a reviewer may correct before saving (the Upload form's fields).
+REVIEWED_FIELDS = (
+    "title",
+    "author",
+    "abstract",
+    "keywords",
+    "publication_year",
+    "doi",
+    "subject_category",
+    "document_type",
+    "citation_count",
+)
+
+
+def extract_metadata(source_path: str, extension: str) -> dict:
+    """Run the extractor that matches the file type."""
+
+    extractors = {
+        ".pdf": extract_metadata_from_pdf,
+        ".tex": extract_metadata_from_tex,
+        ".ris": extract_metadata_from_ris,
+        ".enw": extract_metadata_from_enw,
+        ".bib": extract_metadata_from_bib,
+    }
+
+    return extractors[extension](source_path) or {}
+
+
+def build_paper(
+    metadata: dict,
+    filename: str | None,
+    extension: str,
+    reviewed: dict | None = None,
+) -> Paper:
+    """
+    An unsaved Paper from extracted metadata, with the reviewer's
+    corrections laid over it. A reviewed value of None means "not
+    provided" (the extracted value stands); an empty string means the
+    reviewer cleared the field. Used by the preview and the real import so
+    the two can never drift apart.
+    """
+
+    merged = dict(metadata)
+
+    for field, value in (reviewed or {}).items():
+        if field in REVIEWED_FIELDS and value is not None:
+            merged[field] = value.strip() or None if isinstance(value, str) else value
+
+    return Paper(
+        title=merged.get("title"),
+        author=merged.get("author"),
+        abstract=merged.get("abstract"),
+        keywords=merged.get("keywords"),
+        keywords_source=merged.get("keywords_source"),
+        keywords_generated=merged.get("keywords_generated", False),
+        publication_year=merged.get("publication_year"),
+        doi=merged.get("doi"),
+        citation_count=merged.get("citation_count"),
+        subject_category=merged.get("subject_category"),
+        document_type=merged.get("document_type"),
+        source_filename=filename,
+        extraction_method=EXTRACTION_METHODS[extension],
+    )
+
+
 def upload_paper(
     db: Session,
     source_path: str,
     original_filename: str | None = None,
+    reviewed: dict | None = None,
 ) -> Paper:
     """
     Import a PDF, BibTeX, or LaTeX (.tex) file into the repository.
@@ -210,6 +298,13 @@ def upload_paper(
         Uses latex_extraction.py, which reads Title/Abstract/
         Keywords/Year directly from LaTeX source commands -- more
         reliable than PDF layout guessing when a .tex source exists.
+
+    RIS (.ris) and EndNote (.enw):
+        The tagged-line formats exported by Google Scholar's Cite
+        dialog (RefMan / RefWorks and EndNote) and by reference
+        managers. ris_enw_extraction.py reads the first record with
+        the same contract as the BibTeX parser; enrichment and PDF
+        attachment then apply exactly as for BibTeX imports.
 
     All:
         Metadata enrichment and automatic PDF attachment (the old
@@ -235,78 +330,42 @@ def upload_paper(
 
     extension = source.suffix.lower()
 
-    if extension not in {".pdf", ".bib", ".tex"}:
+    if extension not in {".pdf", ".bib", ".tex", ".ris", ".enw"}:
         raise ValueError(
-            "Only PDF, BibTeX (.bib), and LaTeX (.tex) files are supported."
+            "Only PDF, BibTeX (.bib), RIS (.ris), EndNote (.enw), "
+            "and LaTeX (.tex) files are supported."
         )
 
     filename = original_filename or source.name
 
     # ---------------------------------------------------------
-    # STEP 1 — Extract metadata
+    # STEP 1 — Extract metadata, then lay the reviewer's corrections
+    #          over it (so a save is one atomic step, not an upload
+    #          followed by a separate edit)
     # ---------------------------------------------------------
 
-    if extension == ".pdf":
-        metadata = extract_metadata_from_pdf(
-            str(source)
+    metadata = extract_metadata(str(source), extension)
+    paper = build_paper(metadata, filename, extension, reviewed)
+
+    with IMPORT_LOCK:
+        # -----------------------------------------------------
+        # STEP 2 — Reject an existing paper before creating a new row
+        #          (checked on what will actually be saved)
+        # -----------------------------------------------------
+        duplicate = find_duplicate_paper(
+            db,
+            title=paper.title,
+            doi=paper.doi,
         )
-    elif extension == ".tex":
-        metadata = extract_metadata_from_tex(
-            str(source)
-        )
-    else:
-        metadata = extract_metadata_from_bib(
-            str(source)
-        )
 
-    metadata = metadata or {}
+        if duplicate is not None:
+            raise DuplicatePaperError(duplicate)
 
-    # ---------------------------------------------------------
-    # STEP 2 — Reject an existing paper before creating a new row
-    # ---------------------------------------------------------
-    duplicate = find_duplicate_paper(
-        db,
-        title=metadata.get("title"),
-        doi=metadata.get("doi"),
-    )
+        return _finish_import(db, paper, source)
 
-    if duplicate is not None:
-        raise DuplicatePaperError(duplicate)
 
-    # ---------------------------------------------------------
-    # STEP 3 — Create Paper
-    # ---------------------------------------------------------
-
-    paper = Paper(
-        title=metadata.get("title"),
-        author=metadata.get("author"),
-        abstract=metadata.get("abstract"),
-        keywords=metadata.get("keywords"),
-        keywords_source=metadata.get(
-            "keywords_source"
-        ),
-        keywords_generated=metadata.get(
-            "keywords_generated",
-            False,
-        ),
-        publication_year=metadata.get(
-            "publication_year"
-        ),
-        doi=metadata.get("doi"),
-        citation_count=metadata.get(
-            "citation_count"
-        ),
-        source_filename=filename,
-        extraction_method=(
-            "latex"
-            if extension == ".tex"
-            else (
-                "bibtex"
-                if extension == ".bib"
-                else "pdf"
-            )
-        ),
-    )
+def _finish_import(db: Session, paper: Paper, source: Path) -> Paper:
+    """Classify, validate, store, and hand off to enrichment. Holds the import lock."""
 
     # ---------------------------------------------------------
     # STEP 4 — Classification
@@ -473,7 +532,13 @@ def enrich_saved_paper(paper_id: int) -> bool:
         #    papers that already store a PDF.
         # ------------------------------------------------------
 
-        if paper.extraction_method in {"bibtex", "latex", "metadata"}:
+        if paper.extraction_method in {
+            "bibtex",
+            "latex",
+            "ris",
+            "endnote",
+            "metadata",
+        }:
             with attachment_lock(paper_id):
                 # Re-read after acquiring: the user's explicit
                 # attach-pdf request may have won the race while
@@ -520,6 +585,7 @@ def upload_paper_from_pdf(
     db: Session,
     source_path: str,
     original_filename: str | None = None,
+    reviewed: dict | None = None,
 ) -> Paper:
     """
     Backward-compatible wrapper for the existing API.
@@ -533,6 +599,7 @@ def upload_paper_from_pdf(
         db=db,
         source_path=source_path,
         original_filename=original_filename,
+        reviewed=reviewed,
     )
 
 

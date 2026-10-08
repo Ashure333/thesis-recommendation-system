@@ -13,18 +13,46 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  SPECIES_STAGE_FERT,
+  TREE_GROWTH_TARGET,
   treeSpecies,
   type TreeSpeciesId,
 } from "../../data/knowledge";
+import {
+  motePose,
+  sylphPose,
+  vineShown,
+  vineSpecs,
+} from "../../utils/ascentAccents";
+import { leafPixels } from "../../utils/leafShapes";
+import { drawCharms } from "./gardenCharms";
+import {
+  resolveVariant,
+  tintBark,
+  tintFoliage,
+} from "../../utils/treeVariants";
+import {
+  makeRoots,
+  motionTick,
+  rootAt,
+  sapShade,
+  shimmerShift,
+  smoothstep,
+  swayOffset,
+} from "../../utils/treeMotion";
 
-/* The tall-view window, widened: 172x150 so the mature canopy's
-   side branches sit inside the box; 172/800 scales the world the
-   same way the reference scaled its own window. */
-const W = 128;
-/* "Tall View" window, straight from the reference: 128 x 150 —
-   the crown of the tree and the sky above it both fit. */
-const H = 128;
-const S = W / 800;
+/* The raster IS the garden stage: 256x144 art pixels, the same grid as
+   the backdrop, so the tree paints across the whole scene instead of
+   inside a smaller window with hard clipped edges (the trunk used to be
+   cut flat at the window's top and sides). S, the world-to-pixel scale,
+   stays pinned to the reference's original 128-wide calibration, so the
+   tree itself renders at the same size as before; the extra frame is
+   only room: more sky above, more margin at the sides. The ground sits
+   a fixed distance above the bottom edge. */
+const W = 256;
+const H = 144;
+const S = 128 / 800;
+const GROUND_ROW = H - 9;
 
 /* ---------- palette helpers ---------- */
 
@@ -360,7 +388,7 @@ interface Art {
   ground: number[][];
   blinkNear: number;
   blinkWin: number;
-  /** Canopy centre used for the cluster birth ramp. */
+  /** Canopy center used for the cluster birth ramp. */
   clusterCX: number;
   clusterCY: number;
   /** Cluster-birth ramp radius in the 800-unit world. */
@@ -379,6 +407,8 @@ interface Art {
   trunkGateX: number;
   trunkGateY: number;
   trunkDash: boolean;
+  /** How the bark is drawn: the shared cell pattern, or a species' own. */
+  barkStyle: "cells" | "plates" | "furrows" | "peel" | "lattice" | "fibres";
   trunkFracY: number;
   trunkCxwAmp: number;
   trunkLowW: number;
@@ -394,7 +424,7 @@ interface Art {
 const OAK_ART: Art = {
   leafPoints: 7,
   leafAmp: 0.22,
-  BX: 64,
+  BX: W / 2,
   ROOTX: 400,
   ZM: 3.4,
   DYW: 2600,
@@ -434,6 +464,7 @@ const OAK_ART: Art = {
   trunkGateX: 0.14,
   trunkGateY: 0.03,
   trunkDash: false,
+  barkStyle: "furrows",
   trunkFracY: 245,
   trunkCxwAmp: 38,
   trunkLowW: 32,
@@ -443,7 +474,7 @@ const OAK_ART: Art = {
 const CRIMSON_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.26,
-  BX: 64,
+  BX: W / 2,
   ROOTX: 400,
   ZM: 3.6,
   DYW: 2600,
@@ -483,6 +514,7 @@ const CRIMSON_ART: Art = {
   trunkGateX: 0.14,
   trunkGateY: 0.03,
   trunkDash: false,
+  barkStyle: "cells",
   trunkFracY: 245,
   trunkCxwAmp: 38,
   trunkLowW: 32,
@@ -529,7 +561,7 @@ const REDWOOD_RAMPS = [R_1, R_2, R_3, R_GRN];
 const BIRCH_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.22,
-  BX: 64,
+  BX: W / 2,
   ROOTX: 400,
   ZM: 4.4,
   DYW: 2600,
@@ -569,6 +601,7 @@ const BIRCH_ART: Art = {
   trunkGateX: 0.14,
   trunkGateY: 0.03,
   trunkDash: true,
+  barkStyle: "peel",
   trunkFracY: 245,
   trunkCxwAmp: 38,
   trunkLowW: 24,
@@ -612,7 +645,7 @@ const REDWOOD_WORLD = {
 const ELM_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.24,
-  BX: 64,
+  BX: W / 2,
   ROOTX: 400,
   ZM: 3.4,
   DYW: 2600,
@@ -652,6 +685,7 @@ const ELM_ART: Art = {
   trunkGateX: 0.15,
   trunkGateY: 0.07,
   trunkDash: false,
+  barkStyle: "lattice",
   trunkFracY: 245,
   trunkCxwAmp: 38,
   trunkLowW: 30,
@@ -662,7 +696,7 @@ const ELM_ART: Art = {
 const REDWOOD_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.26,
-  BX: 64,
+  BX: W / 2,
   ROOTX: 400,
   ZM: 2.8,
   DYW: 3400,
@@ -702,6 +736,7 @@ const REDWOOD_ART: Art = {
   trunkGateX: 0.2,
   trunkGateY: 0.02,
   trunkDash: false,
+  barkStyle: "fibres",
   trunkFracY: 90,
   trunkCxwAmp: 20,
   trunkLowW: 22,
@@ -712,7 +747,7 @@ const REDWOOD_ART: Art = {
 const MAPLE_ART: Art = {
   leafPoints: 5,
   leafAmp: 0.26,
-  BX: 64,
+  BX: W / 2,
   ROOTX: 400,
   ZM: 3.6,
   DYW: 2600,
@@ -752,6 +787,7 @@ const MAPLE_ART: Art = {
   trunkGateX: 0.14,
   trunkGateY: 0.03,
   trunkDash: false,
+  barkStyle: "plates",
   trunkFracY: 245,
   trunkCxwAmp: 38,
   trunkLowW: 32,
@@ -823,63 +859,88 @@ function mixRgb(a: number[], b: number[], t: number): number[] {
   ];
 }
 
-/* Replays only on a full browser reload: this flag lives for the
-   lifetime of the module, so SPA tab switches (which remount the
-   component) snap to the current position instead of replaying. */
-let replayedThisPage = false;
+/* The tree opens at the growth it was given (the player's real
+   progress) and follows later changes at this speed, in growth per
+   second. It is the same fast pace in both directions, so feeding
+   the tree and stepping back to an earlier stage move alike; callers
+   that want a visible tween animate the `growth` they pass. A whole
+   journey at this rate takes a quarter of a second to catch up, so it
+   never lags the caller's own animation. */
+const FOLLOW_RATE = 4;
 
 export default function PixelGrowthTree({
   speciesId,
   growth,
   onTreeClick,
-  viewerMax,
-  viewResetKey = 0,
+  cssScale,
+  static: staticFrame = false,
+  variantId = "original",
+  layersOff,
+  charms,
+  onCreature,
 }: {
   speciesId: TreeSpeciesId;
   /** 0..1 — the fertilizer position on the reference's timeline
    *  (20 packets take the acorn to the ancient oak). */
   growth: number;
-  /** A plain click on the tree (no drag, no zoom gesture). */
+  /** A plain click on the tree. */
   onTreeClick?: () => void;
-  /** The stage height in px: the tall window fits its bounding
-     box (128:150 aspect), filling the box without overflowing. */
-  viewerMax?: number;
-  /** Bump to recentre the pan after a stage-chip navigation. */
-  viewResetKey?: number;
+  /** Css pixels per art pixel: the tree is drawn at exactly this
+   *  whole-device-pixel scale, the same as the backdrop's, so the two
+   *  share one pixel grid. */
+  cssScale?: number;
+  /** Paint ONE frame at `growth` and stop: no growth replay, no
+   *  idle sway — used for the small card snapshots. */
+  static?: boolean;
+  /** A painted color variant of the species ("original" by default). */
+  variantId?: string;
+  /** Scenery the player has switched off (see SCENE_LAYERS). */
+  layersOff?: string[];
+  /** The garden charms switched on (cheat words, see data/charms.ts). */
+  charms?: string[];
+  /** A creature (squirrel, jay, sylph ...) was clicked or tapped. */
+  onCreature?: (kind: string) => void;
 }) {
+  /* Creatures can be poked. `pokes` holds when each was last poked (in
+     seconds on the render clock), `hits` where each is on screen this
+     frame, `hover` the one the pointer is over. */
+  const pokesRef = useRef<Record<string, number>>({});
+  const hitsRef = useRef<{ key: string; x: number; y: number; w: number; h: number }[]>([]);
+  const hoverRef = useRef<string | null>(null);
+  const creatureAt = (clientX: number, clientY: number): string | null => {
+    const canvas = ref.current;
+
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * W;
+    const y = ((clientY - rect.top) / rect.height) * H;
+
+    for (let i = hitsRef.current.length - 1; i >= 0; i--) {
+      const h = hitsRef.current[i];
+
+      if (x >= h.x - 2 && x <= h.x + h.w + 2 && y >= h.y - 2 && y <= h.y + h.h + 2) {
+        return h.key;
+      }
+    }
+
+    return null;
+  };
+  const layersRef = useRef<ReadonlySet<string>>(new Set());
+  layersRef.current = new Set(layersOff ?? []);
+  const charmsRef = useRef<readonly string[]>([]);
+  charmsRef.current = charms ?? [];
   const ref = useRef<HTMLCanvasElement | null>(null);
   const offRef = useRef<HTMLCanvasElement | null>(null);
-  useEffect(() => {
-    setView((v) => ({ ...v, x: 0, y: 0 }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewResetKey]);
-  const dispRef = useRef(0);
+  const dispRef = useRef(growth);
   const [reduced] = useState(
     () =>
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
 
-  /* Viewer: once the tree has grown, drag to pan and zoom 1x-2x. */
-  const [view, setView] = useState({ s: 1, x: 0, y: 0 });
-  const dragRef = useRef<{
-    px: number;
-    py: number;
-    vx: number;
-    vy: number;
-    moved: number;
-    pointerId: number;
-  } | null>(null);
-  /* Panning returns once the tree grows large: from the Mature
-     stage onward (two-thirds of the 3,000-packet march) the viewer
-     unlocks and drag-to-pan / 1x-2x zoom take over. */
-  const panEnabled = growth >= 0.66;
-
-  /* The tall-view window fills its bounding box: its height is the
-     stage's height (the 128:150 aspect gives the width), so the
-     tree reads big and planted, and there is no grip and no saved
-     size to fight the layout. */
-  const boxH = Math.max(150, Math.min(viewerMax ?? 420, 760));
+  /* Until the stage has been measured the tree is drawn at 3x. */
+  const pxScale = cssScale ?? 3;
 
   const shape = SHAPES[speciesId];
   const species = treeSpecies(speciesId);
@@ -911,29 +972,12 @@ export default function PixelGrowthTree({
   /* The growth prop ref, read by the animation loop. */
   const growthRef = useRef(growth);
   growthRef.current = growth;
-  /* The viewer ref keeps the blit fresh without restarting the
-     animation effect on every pan/zoom change. */
-  const viewRef = useRef(view);
-  viewRef.current = view;
-
   useEffect(() => {
-    if (reduced) {
-      dispRef.current = growthRef.current;
-      replayedThisPage = true;
-      return;
-    }
-
-    /* A fresh reload (module just loaded) replays from the acorn;
-       same-page remounts (menu tab switches) snap into place. */
-    dispRef.current = replayedThisPage ? growthRef.current : 0;
+    /* A new tree, or a fresh mount (reload, tab switch): show the
+       real progress at once rather than replaying from the acorn. */
+    dispRef.current = clamp(growthRef.current, 0, 1);
   }, [speciesKey]);
 
-
-  useEffect(() => {
-    if (!panEnabled) {
-      setView({ s: 1, x: 0, y: 0 });
-    }
-  }, [speciesKey, panEnabled]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -952,9 +996,15 @@ export default function PixelGrowthTree({
     const cov = new Uint8Array(W * H);
 
     /* ---- species art tables ---- */
-    const BARK = pal.bark.map(hexToRgb);
-    const FOLI = pal.foliage.map(hexToRgb);
-    const MOSS = hexToRgb(pal.accent);
+    /* The painted variant: foliage turns in hue, bark is washed with a
+       tint. The original variant leaves every color untouched. */
+    const VARIANT = resolveVariant(speciesId, variantId);
+    const tf = (c: number[]) => tintFoliage(VARIANT, c);
+    const tb = (c: number[]) => tintBark(VARIANT, c);
+    const tfAll = (ramp: number[][]) => ramp.map(tf);
+    const BARK = pal.bark.map(hexToRgb).map(tb);
+    const FOLI = pal.foliage.map(hexToRgb).map(tf);
+    const MOSS = tf(hexToRgb(pal.accent));
     const CREAM = pal.cream.map(hexToRgb);
     const ACN = art.ground;
     let BK: number[][];
@@ -1008,6 +1058,15 @@ export default function PixelGrowthTree({
       AMB = FOLI;
       FUN = [];
     }
+    if (VARIANT.id !== "original" && speciesId in SPECIES_STAGE_FERT) {
+      BK = BK.map(tb);
+      MS = MS.map(tf);
+      LICH = tb(LICH);
+    }
+    /* Leaf color sets, in the variant's colors. */
+    const LEAF_RAMPS = art.leafRamps ? art.leafRamps.map(tfAll) : null;
+    const MAPLE_R = MAPLE_RAMPS.map(tfAll);
+    const TURN_R = art.turnRamp ? tfAll(art.turnRamp) : undefined;
 
     const put = (x: number, y: number, c: number[]) => {
       if (x < 0 || y < 0 || x >= W || y >= H) return;
@@ -1016,6 +1075,27 @@ export default function PixelGrowthTree({
       buf[o + 1] = c[1];
       buf[o + 2] = c[2];
       buf[o + 3] = 255;
+    };
+
+    /* Semi-transparent paint (clouds): blended over whatever is
+       already there, so the drift reads on every backdrop theme. */
+    const blendPut = (x: number, y: number, c: number[], a: number) => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return;
+      const o = (y * W + x) * 4;
+      const ia = buf[o + 3] / 255;
+      const oa = a + ia * (1 - a);
+      if (oa <= 0.004) return;
+      buf[o] = Math.round((c[0] * a + buf[o] * ia * (1 - a)) / oa);
+      buf[o + 1] = Math.round((c[1] * a + buf[o + 1] * ia * (1 - a)) / oa);
+      buf[o + 2] = Math.round((c[2] * a + buf[o + 2] * ia * (1 - a)) / oa);
+      buf[o + 3] = Math.round(oa * 255);
+    };
+
+    /* put() when fully opaque; blendPut() for fade-in/out passes —
+       the fast path stays untouched. */
+    const paint = (x: number, y: number, c: number[], a = 1) => {
+      if (a >= 0.995) put(x, y, c);
+      else blendPut(x, y, c, a);
     };
 
     const R2 = rng(11);
@@ -1027,7 +1107,7 @@ export default function PixelGrowthTree({
       const x = Math.round(
         art.BX + (R2() + R2() + R2() - 1.5) * 40,
       );
-      const yv = Math.round(119 + (R2() - 0.5) * 3.4);
+      const yv = Math.round(GROUND_ROW + (R2() - 0.5) * 3.4);
       SP.push([
         x,
         yv,
@@ -1215,6 +1295,229 @@ export default function PixelGrowthTree({
         : art.fillCX +
           art.trunkCxwAmp * Math.sin((art.trunkFracY - y) * 0.0023);
 
+    /* ---- ancient-ascent decor ----
+       The climb above the mature canopy would otherwise be a bare
+       bark tunnel: the authored branches/clusters stop a little
+       above the crown, but the world-trunk keeps rising for
+       DYW more world-units. Seed a sparse ladder of branch stubs
+       and leaf tufts up that same stretch (deterministic per
+       species, so remounts don't reshuffle it) so the climb keeps
+       reading as a living tree instead of pure texture. */
+    const AR2 = rng(speciesId.length * 97 + 13);
+    /* The summit: where the climb ends, the trunk gives out into a
+       spreading crown. In world units, a little above the frame's
+       center at the top of the climb, so it sits near the top of the
+       screen when the camera arrives. */
+    const SUMMIT_Y = 742 - art.DYW - 160;
+    const SUMMIT_ROOM = (W / 2 - 6) / (S * art.ZM);
+    const ascentStubs: {
+      sp: number[][];
+      ws: number[];
+      tipX: number;
+      tipY: number;
+      lr: number[];
+      side: number;
+      /** Only the last twigs of a branch carry leaves; the limbs between
+       *  are bare bark. */
+      leafy: boolean;
+    }[] = [];
+    {
+      const top = -40;
+      const bottom = 742 - art.DYW + 60;
+
+      /* A binary-tree fractal: every limb ends in a fork of two, one
+         dominant and one shorter, each thinner and leaning a little back
+         toward the light. The same rule makes a bough, its branches and
+         its twigs, so the climb reads as one tree rather than a stack of
+         sticks. Only the ends of the last forks carry leaves. */
+      const grow = (
+        x0: number,
+        y0: number,
+        ang: number,
+        len: number,
+        w: number,
+        depth: number,
+        leafSize: number,
+      ) => {
+        const bow = (AR2() - 0.5) * 0.4;
+        const tx = x0 + Math.sin(ang) * len;
+        const ty = y0 - Math.cos(ang) * len;
+        const mx = x0 + Math.sin(ang + bow) * len * 0.5;
+        const my = y0 - Math.cos(ang + bow) * len * 0.5;
+        const wTip = w * 0.6;
+        const terminal = depth === 0;
+
+        ascentStubs.push({
+          sp: spline(
+            [
+              [x0, y0],
+              [mx, my],
+              [tx, ty],
+            ],
+            12,
+          ),
+          ws: [w, (w + wTip) / 2, wTip],
+          tipX: tx,
+          tipY: ty,
+          lr: [
+            terminal ? leafSize * (0.8 + 0.5 * AR2()) : 3,
+            0.45 + AR2() * 0.35,
+          ],
+          side: Math.sin(ang) >= 0 ? 1 : -1,
+          leafy: terminal,
+        });
+
+        if (terminal) return;
+
+        const spread = 0.4 + AR2() * 0.3;
+        const lead = AR2() < 0.5 ? 1 : -1;
+        const a1 = clamp((ang + lead * spread * 0.7) * 0.93, -1.9, 1.9);
+        const a2 = clamp((ang - lead * spread) * 0.93, -1.9, 1.9);
+
+        grow(tx, ty, a1, len * (0.74 + 0.08 * AR2()), wTip, depth - 1, leafSize);
+        grow(tx, ty, a2, len * (0.54 + 0.1 * AR2()), wTip * 0.85, depth - 1, leafSize);
+      };
+
+      const room = (W / 2 - 12) / (S * art.ZM);
+      let side = AR2() < 0.5 ? -1 : 1;
+      let y = top;
+
+      while (y > bottom) {
+        side = -side * (AR2() < 0.78 ? 1 : -1);
+        const cx = cxw(y);
+        const halfW = Math.max(4, wW(y) / 2);
+        const climb = clamp((top - y) / (top - bottom), 0, 1);
+
+        grow(
+          cx + side * halfW * 0.35,
+          y + 6,
+          side * (0.95 + 0.3 * AR2()),
+          clamp(halfW * (0.9 + 0.5 * AR2()), 20, room / 2.2),
+          Math.max(4, halfW * 0.5),
+          2,
+          (9 + AR2() * 7) * (1 + climb * 0.7),
+        );
+        y -= 92 + AR2() * 78;
+      }
+
+      /* The summit: the trunk ends in a spread of boughs, two leaders
+         reaching up and the rest out and up, each forking three times. */
+      for (let i = 0; i < 9; i++) {
+        const sd = i % 2 === 0 ? -1 : 1;
+        const y0 = SUMMIT_Y + 30 + i * 32 + AR2() * 12;
+        const cx = cxw(y0);
+        const halfW = Math.max(4, wW(y0) / 2);
+        const leader = i < 2;
+
+        grow(
+          cx + sd * halfW * 0.3,
+          y0 + 6,
+          sd * (leader ? 0.2 : 0.7 + 0.5 * AR2()),
+          clamp(halfW * (leader ? 2 : 1.5), 24, SUMMIT_ROOM / 2),
+          Math.max(4, halfW * (leader ? 0.55 : 0.48)),
+          3,
+          12 + AR2() * 8,
+        );
+      }
+
+      /* Twigs straight off the trunk between the limbs: short, thin and
+         frequent, so the bark is never a bare column for long. */
+      {
+        let ty = top - 40;
+        let tside = AR2() < 0.5 ? -1 : 1;
+
+        while (ty > bottom) {
+          tside = -tside;
+          const cx = cxw(ty);
+          const halfW = Math.max(4, wW(ty) / 2);
+          const len = halfW * (0.5 + 0.55 * AR2());
+          const lift = 10 + AR2() * 18;
+          const w0 = Math.max(2.4, halfW * 0.2);
+          const x0 = cx + tside * halfW * 0.4;
+          const x1 = cx + tside * (halfW * 0.7 + len * 0.55);
+          const x2 = cx + tside * (halfW * 0.5 + len);
+
+          ascentStubs.push({
+            sp: spline(
+              [
+                [x0, ty + 4],
+                [x1, ty - lift * 0.4],
+                [x2, ty - lift],
+              ],
+              10,
+            ),
+            ws: [w0, w0 * 0.5, w0 * 0.2],
+            tipX: x2,
+            tipY: ty - lift,
+            lr: [5 + AR2() * 5, 0.4 + AR2() * 0.3],
+            side: tside,
+            leafy: true,
+          });
+          ty -= 44 + AR2() * 40;
+        }
+      }
+    }
+
+    /* The summit canopy: clumps of leaves in two depth layers around
+       the top of the trunk, one behind the bark and one in front, so
+       the boughs weave through foliage. Positions are world units. */
+    const CANOPY: {
+      x: number;
+      y: number;
+      r: number;
+      tone: number;
+      layer: 0 | 1;
+      ph: number;
+    }[] = [];
+    {
+      const ccx = cxw(SUMMIT_Y);
+
+      while (CANOPY.length < 300) {
+        const a = AR2() * 6.283;
+        const d = Math.sqrt(AR2());
+        const y = SUMMIT_Y - 70 + Math.sin(a) * d * 190;
+
+        if (y > SUMMIT_Y + 90) continue;
+
+        CANOPY.push({
+          x: ccx + Math.cos(a) * d * SUMMIT_ROOM * 1.15,
+          y,
+          r: 15 + AR2() * 17,
+          tone: 0.42 + AR2() * 0.38,
+          layer: AR2() < 0.5 ? 0 : 1,
+          ph: AR2() * 6.3,
+        });
+      }
+    }
+
+    /* Clouds at the summit, in screen pixels: some drift behind the
+       crown, some pass in front, soft and translucent. */
+    const SUMMIT_CLOUDS = Array.from({ length: 8 }, (_, i) => {
+      const front = i >= 4;
+      const w = front ? 70 + AR2() * 50 : 70 + AR2() * 60;
+      const h = front ? 14 + AR2() * 8 : 16 + AR2() * 10;
+
+      return {
+        x: AR2() * (W + 80) - 40,
+        y: front ? 48 + AR2() * 62 : 4 + AR2() * 34,
+        w,
+        h,
+        v: (front ? 3.2 : 1.6) * (0.7 + AR2() * 0.6),
+        front,
+        /* a cumulus: tall in the middle, small low puffs at the sides */
+        blobs: Array.from({ length: 6 }, (_, k) => {
+          const ox = 0.14 + (k / 5) * 0.72 + (AR2() - 0.5) * 0.04;
+          const mid = Math.sin(Math.PI * ox);
+
+          return {
+            ox,
+            oy: 0.72 - 0.34 * mid + (AR2() - 0.5) * 0.06,
+            r: 0.07 + 0.1 * mid + AR2() * 0.03,
+          };
+        }),
+      };
+    });
+
     /* ---- camera anchors shared with the limb painter ---- */
     let AX = art.BX;
     let XF = art.ROOTX;
@@ -1232,7 +1535,256 @@ export default function PixelGrowthTree({
       const p = o.sp[Math.min(o.sp.length - 1, Math.floor(u * (o.sp.length - 1)))];
       return [AX + (p[0] - XF) * S * sg * kx, AY + (p[1] - YF) * S * sg];
     };
-    const AY = 118.7;
+    const AY = H - 9.3;
+
+    /* ---- Mature-to-Ancient motion ----
+       From the Mature stage the tree comes alive: buttress roots with a
+       sap pulse rising toward the trunk (the root view lasts while the
+       camera is still near the ground), and, higher in the climb, vines
+       and leaf tufts that sway in the wind with a slow wave of light
+       through the leaves. Everything steps at the pixel-art cadence
+       (MOTION_HZ) and moves in whole art pixels. Colors come from the
+       species' own tables: bark and moss for the roots, the resin ramp
+       for the sap (birch's resin ramp is ash gray, so it takes its
+       golden-cream ramp instead), the foliage ramp for the shimmer. */
+    const matureG =
+      (SPECIES_STAGE_FERT[speciesId]?.[4] ?? 2000) / TREE_GROWTH_TARGET;
+    /* ---- sky friends: clouds drift past and birds rest on the
+          canopy once the tree reaches the Mature stage ---- */
+    const skyRng = rng(31);
+    const clouds = Array.from({ length: 3 }, () => ({
+      x: skyRng() * W,
+      y: 6 + skyRng() * 30,
+      w: 22 + skyRng() * 16,
+      h: 5 + skyRng() * 3,
+      v: 1.5 + skyRng() * 2.5,
+      ph: skyRng() * 6.283,
+    }));
+    /* The canopy's top leaves (already born at Mature) — where the
+       birds perch. */
+    const perches = [...leaves]
+      .filter((L) => L.b <= matureG)
+      .sort((a, b) => a.y - b.y)
+      .slice(0, 10);
+
+    const SAP =
+      speciesId === "birch"
+        ? [BIRCH_GOLD[3], BIRCH_GOLD[2], BIRCH_GOLD[1]]
+        : AMB;
+    const ROOTS = makeRoots(
+      rng(speciesId.length * 131 + 7),
+      cxw(742),
+      (wW(742) * 1.8) / 2,
+      742,
+    );
+    const ROOT_TOP = Math.min(...ROOTS.map((r) => r.box.y0));
+    let MT = 0;
+    let ROOT_LIFE = 0;
+    let LEAF_LIFE = 0;
+    /* How far the roots have crept out from the trunk (0..1), and the
+       world height where the ancient bark currently ends. */
+    let ROOT_REACH = 1;
+    let TRUNK_TOP = -1e9;
+    /* Where the young trunk ends, in world units: it stops inside the
+       crown, so the bark that takes over has to climb out of it. */
+    const YOUNG_TOP = TR.sp[TR.sp.length - 1][1];
+
+    /* Which root (and where along it) covers each screen pixel. The
+       camera only moves while the tree grows, so the mask is rebuilt
+       when it does, not every frame. */
+    const rootMask = {
+      key: "",
+      root: new Int8Array(W * H),
+      t: new Float32Array(W * H),
+      n: new Float32Array(W * H),
+    };
+    const ROOT_CX = cxw(742);
+    const refreshRootMask = (Z: number, e: number) => {
+      /* The roots' foot sits at the FULL trunk's width; while the bark is
+         still widening from the young trunk they are drawn squeezed in
+         toward the axis, so they always meet the trunk. */
+      const squeeze = clamp(
+        (RW[742] * (1 - e) + wW(742) * e) / wW(742),
+        0.3,
+        1,
+      );
+      const key = `${AX.toFixed(3)}|${XF.toFixed(3)}|${YF.toFixed(3)}|${Z.toFixed(4)}|${ROOT_REACH.toFixed(3)}|${squeeze.toFixed(3)}`;
+      if (rootMask.key === key) return;
+      rootMask.key = key;
+      rootMask.root.fill(-1);
+      const pq = S * Z;
+      for (let sy = 0; sy < H; sy++) {
+        const wy = YF + (sy + 0.5 - AY) / pq;
+        if (wy < ROOT_TOP || wy > 748) continue;
+        for (let sx = 0; sx < W; sx++) {
+          const wx = XF + (sx + 0.5 - AX) / pq;
+          const hit = rootAt(
+            ROOTS,
+            ROOT_CX + (wx - ROOT_CX) / squeeze,
+            wy,
+            ROOT_REACH,
+          );
+          if (!hit) continue;
+          const i = sy * W + sx;
+          rootMask.root[i] = hit.root;
+          rootMask.t[i] = hit.t;
+          rootMask.n[i] = hit.n;
+        }
+      }
+    };
+    const rootPx = (sx: number, sy: number): number[] | null => {
+      const i = sy * W + sx;
+      const ri = rootMask.root[i];
+      if (ri < 0) return null;
+      const t = rootMask.t[i];
+      const n = rootMask.n[i];
+
+      /* The reference's roots are dark, chunky and ragged at the edge. */
+      if (Math.abs(n) > 0.74 && hash(sx * 3 + ri * 7, sy * 11) < 0.42) {
+        return null;
+      }
+      let idx = n < -0.35 ? 3 : n < 0.25 ? 2 : n < 0.7 ? 1 : 0;
+      if (Math.abs(n) > 0.88) idx = 0;
+      const grain = hash(sx * 5 + ri * 13, sy * 3);
+      if (grain > 0.86) idx = Math.max(0, idx - 1);
+      else if (grain < 0.08) idx = Math.min(5, idx + 1);
+      let col = BK[idx];
+
+      if (n < -0.1 && hash(sx * 7 + ri, sy * 5) < 0.12 + 0.3 * t) {
+        col = MS[hash(sx, sy * 3 + ri) < 0.5 ? 0 : 1];
+      }
+
+      const shade = sapShade(MT, t, ROOTS[ri].phase, ROOT_LIFE);
+      if (shade >= 0 && Math.abs(n) < 0.26) col = SAP[shade];
+      else if (shade === 2 && Math.abs(n) < 0.5) col = SAP[0];
+
+      return col;
+    };
+
+    /* ---- bark that looks like the species' bark. Each returns a
+       brightness 0..1 for a spot on the trunk: L runs across it, Y up it
+       (world units, about half a pixel each at the full climb zoom), n is
+       -1 at the lit left edge to +1 at the shaded right edge.
+         plates   red maple: long narrow scaly plates, a lifted lip at the
+                  top of each, shaggy
+         furrows  oak: broad flat ridges split by deep wandering furrows,
+                  cross-checked into blocks
+         peel     birch: papery white in horizontal bands, dark lenticel
+                  dashes, black rugged fissures at the foot
+         lattice  elm: flat-topped ridges between crossing furrows that
+                  make diamonds, tight thin scales
+         fibres   redwood: thick stringy fibres in long vertical ridges
+                  with deep furrows between them ---- */
+    const barkV = (
+      style: Art["barkStyle"],
+      L: number,
+      Y: number,
+      n: number,
+      wy: number,
+    ): number => {
+      switch (style) {
+        case "plates": {
+          const wob = vn(Y * 0.02, 4) * 6;
+          const u = (L + wob) / 7;
+          const col = Math.floor(u);
+          const fx = u - col;
+          const per = 46 + hash(col, 1) * 62;
+          const off = hash(col, 2) * per;
+          const row = Math.floor((Y + off) / per);
+          const fy = (Y + off) / per - row;
+          const pn = hash(col * 7 + row, 5);
+          let v = 0.4 + 0.3 * pn + 0.2 * (1 - fx) - 0.3 * n;
+
+          if (fy < 0.1) v += 0.24;
+          else if (fy > 0.88) v -= 0.26;
+          if (fx < 0.12 || fx > 0.94) v = 0.07 + 0.1 * pn;
+          if (hash(col + 11, row) > 0.9 && fy < 0.35) v += 0.14;
+
+          return v;
+        }
+        case "furrows": {
+          const warp = (vn(Y * 0.012, 9) - 0.5) * 10 + (vn(Y * 0.05, 3) - 0.5) * 3;
+          const u = (L + warp) / 15;
+          const col = Math.floor(u);
+          const fx = u - col;
+          const seg = Math.floor((Y + hash(col, 3) * 90) / (70 + hash(col, 4) * 70));
+          const fy = (Y + hash(col, 3) * 90) / (70 + hash(col, 4) * 70) - seg;
+          const sn = hash(col, seg);
+          let v = 0.46 + 0.26 * sn - 0.3 * n;
+
+          if (fx < 0.17) v = 0.05 + 0.05 * sn;
+          else if (fx < 0.38) v += 0.2;
+          else if (fx > 0.82) v -= 0.18;
+          if (sn > 0.78 && Math.abs(fx - 0.58) < 0.045) v = 0.08;
+          if (fy < 0.05) v = 0.08;
+
+          return v;
+        }
+        case "peel": {
+          const band = Math.floor(Y / 24 + vn(L * 0.05, 4) * 1.6);
+          let v = 0.8 + 0.12 * hash(band, 2) - 0.1 * n;
+          const curl = Math.abs(((Y + 6 * Math.sin(L * 0.09 + band)) % 24) - 12);
+
+          if (curl < 0.8) v -= 0.3;
+
+          const row = Math.floor(Y / 17);
+          const fy = Y / 17 - row;
+          const seg = hash(row, Math.floor((L + hash(row, 1) * 40) / (9 + hash(row, 3) * 8)));
+
+          if (seg > 0.55 && fy > 0.3 && fy < 0.52) v = 0.05;
+
+          const foot = clamp((wy - 600) / 130, 0, 1);
+
+          if (foot > 0) {
+            const u = (L + Y * 0.35) / 11;
+            const f = u - Math.floor(u);
+
+            const u2 = (L - Y * 0.35) / 11;
+            const f2 = u2 - Math.floor(u2);
+
+            /* two sets of slanting fissures cross into black diamonds */
+            if (f < 0.26 * foot || f2 < 0.2 * foot) v = 0.04;
+            else if (foot > 0.5) v = Math.min(v, 0.55);
+          }
+
+          return v;
+        }
+        case "lattice": {
+          const warp = (vn(Y * 0.015, 7) - 0.5) * 6;
+          const d1 = (L + Y * 0.62 + warp) / 13;
+          const d2 = (L - Y * 0.62 - warp) / 13;
+          const f1 = d1 - Math.floor(d1);
+          const f2 = d2 - Math.floor(d2);
+          const cn = hash(Math.floor(d1), Math.floor(d2));
+          let v = 0.48 + 0.2 * cn - 0.3 * n;
+
+          if (f1 < 0.2 || f2 < 0.2) v = 0.06 + 0.08 * cn;
+          else if (f1 > 0.55 && f2 > 0.55) v += 0.12;
+          if (hash(Math.floor(L * 0.9), Math.floor(Y * 0.9)) > 0.93) v += 0.2;
+          if (cn > 0.88) v -= 0.18;
+
+          return v;
+        }
+        case "fibres": {
+          const warp = (vn(Y * 0.009, 12) - 0.5) * 9;
+          const u = (L + warp) / 17;
+          const col = Math.floor(u);
+          const fx = u - col;
+          const s = Math.floor((L + warp) / 3.2);
+          const strand = hash(s, Math.floor(Y / (60 + hash(s, 2) * 120)));
+          let v = 0.36 + 0.42 * strand - 0.2 * n;
+
+          if (fx < 0.14) v = 0.04;
+          else if (fx < 0.3) v *= 0.72;
+          if (strand > 0.86) v = 0.82;
+          if (hash(s + 31, Math.floor(Y * 0.5)) > 0.95) v += 0.15;
+
+          return v;
+        }
+        default:
+          return 0.5;
+      }
+    };
 
     /* ---- the ancient bark (per-pixel, value-noise art) — the
        maple reference's trunkPx, translated verbatim. ---- */
@@ -1246,7 +1798,7 @@ export default function PixelGrowthTree({
       const pq = S * Z;
       const wx = XF + (sx + 0.5 - AX) / pq;
       const wy = YF + (sy + 0.5 - AY) / pq;
-      if (wy > 746) return null;
+      if (wy > 746 || wy < TRUNK_TOP) return null;
       const yi = clamp(Math.round(wy), 0, 799);
       const cx = cxw(wy);
       const w =
@@ -1254,8 +1806,11 @@ export default function PixelGrowthTree({
           wW(wy) * e) *
         (1 + 0.8 * Math.exp(-(742 - wy) / 38));
       const lat = wx - cx;
+      /* The climbing top narrows to a tip instead of a flat cut. */
+      const tip = clamp((wy - TRUNK_TOP) / 90, 0, 1);
       const half =
-        w / 2 + (vn(wy * 0.07, 5) - 0.5) * 5 + (vn(wy * 0.31, 2) - 0.5) * 2;
+        (w / 2 + (vn(wy * 0.07, 5) - 0.5) * 5 + (vn(wy * 0.31, 2) - 0.5) * 2) *
+        (0.3 + 0.7 * tip);
       const n = lat / half;
       if (Math.abs(n) > 1) return null;
       const nz = (a: number, b: number) =>
@@ -1277,8 +1832,12 @@ export default function PixelGrowthTree({
         0.34 + 0.38 * pno + 0.22 * (1 - fx) * (1 - fy * 0.6) - 0.3 * n +
         (vn(L * art.trunkNoiseL, Y * art.trunkNoiseY) - 0.5) *
           art.trunkNoiseAmp;
-      if (fx < art.trunkGateX || fy < art.trunkGateY) v = 0.06 + 0.1 * pno;
-      if (art.trunkDash) {
+      if (art.barkStyle !== "cells") {
+        v = barkV(art.barkStyle, L, Y, n, wy);
+      } else if (fx < art.trunkGateX || fy < art.trunkGateY) {
+        v = 0.06 + 0.1 * pno;
+      }
+      if (art.barkStyle === "cells" && art.trunkDash) {
         /* Birch: dark slash marks across the pale bark. */
         const hr = Math.floor(Y / 9);
         const hv = hash(hr, Math.floor((L + hash(hr, 1) * 30) / 14));
@@ -1328,26 +1887,56 @@ export default function PixelGrowthTree({
           col = AMB[dy > ln - 5 ? 2 : 1];
         }
       }
-      for (let k = 0; k < 2; k++) {
-        const d = Math.abs(lat - Math.sin(wy * 0.0042 + k * 3.1) * half * 0.62);
-        if (d < 0.6 / pq) col = MS[0];
+      for (let k = 0; k < (layersRef.current.has("vines") ? 0 : 5); k++) {
+        /* Wind: the vine shifts by whole art pixels (offset / pq is
+           that many pixels in world units), a traveling wave along
+           its length. Each vine winds at its own pitch and breadth,
+           and the extra ones only run part of the climb, so the trunk
+           is hung with vines of different lengths. */
+        if (k >= 2 && hash(Math.floor(wy / (260 + 70 * k)), k + 40) < 0.4) continue;
+        const vineSway = swayOffset(MT, wy * 0.006 + k * 2.3, 2 * LEAF_LIFE);
+        const d = Math.abs(
+          lat -
+            Math.sin(wy * (0.0042 + 0.0013 * k) + k * 3.1) * half * (0.62 - 0.07 * k) -
+            vineSway / pq,
+        );
+        if (d < (k < 2 ? 0.6 : 0.5) / pq) col = MS[k % 2 === 0 ? 0 : 1];
         else if (
           d < 3.4 / pq &&
-          (((wy / 58 + k * 0.3) % 1) + 1) % 1 < 0.14
+          (((wy / (58 - 4 * k) + k * 0.3) % 1) + 1) % 1 < 0.14
         ) {
-          col = FOLI[3];
+          col =
+            FOLI[
+              clamp(3 + shimmerShift(MT, sx, sy, k * 1.9, LEAF_LIFE), 0, 4)
+            ];
         }
       }
       const sp = clamp((520 - wy) / 300, 0, 1);
-      if (sp > 0) {
-        const dd = Math.abs(
-          vn(L * 0.05 + vn(wy * 0.004, 2) * 3, Y * 0.0035) - 0.5,
-        );
-        if (dd < 0.034 * sp) {
-          const q = 0.5 + 0.5 * Math.sin(tm * 1.6 + wy * 0.012);
-          col = AMB[q > 0.66 ? 2 : q > 0.33 ? 1 : 0];
-        } else if (dd < 0.05 * sp) {
-          col = AMB[0];
+      if (sp > 0 && !layersRef.current.has("sap")) {
+        /* Sap veins are the 0.5 contour of a noise field. Cutting
+           the field at a fixed height makes the line as wide as the
+           field is flat, which swells it into slabs; so the cut is
+           divided by the local slope, giving a vein of constant
+           width on screen (about 1-2 art pixels). */
+        const sapAt = (l: number, y: number) =>
+          vn(l * 0.05 + vn(wy * 0.004, 2) * 3, y * 0.0035) - 0.5;
+        const f0 = sapAt(L, Y);
+        const dd = Math.abs(f0);
+
+        if (dd < 0.12) {
+          const e = 1.5;
+          const gl = (sapAt(L + e, Y) - f0) / e;
+          const gy = (sapAt(L, Y + e) - f0) / e;
+          const slope = Math.max(1e-4, Math.hypot(gl, gy));
+          const dist = dd / slope;
+          const half = (0.4 + 0.35 * sp) / pq;
+
+          if (dist < half) {
+            const q = 0.5 + 0.5 * Math.sin(MT * 0.16 + wy * 0.012);
+            col = AMB[q > 0.66 ? 2 : q > 0.33 ? 1 : 0];
+          } else if (dist < half * 1.5) {
+            col = AMB[0];
+          }
         }
       }
       return col;
@@ -1361,41 +1950,59 @@ export default function PixelGrowthTree({
       ph: number,
       tone: number,
       ramp: number[][] = FOLI,
+      fade = 1,
     ) => {
       if (r < 0.8) {
-        put(X | 0, Y | 0, ramp[3]);
+        paint(X | 0, Y | 0, ramp[3], fade);
         return;
       }
-      for (let y = Math.floor(Y - r * 1.3); y <= Math.ceil(Y + r * 1.3); y++) {
-        for (let x = Math.floor(X - r * 1.3); x <= Math.ceil(X + r * 1.3); x++) {
-          const dx = x + 0.5 - X;
-          const dy = y + 0.5 - Y;
-          const d = Math.hypot(dx, dy);
-          const theta = Math.atan2(dy, dx);
-          const e =
-            art.leafShape === "maple"
-              ? r * (0.55 + 0.5 * (1 - Math.abs(Math.sin(2.5 * theta + ph))))
-              : art.leafShape === "birch"
-                ? r * (0.78 + 0.3 * Math.cos(3 * theta + ph))
-                : art.leafShape === "elm"
-                  ? r *
-                    (0.75 +
-                      0.22 * Math.cos(2 * theta + ph) +
-                      0.07 * Math.cos(13 * theta))
-                  : art.leafShape === "redwood"
-                    ? r * (0.7 + 0.3 * Math.cos(9 * theta + ph))
-                    : r *
-                      (1 + art.leafAmp * Math.cos(art.leafPoints * theta + ph)) *
-                      0.92;
-          if (d > e) continue;
-          const q = d / e;
-          let v =
-            tone + 0.28 * ((-dx * 0.6 - dy * 0.8) / e) - 0.16 * q * q;
-          if (q > 0.72 && dx * 0.5 + dy * 0.85 > 0) v -= 0.3;
-          put(x, y, ramp[clamp(Math.floor(v * 5), 0, 4)]);
+      leafCached(X, Y, r, ph, tone, ramp, fade);
+    };
+
+    /* The canopy paints hundreds of leaves a frame. Each distinct leaf
+       (size, turn, tone, colors) is worked out once, by the species' own
+       leaf design (see utils/leafShapes), into a list of pixels, and then
+       stamped at a whole-pixel position. */
+    const leafSprites = new Map<
+      string,
+      { dx: number[]; dy: number[]; c: number[][] }
+    >();
+    const leafCached = (
+      X: number,
+      Y: number,
+      r: number,
+      ph: number,
+      tone: number,
+      ramp: number[][],
+      fade = 1,
+    ) => {
+      const rq = Math.max(1, Math.round(r * 2) / 2);
+      const pq = Math.round((((ph % 6.2832) + 6.2832) % 6.2832) / 0.5236) * 0.5236;
+      const tq = clamp(Math.round(tone * 10) / 10, 0, 1.2);
+      const key = `${rq}|${pq.toFixed(2)}|${tq}|${ramp[0][0]},${ramp[2][1]},${ramp[4][2]}`;
+      let sprite = leafSprites.get(key);
+
+      if (!sprite) {
+        const px = leafPixels(art.leafShape, rq, pq, tq);
+
+        sprite = { dx: px.dx, dy: px.dy, c: px.shade.map((i) => ramp[i]) };
+        leafSprites.set(key, sprite);
+      }
+
+      const ox = Math.round(X);
+      const oy = Math.round(Y);
+
+      if (fade >= 0.995) {
+        for (let i = 0; i < sprite.dx.length; i++) {
+          put(ox + sprite.dx[i], oy + sprite.dy[i], sprite.c[i]);
+        }
+      } else {
+        for (let i = 0; i < sprite.dx.length; i++) {
+          blendPut(ox + sprite.dx[i], oy + sprite.dy[i], sprite.c[i], fade);
         }
       }
     };
+
     const drawLeaf = (
       L: (typeof leaves)[number],
       s: number,
@@ -1403,22 +2010,230 @@ export default function PixelGrowthTree({
       kx: number,
     ) => {
       if (s < 0.15) return;
-      const X = AX + (L.x - art.BX) * sg * kx;
-      const Y = AY + (L.y - 118.7) * sg;
+      /* Match the reference exactly: XF*S/YF*S, not the fixed
+         BX/118.7 stand-ins — those only coincided with XF*S/YF*S
+         at the original W=128 (S=0.16) scale. Leaf clusters are
+         pre-scaled by S at cluster()-build time (see `cluster`
+         below), so widening the canvas (and therefore S) without
+         live-recomputing this anchor silently drops every leaf's
+         vertical position out of alignment with its branch. */
+      const X = AX + (L.x - XF * S) * sg * kx;
+      const Y = AY + (L.y - YF * S) * sg;
       const r = L.r * (0.55 + 0.45 * sg) * s;
       if (Y + r * 1.3 < 0 || Y - r * 1.3 > H || X + r * 1.3 < 0 || X - r * 1.3 > W) {
         return;
       }
-      const ramp = art.leafRamps
-        ? art.leafRamps[GG > L.sw ? L.pal : 3]
+      const ramp = LEAF_RAMPS
+        ? LEAF_RAMPS[GG > L.sw ? L.pal : 3]
         : art.mapleLeaf
           ? GG > L.sw
-            ? MAPLE_RAMPS[L.pal]
-            : MAPLE_RAMPS[3]
-          : art.turnRamp && GG > L.sw
-            ? art.turnRamp
+            ? MAPLE_R[L.pal]
+            : MAPLE_R[3]
+          : TURN_R && GG > L.sw
+            ? TURN_R
             : FOLI;
-      leaf(X, Y, r, L.ph, L.tone, ramp);
+      /* New leaves fade in over a short growth window after their
+         birth — per level the crown grows gradually, never pops. */
+      const fade = smoothstep(L.b, L.b + 0.055, GG);
+      leaf(X, Y, r, L.ph, L.tone, ramp, fade);
+    };
+
+    /* ---- ancient-ascent branch stub: always fully present (the
+       climb has already passed any growth-reveal threshold), with
+       a darkened base for contact shading against the trunk. ---- */
+    const ascentLimb = (
+      stub: (typeof ascentStubs)[number],
+      sg: number,
+      kx: number,
+    ) => {
+      const N = stub.sp.length;
+      for (let i = 0; i < N; i++) {
+        const u = i / (N - 1);
+        const [X, Y] = pt(
+          { sp: stub.sp, ws: stub.ws, g0: 0, gd: 1 },
+          u,
+          sg,
+          kx,
+        );
+        const w = (lerpArr(stub.ws, u) * S * sg) / 2;
+        if (w < 0.35) continue;
+        for (let py = Math.floor(Y - w - 1); py <= Math.ceil(Y + w + 1); py++) {
+          for (let px = Math.floor(X - w - 1); px <= Math.ceil(X + w + 1); px++) {
+            if (px < 0 || py < 0 || px >= W || py >= H) continue;
+            const dx = px + 0.5 - X;
+            const dy = py + 0.5 - Y;
+            if (dx * dx + dy * dy > w * w + 0.2) continue;
+            const n = clamp(dx / (w + 0.5), -1, 1);
+            const base = 1 - u;
+            let v =
+              0.5 - 0.34 * n - 0.22 * base +
+              (hash(px, py * 3 + 11) - 0.5) * 0.3;
+            /* bark seams: short dark grooves running along the limb */
+            if (w > 1.4 && hash(Math.round(u * 22), Math.round(n * 3) + 90) > 0.74) {
+              v -= 0.3;
+            }
+            /* a knot partway along, as a dark ring with a pale heart */
+            const kd = Math.hypot(
+              (u - 0.52) * N * 0.55,
+              (dy + (hash(N, 3) - 0.5) * w) * 0.9,
+            );
+            let mossy = false;
+            if (w > 1.5 && kd < w * 0.55) {
+              v = kd < w * 0.2 ? 0.78 : 0.04;
+            } else if (n < -0.2 && hash(px * 3, py * 7 + Math.round(u * 9)) < 0.42 - 0.3 * u) {
+              /* moss gathers on the upper face, thickest near the trunk */
+              mossy = true;
+            }
+            put(
+              px,
+              py,
+              mossy
+                ? MS[hash(px, py * 5) > 0.5 ? 1 : 0]
+                : hash(px * 5, py + 19) > 0.92
+                  ? MOSS
+                  : BARK[clamp(Math.floor(v * 4), 0, 3)],
+            );
+          }
+        }
+      }
+    };
+
+    /* A loose tuft of small leaves scattered around the stub's
+       tip, scaled from world units into the current screen zoom. */
+    /* The leaf colors for the tufts and the big falling leaves: the
+       species' own ramps (the maple's gold, orange and crimson, the
+       birch's yellows, ...), mostly color with the odd green leaf. The
+       oak stays green. */
+    const LEAF_SET: number[][][] | null =
+      LEAF_RAMPS ?? (art.mapleLeaf ? MAPLE_R : null);
+    const leafRampFor = (a: number, b: number): number[][] => {
+      if (!LEAF_SET) return TURN_R ?? FOLI;
+      const r = hash(a, b);
+      return LEAF_SET[
+        r < 0.2 ? 3 : Math.min(2, Math.floor(((r - 0.2) / 0.8) * 3))
+      ];
+    };
+
+    const drawAscentTuft = (
+      stub: (typeof ascentStubs)[number],
+      sg: number,
+      kx: number,
+    ) => {
+      /* Anchor the tuft a few world-units above the stub's actual
+         tip so the leaf mass caps the branch instead of hanging
+         off its underside. */
+      const [tx, ty] = pt(
+        { sp: [[stub.tipX, stub.tipY - 4]], ws: [1], g0: 0, gd: 1 },
+        0,
+        sg,
+        kx,
+      );
+      const [rw, tone] = stub.lr;
+      const rs = rw * S * sg;
+      if (rs < 1) return;
+      const seedA = (stub.tipX * 3) | 0;
+      const seedB = (stub.tipY * 5) | 0;
+      /* The tuft sways in the wind: whole art pixels, each tuft on
+         its own phase, with a slow wave of light through its leaves. */
+      const wph = stub.tipX * 0.013 + stub.tipY * 0.007;
+
+      /* Side twigs: thin shoots off the limb, each ending in a pair of
+         leaves that swing a pixel in the wind. */
+      const sideTwigs = rs > 7 ? 4 : rs > 4 ? 2 : 1;
+      for (let j = 0; j < sideTwigs; j++) {
+        const u = 0.28 + (0.55 / sideTwigs) * j;
+        const [wx, wy] = stub.sp[Math.min(stub.sp.length - 1, Math.floor(u * (stub.sp.length - 1)))];
+        const [bx0, by0] = pt({ sp: [[wx, wy]], ws: [1], g0: 0, gd: 1 }, 0, sg, kx);
+        const dirY = j % 2 === 0 ? -1 : 1;
+        const len = Math.max(3, rs * (0.2 + 0.1 * hash(j + seedA, 61)));
+        const sx = swayOffset(MT, wph + j * 1.7, LEAF_LIFE);
+        const tipX = bx0 + stub.side * len * 0.8 + sx;
+        const tipY = by0 + dirY * len * 0.9;
+        const steps = Math.ceil(len);
+        for (let q = 0; q <= steps; q++) {
+          const f = q / steps;
+          put(
+            Math.round(bx0 + (tipX - bx0) * f),
+            Math.round(by0 + (tipY - by0) * f),
+            BARK[f < 0.5 ? 1 : 2],
+          );
+        }
+        const lr2 = Math.max(1.3, rs * 0.13);
+        for (const o of [-1, 1]) {
+          leafCached(
+            tipX + o * lr2 * 0.9,
+            tipY - lr2 * 0.4,
+            lr2,
+            j + o,
+            tone + 0.15 * shimmerShift(MT, tipX, tipY, wph + j, LEAF_LIFE),
+            leafRampFor(j * 2 + o + seedA, seedB + 9),
+          );
+        }
+      }
+
+      /* Leaves along the twig itself, alternating above and below it,
+         so the branch is leafy from the trunk out to the tuft. */
+      const m = Math.max(4, Math.round(11 * Math.min(1, rs / 8)));
+      for (let j = 0; j < m; j++) {
+        const u = 0.3 + 0.65 * (j / (m - 1));
+        const [wx, wy] = stub.sp[Math.min(stub.sp.length - 1, Math.floor(u * (stub.sp.length - 1)))];
+        const [lx, ly] = pt({ sp: [[wx, wy]], ws: [1], g0: 0, gd: 1 }, 0, sg, kx);
+        const jig = hash(j + seedA, seedB);
+        const lr = Math.max(1.4, rs * (0.17 + 0.12 * jig));
+        const bx = lx + swayOffset(MT, wph + j * 1.1, 2 * LEAF_LIFE);
+        const by =
+          ly + (j % 2 === 0 ? -1 : 1) * lr * 0.8 +
+          swayOffset(MT, wph + j * 1.1 + 1.7, LEAF_LIFE);
+        leafCached(
+          bx,
+          by,
+          lr,
+          jig * 6,
+          tone + (jig - 0.5) * 0.2 + 0.2 * shimmerShift(MT, bx, by, wph, LEAF_LIFE),
+          leafRampFor(j + seedA, seedB),
+        );
+      }
+
+      /* Push the whole tuft outward past the tip (away from the
+         trunk) and clear ABOVE it (scaled to the tuft's own radius,
+         not a fixed pixel nudge, so it stays clear of the branch at
+         any zoom) — otherwise the leaf mass centers on the tip and
+         half of it droops below the twig instead of capping it. */
+      const away = stub.side * rs * 0.3;
+      const up = rs * 0.6;
+      const swX = swayOffset(MT, wph, 2 * LEAF_LIFE);
+      const swY = swayOffset(MT, wph + 1.9, LEAF_LIFE);
+      leafCached(
+        tx + away + swX,
+        ty - up - rs * 0.15 + swY,
+        Math.max(1.6, rs * 0.5),
+        0.4,
+        tone + 0.2 * shimmerShift(MT, tx, ty, wph, LEAF_LIFE),
+        leafRampFor(seedA, seedB),
+      );
+      /* Blob count follows the tuft's size (bigger tufts higher up),
+         dense enough that a large cluster stays a mass of leaves
+         instead of a few blurry dots. */
+      const n = Math.min(36, Math.max(15, Math.round(rw * 1.2)));
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * 6.283 + stub.tipX * 0.013;
+        const jig = hash(i + ((stub.tipY * 3) | 0), 31);
+        const ox = Math.cos(a) * rs * (0.3 + 0.5 * jig) + away;
+        const oy = Math.sin(a) * rs * (0.22 + 0.3 * jig) - rs * 0.2 - up;
+        const rr = Math.max(1.3, rs * (0.26 + 0.22 * jig));
+        const bx = tx + ox + swayOffset(MT, wph + i * 0.9, 2 * LEAF_LIFE);
+        const by = ty + oy + swayOffset(MT, wph + i * 0.9 + 1.3, LEAF_LIFE);
+        leafCached(
+          bx,
+          by,
+          rr,
+          a,
+          tone +
+            (jig - 0.5) * 0.15 +
+            0.2 * shimmerShift(MT, bx, by, wph, LEAF_LIFE),
+          leafRampFor(i + seedA, seedB + 3),
+        );
+      }
     };
 
     const FALL: {
@@ -1442,11 +2257,11 @@ export default function PixelGrowthTree({
           y: shower ? -2 : L.y + L.r,
           a: art.acorn && Math.random() < 0.3,
           p: art.mapleLeaf
-            ? MAPLE_RAMPS[(Math.random() * 3) | 0]
+            ? MAPLE_R[(Math.random() * 3) | 0]
             : FOLI,
           ph: Math.random() * 6,
           v: 5 + Math.random() * 4,
-          gy: 116 + Math.random() * 5,
+          gy: GROUND_ROW - 3 + Math.random() * 5,
         });
       }
       for (let i = FALL.length - 1; i >= 0; i--) {
@@ -1494,9 +2309,394 @@ export default function PixelGrowthTree({
       });
     };
 
+    /* Now and then a LARGER leaf lets go and falls, drawn with the
+       species' own leaf shape and falling its own way: the maple's
+       spins like a helicopter, the oak's flutters side to side, the
+       birch's flips quickly, the elm's glides slowly, the redwood's
+       sprig drops straight. They are rare (every few seconds), at
+       most two at once, and only while motion is on. */
+    const BIG_STYLE: Record<
+      string,
+      { spin: number; sway: number; hz: number; v: [number, number]; drift: number }
+    > = {
+      maple: { spin: 5.2, sway: 3.5, hz: 2.0, v: [8, 11], drift: 0.4 },
+      lobed: { spin: 1.9, sway: 13, hz: 2.4, v: [5, 7], drift: 0.7 },
+      birch: { spin: 3.6, sway: 8, hz: 3.0, v: [6, 8.5], drift: 0.5 },
+      elm: { spin: 1.1, sway: 6, hz: 1.5, v: [4.2, 6], drift: 1.4 },
+      redwood: { spin: 2.6, sway: 2.5, hz: 1.7, v: [7, 10], drift: 0.2 },
+    };
+    const BIG: {
+      x: number; y: number; r: number; ph: number; spin: number;
+      v: number; age: number; seed: number; tone: number; gy: number;
+      ramp: number[][];
+    }[] = [];
+    let bigTimer = 2 + Math.random() * 3;
+
+    const bigFall = (dt: number, shower: boolean, tm: number) => {
+      const style = BIG_STYLE[art.leafShape] ?? BIG_STYLE.lobed;
+      bigTimer -= dt;
+
+      if (bigTimer <= 0 && BIG.length < 2) {
+        bigTimer = (shower ? 3.5 : 5) + Math.random() * (shower ? 4 : 6);
+        const r = 4.6 + Math.random() * 2.6;
+        let x = 10 + Math.random() * (W - 20);
+        let y = -r * 1.4;
+        if (!shower) {
+          /* the full-tree view: let go from the canopy itself */
+          let L = leaves[0];
+          for (let i = 0; i < 6; i++) {
+            L = leaves[(Math.random() * leaves.length) | 0];
+            if (L.y < 90) break;
+          }
+          x = L.x;
+          y = L.y + L.r;
+        }
+        const seed = Math.random() * 100;
+        BIG.push({
+          x, y, r,
+          ph: Math.random() * 6,
+          spin: (Math.random() < 0.5 ? -1 : 1) * style.spin * (0.8 + Math.random() * 0.4),
+          v: (style.v[0] + Math.random() * (style.v[1] - style.v[0])) * (shower ? 1.6 : 1),
+          age: 0,
+          seed,
+          tone: 0.55 + Math.random() * 0.25,
+          gy: GROUND_ROW - 3 + Math.random() * 4,
+          ramp: leafRampFor((seed * 13) | 0, (seed * 7) | 0),
+        });
+      }
+
+      const wind = 0.5 + 0.5 * Math.sin(tm * 0.5);
+
+      for (let i = BIG.length - 1; i >= 0; i--) {
+        const b = BIG[i];
+        b.age += dt;
+        b.y += b.v * dt;
+        b.ph += b.spin * dt;
+        b.x += (Math.sin(b.age * style.hz + b.seed) * style.sway + wind * style.drift * 14) * dt;
+
+        if (b.y >= (DY > 0 ? H + b.r * 1.4 : b.gy)) {
+          if (DY <= 0) {
+            LAND.push({ x: b.x | 0, y: b.gy | 0, a: false, p: b.ramp });
+            if (LAND.length > 45) LAND.shift();
+          }
+          BIG.splice(i, 1);
+          continue;
+        }
+
+        /* whole pixels, and the turning stepped like the rest */
+        leafCached(
+          Math.round(b.x),
+          Math.round(b.y),
+          b.r,
+          Math.floor(b.ph / 0.4) * 0.4,
+          b.tone,
+          b.ramp,
+        );
+      }
+    };
+
     const easeInOut = (u: number) => u * u * (3 - 2 * u);
 
+    /* ---- what the climb brings into view: vines hanging from above,
+       sylphs on the wing, motes of light drifting up, and shafts of sun.
+       They sit in front of the tree, grow in with the climb (`asc`, 0..1)
+       and are tinted from the species' own colors. ---- */
+    const VINES = vineSpecs(9, speciesId.length * 11 + 3);
+    const lighten = (c: number[], k: number) => mixRgb(c, [255, 255, 255], k);
+    const SYLPH_BODY = lighten(FOLI[Math.min(4, FOLI.length - 1)], 0.62);
+    const SYLPH_WING = [236, 246, 255];
+    const MOTE = lighten(FOLI[Math.min(4, FOLI.length - 1)], 0.7);
+
+    const sinceKey = (key: string, tm: number): number => {
+      const at = pokesRef.current[key];
+
+      if (at === undefined) return Infinity;
+
+      const d = tm - at;
+
+      return d >= 0 && d < 12 ? d : Infinity;
+    };
+
+    const drawAscentAccents = (asc: number, tm: number) => {
+      if (asc <= 0.01) return;
+
+      /* shafts of sun, slanting down from the upper left */
+      for (let i = 0; i < (layersRef.current.has("shafts") ? 0 : 3); i++) {
+        const x0 = 30 + i * 78 + Math.sin(i * 2.3) * 12;
+        const half = 6 + i * 2;
+        const breathe = reduced ? 1 : 0.8 + 0.2 * Math.sin(tm * 0.5 + i * 1.7);
+
+        for (let y = 0; y < 104; y++) {
+          const cx = x0 + y * 0.55;
+          const fall = (1 - y / 104) * 0.1 * asc * breathe;
+
+          for (let x = Math.floor(cx - half); x <= Math.ceil(cx + half); x++) {
+            const edge = 1 - Math.abs(x - cx) / half;
+
+            if (edge <= 0) continue;
+            blendPut(x, y, [255, 244, 205], fall * Math.min(1, edge * 1.6));
+          }
+        }
+      }
+
+      /* vines hanging from the top edge, swaying in whole pixels */
+      const grow = smoothstep(0.05, 0.7, asc);
+
+      if (!layersRef.current.has("hanging")) VINES.forEach((v, i) => {
+        const len = vineShown(v.length, grow);
+
+        for (let y = 0; y < len; y++) {
+          const depth = y / Math.max(1, v.length);
+          const sway = Math.round(
+            swayOffset(MT, v.phase + y * 0.07, 2.2) * depth,
+          );
+          const x = v.x + sway;
+
+          put(x, y, MS[(y + i) % 4 < 2 ? 1 : 0]);
+          if (y % 7 === 3 && len > 6) {
+            leafCached(
+              x + ((i + y) % 2 === 0 ? -2 : 2),
+              y,
+              1.7,
+              (i + y) * 0.9,
+              0.55 + 0.2 * shimmerShift(MT, x, y, v.phase, 1),
+              leafRampFor(i, y),
+            );
+          }
+        }
+
+        /* a bud at the tip, a bright one now and then */
+        if (len >= v.length * 0.9) {
+          const x = v.x + Math.round(swayOffset(MT, v.phase + len * 0.07, 2.2));
+
+          put(x, len, i % 3 === 0 ? lighten(FOLI[Math.min(4, FOLI.length - 1)], 0.35) : MS[2]);
+          put(x, len + 1, MS[1]);
+        }
+      });
+
+      /* motes of light drifting up through the leaves */
+      const moteCount = layersRef.current.has("motes") ? 0 : Math.round(28 * asc);
+
+      for (let k = 0; k < moteCount; k++) {
+        const m = motePose(k, reduced ? 0 : tm);
+
+        if (m.glow < 0.25) continue;
+        blendPut(m.x, m.y, MOTE, 0.5 + 0.5 * m.glow);
+        if (m.glow > 0.7) {
+          blendPut(m.x + 1, m.y, MOTE, 0.25);
+          blendPut(m.x - 1, m.y, MOTE, 0.25);
+          blendPut(m.x, m.y + 1, MOTE, 0.25);
+          blendPut(m.x, m.y - 1, MOTE, 0.25);
+        }
+      }
+
+      /* sylphs: little winged people with a glow and a trail of dust.
+         Offsets are drawn facing right and flipped when they turn. */
+      const sylphCount = layersRef.current.has("sylphs")
+        ? 0
+        : Math.max(1, Math.round(1 + 4 * asc));
+      const DRESS = [
+        [255, 190, 220],
+        [170, 228, 255],
+        [255, 232, 160],
+        lighten(FOLI[Math.min(4, FOLI.length - 1)], 0.4),
+        [200, 255, 190],
+      ];
+      /* upper and lower wings, wings up (flap 0) or down (flap 1) */
+      const WINGS: number[][][] = [
+        [[-1, -2], [-2, -3], [-3, -5], [-4, -6], [-2, -4], [-3, -4], [-1, -1], [-3, -1], [-4, -2]],
+        [[-1, -1], [-2, 0], [-3, 1], [-4, 2], [-2, -1], [-3, -1], [-1, 0], [-3, 3], [-4, 4]],
+      ];
+
+      for (let i = 0; i < sylphCount; i++) {
+        const t = reduced ? 0 : tm;
+        const dress = DRESS[i % DRESS.length];
+
+        /* dust left behind, dimmer the older it is */
+        for (let k = 6; k >= 1; k--) {
+          const old = sylphPose(i, t - k * 0.13);
+
+          blendPut(
+            old.x + ((k * 7 + i) % 3) - 1,
+            old.y + 3 + ((k * 5 + i) % 3) - 1,
+            dress,
+            0.7 * (1 - k / 7) * asc,
+          );
+        }
+
+        const pose = sylphPose(i, t);
+        const poked = sinceKey(`sylph${i}`, tm);
+        const spin = poked < 1.5;
+        /* poked, a sylph spins away in a spiral and bursts into glitter */
+        const p = spin
+          ? {
+              ...pose,
+              x: Math.round(pose.x + 9 * Math.sin(poked * 13) * (1 - poked / 1.5)),
+              y: Math.round(pose.y - 8 * poked + 4 * Math.cos(poked * 13) * (1 - poked / 1.5)),
+              flap: (Math.floor(poked * 24) % 2) as 0 | 1,
+            }
+          : pose;
+        const a = Math.min(1, asc * 1.4) * (0.75 + 0.25 * p.glow);
+
+        hitsRef.current.push({ key: `sylph${i}`, x: p.x - 4, y: p.y - 6, w: 9, h: 12 });
+        if (hoverRef.current === `sylph${i}`) {
+          for (let j = 0; j < 5; j++) {
+            if (j !== 3) put(p.x, p.y - 12 + j, [255, 246, 200]);
+          }
+          put(p.x, p.y - 8, [255, 246, 200]);
+        }
+        if (spin) {
+          for (let k = 0; k < 12; k++) {
+            const ang = (k / 12) * 6.283 + poked * 3;
+            const r = 3 + poked * 16;
+
+            blendPut(
+              Math.round(p.x + Math.cos(ang) * r),
+              Math.round(p.y + Math.sin(ang) * r * 0.8),
+              k % 2 === 0 ? [255, 236, 170] : DRESS[i % DRESS.length],
+              0.9 * (1 - poked / 1.5),
+            );
+          }
+        }
+        const at = (dx: number, dy: number): [number, number] => [
+          p.x + dx * p.dir,
+          p.y + dy,
+        ];
+
+        /* the halo */
+        for (let dy = -5; dy <= 5; dy++) {
+          for (let dx = -5; dx <= 5; dx++) {
+            const d = Math.hypot(dx, dy);
+
+            if (d > 5.2) continue;
+            blendPut(p.x + dx, p.y + dy, dress, 0.22 * (1 - d / 5.4) * a);
+          }
+        }
+
+        /* wings behind the body */
+        for (const [wx, wy] of WINGS[p.flap]) {
+          const [x, y] = at(wx, wy);
+
+          blendPut(x, y, SYLPH_WING, 0.88 * a);
+        }
+
+        /* hood, face, body, dress and legs */
+        const part = (dx: number, dy: number, c: number[]) => {
+          const [x, y] = at(dx, dy);
+
+          put(x, y, c);
+        };
+
+        part(0, -4, dress);
+        part(1, -4, dress);
+        part(1, -3, [255, 232, 214]);
+        part(0, -3, [255, 232, 214]);
+        part(0, -2, dress);
+        part(0, -1, SYLPH_BODY);
+        part(-1, 0, dress);
+        part(0, 0, dress);
+        part(1, 0, dress);
+        part(-1, 1, dress);
+        part(0, 1, dress);
+        part(0, 2, [255, 232, 214]);
+        part(-1, 3, [255, 232, 214]);
+        part(1, -2, [255, 232, 214]);
+        /* a small lantern in the hand */
+        blendPut(...at(2, -1), [255, 236, 150], a);
+        blendPut(...at(3, -1), [255, 236, 150], 0.5 * a);
+      }
+    };
+
+    /* One layer of the summit canopy: each clump is a little ring of
+       leaves that sways in whole pixels and glints on the idle clock.
+       `sm` (0..1) fades the crown in as the climb arrives. */
+    const drawCanopy = (layer: 0 | 1, sm: number, sg: number, kx: number) => {
+      for (const c of CANOPY) {
+        if (c.layer !== layer) continue;
+
+        const X = AX + (c.x - XF) * S * sg * kx;
+        const Y = AY + (c.y - YF) * S * sg;
+        const rs = c.r * S * sg;
+
+        if (X < -rs || X > W + rs || Y < -rs || Y > H + rs) continue;
+
+        const swX = swayOffset(MT, c.ph, 1.6 * LEAF_LIFE);
+        const swY = swayOffset(MT, c.ph + 1.9, 0.8 * LEAF_LIFE);
+        const back = layer === 0;
+        const n = 8;
+
+        for (let j = 0; j < n; j++) {
+          const a = (j / n) * 6.283 + c.ph;
+          const jig = hash((c.x * 7) | 0, (c.y * 5) | 0 + j);
+          const lx = X + Math.cos(a) * rs * (0.25 + 0.4 * jig) + swX;
+          const ly = Y + Math.sin(a) * rs * (0.2 + 0.32 * jig) + swY;
+
+          leafCached(
+            lx,
+            ly,
+            Math.max(1.6, rs * (0.34 + 0.16 * jig)),
+            a,
+            c.tone -
+              (back ? 0.2 : 0) +
+              0.2 * shimmerShift(MT, lx, ly, c.ph, LEAF_LIFE),
+            leafRampFor((c.x * 3) | 0, ((c.y * 5) | 0) + j),
+            sm,
+          );
+        }
+      }
+    };
+
+    /* Soft, puffy clouds: a union of discs, light on top and bluish
+       underneath, translucent so what is behind shows through. */
+    const drawSummitClouds = (front: boolean, sm: number, dt: number) => {
+      for (const cl of SUMMIT_CLOUDS) {
+        if (cl.front !== front) continue;
+
+        if (!reduced) cl.x += cl.v * dt;
+        if (cl.x > W + 10) cl.x = -cl.w;
+
+        const cx0 = Math.round(cl.x);
+        const cy0 = Math.round(cl.y) + (reduced ? 0 : Math.round(Math.sin(MT * 0.12 + cl.v) * 1));
+        const edge = clamp(Math.min(cl.x + cl.w, W - cl.x) / 24, 0, 1);
+
+        for (let py = 0; py < cl.h; py++) {
+          for (let px = 0; px < cl.w; px++) {
+            let d = 9;
+
+            /* each puff is an ellipse that stays inside the cloud's
+               box, so the outline is round rather than clipped flat */
+            for (const b of cl.blobs) {
+              const rx = b.r * cl.w;
+              const ry = Math.min(cl.h * 0.6, rx * 0.95);
+              const dx = (px - b.ox * cl.w) / rx;
+              const dy = (py - b.oy * cl.h) / ry;
+
+              d = Math.min(d, Math.hypot(dx, dy));
+            }
+
+            /* flat underside, like a real cumulus */
+            if (d > 1 || py > cl.h * 0.84) continue;
+
+            const lit = 1 - py / cl.h;
+            const a =
+              (front ? 0.32 : 0.62) * (1 - d * d) ** 0.6 *
+              sm * edge * (0.85 + 0.15 * hash(cx0 + px, cy0 + py));
+
+            if (a < 0.02) continue;
+
+            blendPut(
+              cx0 + px,
+              cy0 + py,
+              mixRgb([200, 208, 228], [253, 253, 255], smoothstep(0.1, 0.7, lit)),
+              a,
+            );
+          }
+        }
+      }
+    };
+
     const render = (P: number, dt: number, tm: number) => {
+      hitsRef.current.length = 0;
       cov.fill(0);
       /* Transparent window: wipe the alpha channel only, so the
          landscape behind the tree shows through everywhere the
@@ -1505,6 +2705,12 @@ export default function PixelGrowthTree({
 
       const g = clamp(P / PA, 0, 1);
       GG = g;
+
+      /* Motion clock and how alive the tree is at this growth. Reduced
+         motion keeps the static tree. */
+      MT = reduced ? 0 : motionTick(tm);
+      ROOT_LIFE = reduced ? 0 : smoothstep(0.5, matureG, P);
+      LEAF_LIFE = reduced ? 0 : smoothstep(matureG, 1, P);
       const ux = clamp((P - PA) / PB, 0, 1);
       const vx = clamp((P - PA - PB) / PC, 0, 1);
       const m = clamp((g - 0.06) / 0.9, 0, 1);
@@ -1515,54 +2721,206 @@ export default function PixelGrowthTree({
       const sg = (0.2 + 0.8 * eg) * Z;
       const kx = 0.4 + 0.6 * eg;
 
-      AX = art.BX + (64 - art.BX) * eu;
+      AX = art.BX + (W / 2 - art.BX) * eu;
       YF = 742 - art.DYW * ea;
       XF = art.ROOTX + (cxw(YF - 60) - art.ROOTX) * clamp(vx * 6, 0, 1);
       DY = (742 - YF) * S * Z;
 
+      /* The bark climbs out of the crown while the camera zooms in, and
+         the roots creep out from the trunk's foot, instead of both
+         appearing whole. */
+      const frameTop = YF - (AY + 1) / (S * Z);
+      TRUNK_TOP =
+        YOUNG_TOP + (frameTop - 50 - YOUNG_TOP) * smoothstep(0.02, 0.34, ux);
+      ROOT_REACH = reduced ? 1 : smoothstep(0.2, 0.62, ux);
+      /* At the top of the climb the bark ends and the crown takes over. */
+      TRUNK_TOP = Math.max(TRUNK_TOP, SUMMIT_Y);
+      const SM = smoothstep(0.7, 1, vx);
+
       const sh = Math.round(AX - art.BX);
       for (const [x, y, c, b] of SP) {
-        if (g >= b && y + DY < H) put(x + sh, (y + DY) | 0, c);
+        if (layersRef.current.has("pollen")) break;
+        if (g >= b && y + DY < H) {
+          const fade = smoothstep(b, b + 0.06, g);
+          if (fade >= 0.995) put(x + sh, (y + DY) | 0, c);
+          else blendPut(x + sh, (y + DY) | 0, c, fade);
+        }
+      }
+
+      /* Clouds occasionally pass by once the tree matures: soft
+         puffs drifting behind the crown, so the canopy silhoutte
+         still reads over them. */
+      if (g >= matureG && !layersRef.current.has("clouds")) {
+        /* Fade in at the Mature arrival; fade out while entering
+           and leaving the frame, so clouds never pop on or off. */
+        const growFade = smoothstep(matureG, matureG + 0.06, g);
+        for (const cloud of clouds) {
+          if (!reduced) cloud.x += cloud.v * dt;
+          if (cloud.x > W + 40) cloud.x = -cloud.w;
+          if (cloud.x < -cloud.w - 2) cloud.x = W + 40;
+          const edgeFade = reduced
+            ? 1
+            : clamp((cloud.x + 26) / 26, 0, 1) *
+              clamp((W + 26 - cloud.x) / 26, 0, 1);
+          const cx = Math.round(cloud.x);
+          const cy = Math.round(cloud.y);
+          const driftY = reduced
+            ? 0
+            : Math.round(Math.sin(MT * 0.7 + cloud.ph) * 1.2);
+          for (let py = 0; py < cloud.h; py++) {
+            for (let px = 0; px < cloud.w; px++) {
+              const nx = (px / cloud.w - 0.5) * 2;
+              const ny = (py / cloud.h - 0.5) * 2;
+              const puff = nx * nx + ny * ny * 1.7;
+              if (puff > 1) continue;
+              const dither = hash(px * 5 + 13, py * 7 + 29) * 0.2;
+              const a =
+                (0.34 + 0.28 * (1 - puff) + dither) *
+                growFade *
+                edgeFade;
+              if (a < 0.01) continue;
+              blendPut(cx + px, cy + py + driftY, [240, 238, 231], a);
+            }
+          }
+        }
+      }
+
+      /* Ground-contact shadow: a soft dithered ellipse under the
+         root, scaled to the trunk's base width and the current
+         growth stage. Fades out once the camera lifts off the
+         ground into the zoom/ascent. */
+      {
+        const shFade = clamp(1 - eu / 0.5, 0, 1) * clamp(eg * 3, 0, 1);
+        if (shFade > 0.02) {
+          const [rx0, ry0] = pt(
+            { sp: [[art.ROOTX, 742]], ws: [1], g0: 0, gd: 1 },
+            0,
+            sg,
+            kx,
+          );
+          /* Flare the shadow well past the trunk's own half-width
+             (baseW0 is the FULL width) so it reads as a puddle the
+             trunk sits in rather than being fully eclipsed by the
+             trunk's own opaque paint. */
+          const baseW0 = lerpArr(TR.ws, 0) * S * sg;
+          const srx = Math.max(10, baseW0 * 1.05);
+          const sry = Math.max(3, srx * 0.3);
+          const scol = mixRgb(ACN[1] ?? [60, 48, 40], [0, 0, 0], 0.5);
+          for (
+            let py = Math.floor(ry0 + 1 - sry);
+            py <= Math.ceil(ry0 + 1 + sry);
+            py++
+          ) {
+            for (
+              let px = Math.floor(rx0 - srx);
+              px <= Math.ceil(rx0 + srx);
+              px++
+            ) {
+              if (px < 0 || py < 0 || px >= W || py >= H) continue;
+              const nx = (px + 0.5 - rx0) / srx;
+              const ny = (py + 0.5 - (ry0 + 1)) / sry;
+              const nd = nx * nx + ny * ny;
+              if (nd > 1) continue;
+              const p = Math.pow(1 - nd, 0.55) * 0.9 * shFade;
+              if (hash(px * 7, py * 11) < p) put(px, py, scol);
+            }
+          }
+        }
       }
 
       if (DY <= 0) {
         if (speciesId === "oak") {
           /* the acorn's tuft */
-          for (let x = 52; x <= 76; x++) {
+          for (let x = art.BX - 12; x <= art.BX + 12; x++) {
             const d = (x + 0.5 - art.BX) / 12;
             const h = 3 * (1 - d * d);
             if (h <= 0) continue;
-            for (let y = Math.floor(119.2 - h); y <= 119; y++) {
+            for (let y = Math.floor(GROUND_ROW + 0.2 - h); y <= GROUND_ROW; y++) {
               put(x + sh, y, BARK[hash(x, y) > 0.6 ? 1 : 0]);
             }
           }
           if (g < 0.05) {
-            put(64, 117, ACN[0]);
-            put(63, 117, ACN[0]);
-            put(64, 116, ACN[1]);
-            put(63, 116, ACN[1]);
+            put(art.BX, GROUND_ROW - 2, ACN[0]);
+            put(art.BX - 1, GROUND_ROW - 2, ACN[0]);
+            put(art.BX, GROUND_ROW - 3, ACN[1]);
+            put(art.BX - 1, GROUND_ROW - 3, ACN[1]);
           }
         } else {
-          for (let x = 61; x <= 77; x++) {
+          for (let x = art.BX - 3; x <= art.BX + 13; x++) {
             const d = (x + 0.5 - art.BX) / 8;
             const h = 2.8 * (1 - d * d);
             if (h <= 0) continue;
-            for (let y = Math.floor(119.2 - h); y <= 119; y++) {
+            for (let y = Math.floor(GROUND_ROW + 0.2 - h); y <= GROUND_ROW; y++) {
               put(x + sh, y, BARK[hash(x, y) > 0.6 ? 1 : 0]);
             }
           }
           if (g < 0.05) {
             if (art.mapleLeaf) {
-              put(64, 117, ACN[0]);
-              put(65, 116, ACN[1]);
-              put(66, 115, ACN[1]);
-              put(67, 115, ACN[1]);
+              put(art.BX, GROUND_ROW - 2, ACN[0]);
+              put(art.BX + 1, GROUND_ROW - 3, ACN[1]);
+              put(art.BX + 2, GROUND_ROW - 4, ACN[1]);
+              put(art.BX + 3, GROUND_ROW - 4, ACN[1]);
             } else {
-              put(70, 117, [120, 84, 62]);
-              put(69, 117, [96, 66, 50]);
+              put(art.BX + 6, GROUND_ROW - 2, [120, 84, 62]);
+              put(art.BX + 5, GROUND_ROW - 2, [96, 66, 50]);
             }
           }
         }
+      }
+
+      /* The crown, far above: while the camera looks up the trunk, its
+         underside shows as a faded shadow along the top of the frame,
+         drifting and glinting on the idle clock. It sits behind the
+         bark and grows heavier the higher the climb. */
+      {
+        const sa =
+          layersRef.current.has("crownshadow")
+            ? 0
+            : smoothstep(0.3, 0.7, ux) * (1 - 0.85 * smoothstep(0.7, 1, vx));
+
+        if (sa > 0.02) {
+          const depth = 8 + 22 * smoothstep(0, 1, vx);
+          const dark = mixRgb(FOLI[0], [34, 40, 58], 0.4);
+          const mid = mixRgb(FOLI[Math.min(1, FOLI.length - 1)], [58, 66, 84], 0.35);
+          const glint = mixRgb(FOLI[Math.min(3, FOLI.length - 1)], [120, 128, 146], 0.35);
+
+          for (let x = 0; x < W; x++) {
+            /* two overlapping lumps make the scalloped underside; each
+               drifts a whole pixel at a time */
+            const drift = swayOffset(MT, x * 0.021, 1.5);
+            const lump =
+              0.5 +
+              0.3 * Math.sin((x + drift) * 0.11 + 1.3) +
+              0.2 * Math.sin((x - drift) * 0.047 + 4.1);
+            const edge = depth * (0.35 + 0.65 * lump);
+
+            for (let y = 0; y < edge; y++) {
+              const depthK = y / Math.max(1, edge);
+              /* leafy fringe along the hanging edge only */
+              if (edge - y < 3 && hash(x * 3 + 7, y * 5 + 3) < 0.55 - 0.15 * (edge - y)) {
+                continue;
+              }
+
+              /* leaf clumps are 2x2 blocks, so the shadow reads as
+                 pixel-art foliage rather than noise */
+              const clump = hash((x >> 1) + 11, (y >> 1) + 29);
+              const shim = shimmerShift(MT, x, y, 2.2, 1);
+              const c =
+                shim > 0 && clump > 0.5
+                  ? glint
+                  : clump > 0.62
+                    ? mid
+                    : dark;
+
+              paint(x, y, c, sa * (0.42 - 0.18 * depthK));
+            }
+          }
+        }
+      }
+
+      if (SM > 0.01) {
+        if (!layersRef.current.has("summitclouds")) drawSummitClouds(false, SM, dt);
+        drawCanopy(0, SM, sg, kx);
       }
 
       DM = 0;
@@ -1594,24 +2952,37 @@ export default function PixelGrowthTree({
 
       if (ux > 0) {
         const bl = Math.min(1, ux / 0.08);
-        let hits = 0;
-        let nulls = 0;
+        refreshRootMask(Z, eu);
         for (let sy = 0; sy < H; sy++) {
           for (let sx = 0; sx < W; sx++) {
-            if (hash(sx * 3, sy) < bl) {
+            const rc = rootPx(sx, sy);
+            if (rc) {
+              put(sx, sy, rc);
+            } else if (hash(sx * 3, sy) < bl) {
               const c = trunkPx(sx, sy, Z, eu, tm);
-              if (c) {
-                put(sx, sy, c);
-                hits++;
-              } else {
-                nulls++;
-              }
+              if (c) put(sx, sy, c);
             }
           }
         }
-        if (speciesId === "crimson") {
-          console.info("MAPLE-PROBE trunkPx hits", hits, "nulls", nulls, "Z", Z.toFixed(3), "eu", eu.toFixed(3));
+      }
+
+      if (vx > 0) {
+        for (const stub of ascentStubs) {
+          const [, tY] = pt(
+            { sp: [[stub.tipX, stub.tipY]], ws: [1], g0: 0, gd: 1 },
+            0,
+            sg,
+            kx,
+          );
+          if (tY < -40 - stub.lr[0] * S * sg || tY > H + 40) continue;
+          ascentLimb(stub, sg, kx);
+          if (stub.leafy) drawAscentTuft(stub, sg, kx);
         }
+      }
+
+      if (SM > 0.01) {
+        drawCanopy(1, SM, sg, kx);
+        if (!layersRef.current.has("summitclouds")) drawSummitClouds(true, SM, dt);
       }
 
       const uT = clamp((g - 0.03) / 0.2, 0, 1);
@@ -1637,37 +3008,154 @@ export default function PixelGrowthTree({
         }
       }
 
-      if (g >= 1) fall(dt, ux > 0, tm);
+      if (g >= 1) {
+        if (!layersRef.current.has("fall")) fall(dt, ux > 0, tm);
+        if (!reduced && !layersRef.current.has("bigfall")) bigFall(dt, ux > 0, tm);
+      }
 
-      if (speciesId === "crimson") {
-        let n = 0;
-        for (let i = 3; i < buf.length; i += 4) if (buf[i]) n++;
-        console.info(
-          "MAPLE-PROBE P", P.toFixed(3), "g", g.toFixed(2), "u", ux.toFixed(2),
-          "leaves", leaves.length, "px", n, "SP", SP.length,
-        );
+      /* Birds rest at the tree once it matures: 2-3 perched on the
+         top leaves, hopping to a fresh leaf now and then, wings
+         flicking on the flap. */
+      if (g >= matureG && perches.length > 0 && !layersRef.current.has("birds")) {
+        const body = [38, 32, 24];
+        const head = [46, 40, 30];
+        const beak = [238, 200, 110];
+        const hop = reduced ? 0 : Math.floor(tm / 2.4);
+        const n = Math.min(3, perches.length);
+        /* Fade in when they arrive with the Mature stage, and fade
+           out softly just before each hop to a fresh perch. */
+        const birthFade = smoothstep(matureG, matureG + 0.05, g);
+        const hopPhase = reduced ? 0.5 : tm % 2.4;
+        const hopFade = reduced
+          ? 1
+          : Math.min(
+              smoothstep(0, 0.3, hopPhase),
+              1 - smoothstep(2.1, 2.4, hopPhase),
+            );
+        const bf = birthFade * hopFade;
+        const fput = (x: number, y: number, c: number[]) => {
+          if (bf >= 0.995) put(x, y, c);
+          else blendPut(x, y, c, bf);
+        };
+        for (let i = 0; i < n; i++) {
+          const spot = perches[(hop * 3 + i * 3) % perches.length];
+          const [wx, wy] = pt(
+            { sp: [[spot.x, spot.y]], ws: [1], g0: 0, gd: 1 },
+            0,
+            sg,
+            kx,
+          );
+          const bx = Math.round(wx + (i - 1) * 6);
+          const by = Math.round(wy - 1);
+          const wing = reduced
+            ? 0
+            : Math.floor(tm * 2.2 + i * 1.7) % 2;
+          fput(bx - 1, by - 1, body);
+          fput(bx, by - 1, body);
+          fput(bx + 1, by - 1, body);
+          if (wing) fput(bx + 1, by - 2, body);
+          fput(bx + 3, by - 1, head);
+          fput(bx + 4, by - 1, beak);
+          fput(bx, by, body);
+          blendPut(bx, by + 1, [20, 18, 14], 0.3 * bf);
+        }
+      }
+
+      if (charmsRef.current.length > 0) {
+        const pxu = S * sg;
+        /* places where things can hang: crown leaves in the whole-tree
+           view, the tips of the climb's branches higher up */
+        const anchors: { id: number; x: number; y: number }[] = [];
+
+        if (ux < 0.5) {
+          for (let i = 0; i < leaves.length && anchors.length < 16; i += 9) {
+            const L = leaves[i];
+
+            if (L.b > GG) continue;
+
+            const ax = AX + (L.x - XF * S) * sg * kx;
+            const ay = AY + (L.y - YF * S) * sg + L.r * (0.55 + 0.45 * sg) * 0.7;
+
+            if (ax > 4 && ax < W - 4 && ay > 4 && ay < H - 12) {
+              anchors.push({ id: i, x: ax, y: ay });
+            }
+          }
+        }
+        if (vx > 0) {
+          ascentStubs.forEach((stub, i) => {
+            if (!stub.leafy || anchors.length >= 22) return;
+
+            const ax = AX + (stub.tipX - XF) * pxu * kx;
+            const ay = AY + (stub.tipY - YF) * pxu + 2;
+
+            if (ax > 4 && ax < W - 4 && ay > 4 && ay < H - 12) {
+              anchors.push({ id: 5000 + i, x: ax, y: ay });
+            }
+          });
+        }
+
+        drawCharms(charmsRef.current, {
+          W,
+          H,
+          tm,
+          tick: MT,
+          reduced,
+          put,
+          blend: blendPut,
+          proj: (wx, wy) => [AX + (wx - XF) * pxu * kx, AY + (wy - YF) * pxu],
+          scale: pxu,
+          trunk: (wy) => {
+            const yi = clamp(Math.round(wy), 0, 799);
+            const w =
+              ((wy >= art.trunkFracY ? RW[yi] : art.trunkLowW) * (1 - eu) +
+                wW(wy) * eu) *
+              (1 + 0.8 * Math.exp(-(742 - wy) / 38));
+
+            return { cx: cxw(wy), half: Math.max(3, w / 2) };
+          },
+          groundY: AY + (742 - YF) * pxu,
+          trunkTop:
+            ux > 0.02
+              ? TRUNK_TOP
+              : TR.sp[
+                  Math.min(
+                    TR.sp.length - 1,
+                    Math.floor(clamp((GG - TR.g0) / TR.gd, 0, 1) * (TR.sp.length - 1)),
+                  )
+                ][1],
+          asc: smoothstep(0.04, 0.5, vx),
+          since: (key) => sinceKey(key, tm),
+          hit: (key, x, y, w, h) => {
+            hitsRef.current.push({ key, x, y, w, h });
+          },
+          hover: hoverRef.current,
+          anchors,
+          foliage: FOLI,
+          bark: BARK,
+          moss: MS,
+        });
+      }
+
+      drawAscentAccents(smoothstep(0.04, 0.5, vx), tm);
+
+      /* Where the creatures are, for assistive tools and tests. */
+      if (ref.current) {
+        const summary = hitsRef.current
+          .map((h) => `${h.key}:${h.x},${h.y},${h.w},${h.h}`)
+          .join(";");
+
+        if (ref.current.dataset.creatures !== summary) {
+          ref.current.dataset.creatures = summary;
+        }
       }
 
       off.putImageData(img, 0, 0);
 
-      /* Blit: the viewer's pan (screen px) and manual zoom (1x-2x).
-
-         The grown tree keeps the reference's proportions — sky and
-         canopy together, trunk centred — until the user zooms in
-         (bottom-right controls or scroll): then the crop rests on
-         the base and dragging the picture climbs the trunk toward
-         the crown. No automatic rescale, ever. */
+      /* Blit the whole frame: the canvas is the stage, so there is no
+         window to crop to, and no pan or zoom to resample. */
       ctx.clearRect(0, 0, W, H);
-      const Z2 = viewRef.current.s;
-      const sw = W / Z2;
-      const shh = H / Z2;
-      const cx = art.BX - viewRef.current.x / Z2;
-      const cy0 = H - H / (2 * Z2);
-      const cy = cy0 - viewRef.current.y / Z2;
-      const sx = clamp(cx - sw / 2, 0, W - sw);
-      const sy = clamp(cy - shh / 2, 0, H - shh);
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(offRef.current!, sx, sy, sw, shh, 0, 0, W, H);
+      ctx.drawImage(offRef.current!, 0, 0);
     };
 
     try {
@@ -1676,27 +3164,32 @@ export default function PixelGrowthTree({
       console.error("tree first paint failed (will retry):", err);
     }
 
+    /* Snapshots paint one frame at the target growth and stop the
+       loop: no replay, no sway, no leaf fall. */
+    if (staticFrame) {
+      dispRef.current = clamp(growthRef.current, 0, 1);
+      try {
+        render(dispRef.current, 0, 0);
+      } catch (err) {
+        console.error("tree snapshot paint failed:", err);
+      }
+      return () => undefined;
+    }
+
     let raf = 0;
     let last = performance.now();
     let broken = false;
-    let marked = false;
     const frame = (now: number) => {
-      if (!marked) {
-        /* Mark only on the first live tick so React StrictMode's
-           dev double-mount doesn't swallow the fresh-reload replay. */
-        replayedThisPage = true;
-        marked = true;
-      }
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
 
       const target = clamp(growthRef.current, 0, 1);
       if (!reduced) {
-        /* The reference's own pace: the whole journey takes its
-           DUR of 50 seconds; a single fertilizer packet is a
-           smooth 2.5-second step, and a fresh mount replays it
-           from the acorn. */
-        dispRef.current = Math.min(target, dispRef.current + dt / 50);
+        const gap = target - dispRef.current;
+        const step = FOLLOW_RATE * dt;
+
+        dispRef.current =
+          Math.abs(gap) <= step ? target : dispRef.current + Math.sign(gap) * step;
       } else {
         dispRef.current = target;
       }
@@ -1718,13 +3211,7 @@ export default function PixelGrowthTree({
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [shape, pal, speciesId, speciesKey, reduced]);
-
-  const zoomBy = (delta: number) =>
-    setView((current) => ({
-      ...current,
-      s: clamp(current.s + delta, 1, 2),
-    }));
+  }, [shape, pal, speciesId, speciesKey, reduced, variantId]);
 
   return (
     <div
@@ -1733,7 +3220,10 @@ export default function PixelGrowthTree({
     >
       <div
         className="relative"
-        style={{ height: `${boxH}px`, aspectRatio: "1 / 1", maxWidth: "100%" }}
+        style={{
+          height: `${H * pxScale}px`,
+          width: `${W * pxScale}px`,
+        }}
       >
       <canvas
         ref={ref}
@@ -1741,129 +3231,62 @@ export default function PixelGrowthTree({
         height={H}
         role="img"
         aria-label="Pixel art tree growing"
-        className={`block h-full w-full touch-none ${
-          panEnabled
-            ? "cursor-grab active:cursor-grabbing"
-            : "cursor-pointer"
-        }`}
+        className="block h-full w-full touch-none cursor-pointer"
         style={{ imageRendering: "pixelated" }}
-        onWheel={(event) => {
-          if (!panEnabled) return;
-          /* Once zoomed, the wheel (and the trackpad) scroll along
-             the tree: push up to climb, pull down to descend. The
-             pinched/ctrl wheel still zooms. */
-          if (event.ctrlKey || view.s <= 1) {
-            zoomBy(event.deltaY < 0 ? 0.25 : -0.25);
+        onClick={(event) => {
+          const key = creatureAt(event.clientX, event.clientY);
+
+          if (key) {
+            pokesRef.current[key] = performance.now() / 1000;
+            onCreature?.(key.startsWith("sylph") ? "sylph" : key);
+
             return;
           }
-          setView((v) => ({
-            ...v,
-            y: v.y + event.deltaY * 0.55,
-            x: v.x + (event.deltaX ?? 0) * 0.55,
-          }));
-        }}
-        onPointerDown={(event) => {
-          if (!panEnabled) {
-            onTreeClick?.();
-            return;
-          }
-          dragRef.current = {
-            px: event.clientX,
-            py: event.clientY,
-            vx: view.x,
-            vy: view.y,
-            moved: 0,
-            pointerId: event.pointerId,
-          };
-          event.currentTarget.setPointerCapture(event.pointerId);
+          onTreeClick?.();
         }}
         onPointerMove={(event) => {
-          const drag = dragRef.current;
-          if (!drag || event.pointerId !== drag.pointerId) return;
-          const dx = event.clientX - drag.px;
-          const dy = event.clientY - drag.py;
-          drag.moved += Math.abs(dx) + Math.abs(dy);
-          setView((current) => ({
-            s: current.s,
-            x: drag.vx - dx,
-            y: drag.vy - dy,
-          }));
+          hoverRef.current = creatureAt(event.clientX, event.clientY);
         }}
-        onPointerUp={(event) => {
-          const drag = dragRef.current;
-          if (!drag || event.pointerId !== drag.pointerId) return;
-          dragRef.current = null;
-          if (drag.moved < 4) {
-            onTreeClick?.();
-          }
-        }}
-        onPointerLeave={(event) => {
-          const drag = dragRef.current;
-          if (drag && event.pointerId === drag.pointerId) {
-            dragRef.current = null;
-          }
+        onPointerLeave={() => {
+          hoverRef.current = null;
         }}
       />
-
-        {panEnabled && (
-        <div
-          className="absolute bottom-2 right-2 z-20 flex items-center gap-1 rounded-lg border-[2px] border-gray-900 bg-white/90 px-1.5 py-1 backdrop-blur-[1px]"
-          aria-label="Tree viewer controls"
-        >
-          <button
-            type="button"
-            onClick={() => zoomBy(-0.25)}
-            disabled={view.s <= 1}
-            aria-label="Zoom out"
-            className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {"\−"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setView({ s: 1, x: 0, y: 0 })}
-            aria-label="Reset zoom and pan"
-            className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
-          >
-            1x
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomBy(0.25)}
-            disabled={view.s >= 2}
-            aria-label="Zoom in"
-            className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            +
-          </button>
-
-          <span className="mx-0.5 h-4 w-px bg-gray-900/30" aria-hidden="true" />
-          <button
-            type="button"
-            onClick={() => setView((v) => ({ ...v, y: v.y + 22 }))}
-            disabled={view.s <= 1}
-            aria-label="Climb up the tree"
-            title="Climb up · drag also pans"
-            className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {"\u2191"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setView((v) => ({ ...v, y: v.y - 22 }))}
-            disabled={view.s <= 1}
-            aria-label="Climb down the tree"
-            title="Climb down"
-            className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {"\u2193"}
-          </button>
-          <span className="ml-1 hidden font-mono text-[8px] font-bold uppercase tracking-wide text-muted xl:inline">
-            climb · drag to pan
-          </span>
-        </div>
-        )}
       </div>
+    </div>
+  );
+}
+
+/* A garden-style miniature of a species: the same pixel art the
+   garden uses, snapped to the tree's YOUNG stage (the Sapling, its
+   own stage-fert threshold), on a transparent background so the
+   card shows through behind the tree. */
+export function PixelSprite({
+  speciesId,
+  scale = 0.25,
+  className = "",
+}: {
+  speciesId: TreeSpeciesId;
+  /** Css pixels per art pixel: 0.25 keeps a 256x144 canvas at 64x36. */
+  scale?: number;
+  className?: string;
+}) {
+  /* The young tree snapshot: each species' Sapling threshold as a
+     fraction of the ancient tree. */
+  const youngGrowth =
+    SPECIES_STAGE_FERT[speciesId][2] / TREE_GROWTH_TARGET;
+
+  return (
+    <div
+      className={`pointer-events-none shrink-0 select-none overflow-hidden rounded-sm border-[2px] border-gray-900 bg-transparent ${className}`}
+      style={{ width: W * scale, height: H * scale }}
+      aria-hidden="true"
+    >
+      <PixelGrowthTree
+        speciesId={speciesId}
+        growth={youngGrowth}
+        cssScale={scale}
+        static
+      />
     </div>
   );
 }

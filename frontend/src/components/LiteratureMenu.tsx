@@ -33,7 +33,6 @@ import {
 import { CloseX } from "./retro/PixelIcons";
 import {
   citationParts,
-  paperLatexCitation,
 } from "../utils/citationStyles";
 import { citationKey, paperToBibtex } from "../utils/exportCitations";
 import { readSettings } from "../utils/preferences";

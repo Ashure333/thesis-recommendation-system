@@ -1,0 +1,1934 @@
+/**
+ * MY LIBRARY COLLECTION — the single layout for My Library.
+ *
+ * Basic and PRO share the same page: four tabs (Library, Dashboard,
+ * Graph, Chat). In basic form the last three are locked — they
+ * unlock together once any garden tree reaches its Young stage.
+ * The Library tab is the shared core: searchable, selectable,
+ * draggable-to-pet, paginated, with per-row chips and actions.
+ */
+
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import { useNavigate } from "react-router-dom";
+import { LayoutGrid, List, Lock, Trash2 } from "lucide-react";
+
+import {
+  getRepositoryStats,
+  removeFromLibrary,
+  researchChat,
+  researchChatSuggestions,
+  type LibraryEntry,
+  type Paper,
+  type ResearchChatResponse,
+  type ResearchChatScope,
+  type ResearchChatSource,
+} from "../../api";
+import ConnectedPapersGraph from "../../components/ConnectedPapersGraph";
+import MathText from "../../components/MathText";
+import PetFigure from "../../components/PetFigure";
+import Highlight from "../../components/Highlight";
+import PixelBurst from "../../components/retro/PixelBurst";
+import RetroDialog from "../../components/retro/RetroDialog";
+import { crumpledBallDataURL } from "../../components/retro/CrumpledPaper";
+import { Button, EmptyState } from "../../components/ui";
+import { emitPetChat } from "../../utils/petChat";
+import { contextTerm } from "../../utils/petMarkov";
+import { readSettings } from "../../utils/preferences";
+import { useSiteMode } from "../../state/siteMode";
+
+/* The pills shown before the conversation has anything to follow up on;
+   after each answer they are replaced by model-written follow-ups. */
+const DEFAULT_QUESTION_PILLS = [
+  "How do the newest papers frame the problem?",
+  "Where do these sources disagree?",
+  "Which methods recur across the collection?",
+];
+
+/* ------------------------------------------------------------ */
+
+/* The pet's drag payload (see PixelPet.tsx): JSON {id, title?}. */
+const PAPER_DROP_MIME = "application/x-research-paper";
+
+/* Crumpled-paper drag ghost, prepared once. */
+let dragGhost: HTMLImageElement | null = null;
+
+function getDragGhost(): HTMLImageElement | null {
+  if (dragGhost) return dragGhost;
+  const img = new Image();
+  img.src = crumpledBallDataURL(96);
+  void img.decode().catch(() => undefined);
+  dragGhost = img;
+  return img;
+}
+
+function startPaperDrag(
+  event: React.DragEvent<HTMLElement>,
+  paper: Paper,
+) {
+  event.dataTransfer.setData(
+    PAPER_DROP_MIME,
+    JSON.stringify({ id: paper.id, title: paper.title }),
+  );
+  event.dataTransfer.effectAllowed = "move";
+
+  const ghost = getDragGhost();
+  if (ghost) {
+    event.dataTransfer.setDragImage(ghost, 32, 32);
+  }
+}
+
+/* The shared bordered-chip look across the page's controls. */
+const CHIP_CLASS = "rounded border-[3px] border-gray-900 px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.12em] transition-colors pixel-ease";
+const CHIP_ACTIVE = "bg-accent text-onAccent";
+const CHIP_IDLE = "bg-white text-ink hover:bg-accentSoft";
+
+/* ------------------------------------------------------------ */
+
+type ProTab = "library" | "dashboard" | "graph" | "chat";
+
+const PAGE_SIZES = [10, 25, 50];
+
+const LOCKED_FEATURES: Record<Exclude<ProTab, "library">, string> = {
+  dashboard:
+    "KPI cards, five-year publication bins, subject and document-type breakdowns, most-cited and newest lists.",
+  graph:
+    "The similar-papers graph of any saved paper, with a neighbor-count slider.",
+  chat:
+    "The research chat that answers across your collection with sourced passages (still a placeholder).",
+};
+
+/** 5-year bins, oldest first, with counts. */
+function yearBins(papers: Paper[]): { label: string; count: number }[] {
+  const bins = new Map<number, number>();
+
+  for (const paper of papers) {
+    const year = paper.publication_year;
+    if (!year) continue;
+    const bin = Math.floor(year / 5) * 5;
+    bins.set(bin, (bins.get(bin) ?? 0) + 1);
+  }
+
+  return [...bins.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([bin, count]) => ({
+      label: `${bin}–${bin + 4}`,
+      count,
+    }));
+}
+
+function categoryOf(paper: Paper) {
+  const parts = paper.subject_category?.split(":", 2).map((p) => p.trim());
+  return { subject: parts?.[0] ?? "", category: parts?.[1] ?? "" };
+}
+
+/* ------------------------------------------------------------ */
+
+interface MyLibraryProProps {
+  entries: LibraryEntry[];
+  /** False once any garden tree reaches its Young stage. */
+  locked: boolean;
+  onRemoved: (paperId: number) => void;
+  onPaperUpdated: (paper: Paper) => void;
+  viewer: {
+    paper: Paper | null;
+    open: boolean;
+    openPaper: (paper: Paper) => void;
+    close: () => void;
+  };
+}
+
+export default function MyLibraryPro({
+  entries,
+  locked,
+  onRemoved,
+  onPaperUpdated,
+  viewer,
+}: MyLibraryProProps) {
+  const presenting = useSiteMode().mode === "presentation";
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<ProTab>("library");
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState<"list" | "grid">("list");
+  const [pill, setPill] = useState<"all" | "pdf" | "recent" | "unsorted">(
+    "all",
+  );
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [stats, setStats] = useState<{
+    total: number;
+    subjects: number;
+  } | null>(null);
+
+  /* Graph tab state. */
+  const [graphPaperId, setGraphPaperId] = useState<number | null>(null);
+  const [graphTopK, setGraphTopK] = useState(10);
+  const [graphFocus, setGraphFocus] = useState<Paper | null>(null);
+
+  /* Chat tab state — grounded retrieval over collection / repo / web,
+     persisted conversations with a collapsible history rail. */
+  type ChatMessage = {
+    role: "user" | "assistant";
+    content: string;
+    sources?: ResearchChatSource[];
+    usedFallback?: boolean;
+    scope?: ResearchChatScope;
+    /** Follow-up questions for the pills, written after this answer. */
+    suggestions?: string[];
+  };
+
+  type ChatConversation = {
+    id: string;
+    title: string;
+    updatedAt: number;
+    messages: ChatMessage[];
+  };
+
+  const CHAT_HISTORY_KEY = "paperrec_library_chat_hist";
+  const CHAT_SIDEBAR_KEY = "paperrec_library_chat_sidebar";
+  const CHAT_HISTORY_LIMIT = 20;
+
+  const [conversations, setConversations] = useState<ChatConversation[]>(
+    () => {
+      try {
+        const raw = window.localStorage.getItem(CHAT_HISTORY_KEY);
+        const parsed = raw ? (JSON.parse(raw) as ChatConversation[]) : [];
+        return Array.isArray(parsed) ? parsed.slice(0, CHAT_HISTORY_LIMIT) : [];
+      } catch {
+        return [];
+      }
+    },
+  );
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [chatText, setChatText] = useState("");
+  const [chatScope, setChatScope] = useState<ResearchChatScope>("library");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const suggestSeq = useRef(0);
+  const [chatSidebarOpen, setChatSidebarOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(CHAT_SIDEBAR_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        CHAT_HISTORY_KEY,
+        JSON.stringify(conversations.slice(0, CHAT_HISTORY_LIMIT)),
+      );
+    } catch {
+      // best-effort
+    }
+  }, [conversations]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        CHAT_SIDEBAR_KEY,
+        chatSidebarOpen ? "1" : "0",
+      );
+    } catch {
+      // best-effort
+    }
+  }, [chatSidebarOpen]);
+
+  const activeConversation =
+    conversations.find((conversation) => conversation.id === activeId) ??
+    conversations[0] ??
+    null;
+
+  const askBoxLocked = locked;
+
+  /* Auto-scroll the bounded thread to the newest message. */
+  const threadRef = useRef<HTMLDivElement | null>(null);
+  const lastMessageCount = activeConversation?.messages.length ?? 0;
+
+  useEffect(() => {
+    const element = threadRef.current;
+    if (element) {
+      element.scrollTop = element.scrollHeight;
+    }
+  }, [lastMessageCount]);
+
+  function startNewChat() {
+    if (activeConversation && activeConversation.messages.length === 0) {
+      return;
+    }
+
+    const conversation: ChatConversation = {
+      id: `chat-${Date.now()}`,
+      title: "New chat",
+      updatedAt: Date.now(),
+      messages: [],
+    };
+
+    setConversations((prev) => [conversation, ...prev]);
+    setActiveId(conversation.id);
+  }
+
+  function deleteConversation(id: string) {
+    setConversations((prev) => {
+      const next = prev.filter((conversation) => conversation.id !== id);
+      if (id === activeId) {
+        setActiveId(next[0]?.id ?? null);
+      }
+      return next;
+    });
+  }
+
+  function deleteAllConversations() {
+    setConfirmDeleteAll(true);
+  }
+
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+
+  /* Follow-up pills: written after the answer is already on screen, so
+     they never delay it. Only the newest request clears the busy state,
+     and a failure just leaves the previous pills in place. */
+  async function loadSuggestions(
+    conversationId: string,
+    question: string,
+    data: ResearchChatResponse,
+  ) {
+    const mine = ++suggestSeq.current;
+    setSuggestBusy(true);
+
+    try {
+      const result = await researchChatSuggestions({
+        question,
+        answer: data.answer,
+        sourceTitles: data.sources.map((source) => source.title),
+      });
+
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                messages: conversation.messages.map((message) =>
+                  message.role === "assistant" &&
+                  message.content === data.answer &&
+                  !message.suggestions
+                    ? { ...message, suggestions: result.suggestions }
+                    : message,
+                ),
+              }
+            : conversation,
+        ),
+      );
+    } catch {
+      /* keep whatever pills are showing */
+    } finally {
+      if (mine === suggestSeq.current) {
+        setSuggestBusy(false);
+      }
+    }
+  }
+
+  async function sendChat(question?: string) {
+    const text = (question ?? chatText).trim();
+    if (!text || chatBusy) {
+      return;
+    }
+
+    const history =
+      activeConversation?.messages
+        .slice(-6)
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        })) ?? [];
+
+    setChatBusy(true);
+    setChatText("");
+
+    /* The pet talks about the conversation: its topic is read from the
+       newest question (older turns only when it names none). */
+    const topic = contextTerm([
+      ...(activeConversation?.messages ?? []),
+      { role: "user", content: text },
+    ]);
+    const turn =
+      (activeConversation?.messages.filter((m) => m.role === "user").length ??
+        0) + 1;
+
+    emitPetChat({ kind: "thinking", term: topic, turn });
+
+    const ensureConversation = (): string => {
+      if (activeConversation && activeConversation.id === activeId) {
+        return activeConversation.id;
+      }
+      const conversation: ChatConversation = {
+        id: `chat-${Date.now()}`,
+        title: "New chat",
+        updatedAt: Date.now(),
+        messages: [],
+      };
+      setConversations((prev) => [conversation, ...prev]);
+      setActiveId(conversation.id);
+      return conversation.id;
+    };
+
+    const conversationId = ensureConversation();
+
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === conversationId
+          ? {
+              ...conversation,
+              title:
+                conversation.title === "New chat"
+                  ? text.slice(0, 60)
+                  : conversation.title,
+              updatedAt: Date.now(),
+              messages: [
+                ...conversation.messages,
+                { role: "user", content: text },
+              ],
+            }
+          : conversation,
+      ),
+    );
+
+    try {
+      /* Settings > citation style: read per request so a change in
+         Settings applies to the very next answer. */
+      const settings = readSettings();
+
+      const data = await researchChat({
+        message: text,
+        pipeline: "sbert",
+        topK: 6,
+        citationStyle: settings.citationStyle,
+        includeDoi: settings.citationIncludeDoi,
+        scope: chatScope,
+        paperIds:
+          chatScope === "library"
+            ? papers.map((paper) => paper.id)
+            : undefined,
+        history,
+      });
+
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                updatedAt: Date.now(),
+                messages: [
+                  ...conversation.messages,
+                  {
+                    role: "assistant",
+                    content: data.answer,
+                    sources: data.sources,
+                    usedFallback: data.used_fallback,
+                    scope: chatScope,
+                  },
+                ],
+              }
+            : conversation,
+        ),
+      );
+
+      emitPetChat({
+        kind: data.used_fallback ? "fallback" : "answered",
+        term: topic,
+        sources: data.sources.length,
+        turn,
+      });
+
+      void loadSuggestions(conversationId, text, data);
+    } catch (error) {
+      emitPetChat({ kind: "error", turn });
+
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                updatedAt: Date.now(),
+                messages: [
+                  ...conversation.messages,
+                  {
+                    role: "assistant",
+                    content:
+                      error instanceof Error
+                        ? error.message
+                        : "Research chat failed.",
+                  },
+                ],
+              }
+            : conversation,
+        ),
+      );
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  /* Table-delete pixel explosion: fires at the button's position. */
+  const [burst, setBurst] = useState<{
+    x: number;
+    y: number;
+    key: number;
+  } | null>(null);
+
+  useEffect(() => {
+    getRepositoryStats()
+      .then((rows) =>
+        setStats({ total: rows.total_papers, subjects: rows.category_count }),
+      )
+      .catch(() => setStats(null));
+  }, []);
+
+  const papers = useMemo(
+    () => entries.map((entry) => entry.paper),
+    [entries],
+  );
+
+  const q = query.trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    const withPill = papers.filter((paper) => {
+      if (pill === "pdf") {
+        return paper.stored_path?.toLowerCase().endsWith(".pdf");
+      }
+      if (pill === "unsorted") {
+        return !paper.subject_category;
+      }
+      if (pill === "recent") {
+        return (paper.publication_year ?? 0) >= 2023;
+      }
+      return true;
+    });
+
+    if (!q) {
+      return withPill;
+    }
+
+    return withPill.filter(
+      (paper) =>
+        (paper.title ?? "")
+          .toLowerCase()
+          .includes(q) ||
+        (paper.author ?? "").toLowerCase().includes(q),
+    );
+  }, [papers, pill, q]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageStart = (page - 1) * pageSize;
+  const paged = filtered.slice(pageStart, pageStart + pageSize);
+
+  function toggleSelected(id: number) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function burstAt(event: MouseEvent<HTMLButtonElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const key = Date.now();
+    setBurst({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      key,
+    });
+    window.setTimeout(
+      () =>
+        setBurst((current) => (current?.key === key ? null : current)),
+      650,
+    );
+  }
+
+  async function handleRemove(paper: Paper, event?: MouseEvent<HTMLButtonElement>) {
+    if (event) {
+      burstAt(event);
+    }
+    await removeFromLibrary(paper.id);
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.delete(paper.id);
+      return next;
+    });
+    onRemoved(paper.id);
+  }
+
+  /* Dashboard aggregates. */
+  const bins = useMemo(() => yearBins(papers), [papers]);
+  const maxBin = Math.max(1, ...bins.map((b) => b.count));
+  const validCount = papers.filter(
+    (paper) => paper.is_valid_for_recommendation,
+  ).length;
+  const subjectCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const paper of papers) {
+      const { subject } = categoryOf(paper);
+      const key = subject || "Uncategorized";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [papers]);
+  const maxSubject = Math.max(1, ...subjectCounts.map(([, c]) => c));
+  const docTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const paper of papers) {
+      const key = paper.document_type || "Other";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [papers]);
+  const mostCited = useMemo(
+    () =>
+      [...papers]
+        .filter((p) => (p.citation_count ?? 0) > 0)
+        .sort((a, b) => (b.citation_count ?? 0) - (a.citation_count ?? 0))
+        .slice(0, 5),
+    [papers],
+  );
+  const mostRecent = useMemo(
+    () =>
+      [...papers]
+        .filter((p) => Boolean(p.publication_year))
+        .sort(
+          (a, b) => (b.publication_year ?? 0) - (a.publication_year ?? 0),
+        )
+        .slice(0, 5),
+    [papers],
+  );
+
+  useEffect(() => {
+    if (graphPaperId === null) {
+      setGraphFocus(null);
+      return;
+    }
+    const paper = papers.find((p) => p.id === graphPaperId) ?? null;
+    setGraphFocus(paper);
+  }, [graphPaperId, papers]);
+
+  const kpis = [
+    {
+      label: "Saved papers",
+      value: String(papers.length),
+      sub: "this collection",
+    },
+    {
+      label: "Repository",
+      value: stats ? String(stats.total) : "…",
+      sub: stats ? `${stats.subjects} subjects` : "loading…",
+    },
+    {
+      label: "Valid for ranking",
+      value: String(validCount),
+      sub: "title, abstract, keywords, year",
+    },
+    {
+      label: "Document types",
+      value: String(docTypeCounts.length),
+      sub: docTypeCounts
+        .slice(0, 2)
+        .map(([name, count]) => `${name} ${count}`)
+        .join(" · "),
+    },
+  ];
+
+  const tabMeta: { id: ProTab; label: string; locked: boolean }[] = [
+    { id: "library", label: "Library", locked: false },
+    { id: "dashboard", label: "Dashboard", locked: locked },
+    { id: "graph", label: "Graph", locked: locked },
+    { id: "chat", label: "Chat", locked: locked },
+  ];
+
+  const selectedCount = selectedIds.size;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* View tabs */}
+      <div
+        role="tablist"
+        aria-label="Collection views"
+        className="flex flex-wrap items-center gap-1 border-b-[3px] border-gray-900 pb-1"
+      >
+        {tabMeta.map((item) => {
+          const active = tab === item.id;
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(item.id)}
+              className={`${CHIP_CLASS} ${
+                active
+                  ? CHIP_ACTIVE
+                  : item.locked
+                    ? "text-muted hover:text-ink"
+                    : CHIP_IDLE
+              }`}
+            >
+              {item.locked && <Lock className="mr-1.5 inline h-3 w-3" />}
+              {item.label}
+            </button>
+          );
+        })}
+
+        <span className="ml-auto pb-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+          MY LIBRARY {locked ? "" : "· PRO"}
+        </span>
+      </div>
+
+      {/* ================= LIBRARY ================= */}
+      {tab === "library" && (
+        <div className="flex flex-col gap-3">
+          {/* Ask box — routes to the Chat tab when PRO is unlocked */}
+          <div className="font-pixelify rounded border-[3px] border-gray-900 bg-white p-4">
+            <div className="flex items-center gap-2">
+              {locked && (
+                <span
+                  title={
+                    presenting
+                      ? "Research chat is part of the PRO version"
+                      : "Research chat unlocks with PRO — grow any garden tree past its Young stage"
+                  }
+                  aria-label="Locked — available in PRO mode"
+                  className="shrink-0 text-muted"
+                >
+                  <Lock className="h-4 w-4" />
+                </span>
+              )}
+              <input
+                type="text"
+                value={chatText}
+                onChange={(event) => setChatText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !locked) {
+                    setTab("chat");
+                    window.setTimeout(() => {
+                      void sendChat();
+                    }, 0);
+                  }
+                }}
+                placeholder={
+                  locked
+                    ? "Ask a question about these papers (research chat arrives later)"
+                    : "Ask a question about these papers…"
+                }
+                disabled={locked || chatBusy}
+                className="ui-input disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted">
+              {locked
+                ? presenting
+                  ? "The research chat is part of the PRO version."
+                  : "The research chat is locked in your current mode — it unlocks with PRO. Selection, search, dashboard, and the graph are live."
+                : "Enter a question and press Enter: the Chat tab answers it against your collection, the repository, or the web, citing the sources it used."}
+            </p>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded border-[3px] border-gray-900 bg-white p-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  ["all", "All"],
+                  ["pdf", "With PDF"],
+                  ["recent", "Recent (2023+)"],
+                  ["unsorted", "Unsorted"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={pill === id}
+                  onClick={() => {
+                    setPill(id);
+                    setPage(1);
+                  }}
+                  className={`${CHIP_CLASS} ${
+                    pill === id ? CHIP_ACTIVE : CHIP_IDLE
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search the collection…"
+                aria-label="Search the collection"
+                className="ui-input min-h-10 w-56 px-3 py-2 text-sm"
+              />
+
+              <div className="flex rounded border-[3px] border-gray-900 bg-white p-0.5">
+                <button
+                  type="button"
+                  aria-pressed={view === "list"}
+                  onClick={() => setView("list")}
+                  title="List view"
+                  className={`rounded px-2.5 py-1.5 transition-colors pixel-ease ${
+                    view === "list"
+                      ? "bg-accent text-onAccent"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  <List className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={view === "grid"}
+                  onClick={() => setView("grid")}
+                  title="Grid view"
+                  className={`rounded px-2.5 py-1.5 transition-colors pixel-ease ${
+                    view === "grid"
+                      ? "bg-accent text-onAccent"
+                      : "text-muted hover:text-ink"
+                  }`}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Selection bar */}
+          {selectedCount > 0 && (
+            <div className="flex flex-wrap items-center gap-3 rounded border-[3px] border-gray-900 bg-accentSoft px-4 py-2">
+              <span className="font-mono text-xs font-bold text-ink">
+                {selectedCount} selected
+              </span>
+              <div className="ml-auto">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Papers */}
+          {filtered.length === 0 ? (
+            <div className="rounded border-[3px] border-gray-900 bg-white p-6">
+              <EmptyState
+                title="No papers match."
+                description="Try a different filter or search term."
+                figure={<PetFigure size={72} />}
+              />
+            </div>
+          ) : view === "grid" ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {paged.map((paper) => (
+                <article
+                  key={paper.id}
+                  draggable
+                  onDragStart={(event) => startPaperDrag(event, paper)}
+                  className={`cursor-grab rounded border-[3px] border-gray-900 bg-white p-4 active:cursor-grabbing ${
+                    selectedIds.has(paper.id)
+                      ? "shadow-[inset_0_0_0_3px_var(--accent)]"
+                      : ""
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${paper.title}`}
+                      checked={selectedIds.has(paper.id)}
+                      onChange={() => toggleSelected(paper.id)}
+                      className="mt-1 h-4 w-4 accent-[#1f5f8b]"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Remove paper from collection"
+                      onClick={(event) => void handleRemove(paper, event)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded border-[3px] border-gray-900 bg-white text-muted transition-colors hover:bg-accent hover:text-onAccent"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <h3 className="mt-2 font-pixelify text-sm font-bold leading-5 text-ink">
+                    <MathText text={paper.title} />
+                  </h3>
+                  <p className="mt-1 text-xs text-muted">
+                    {paper.author ?? "Unknown author"} ·{" "}
+                    {paper.publication_year ?? "—"}
+                  </p>
+                  {paper.abstract && (
+                    <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted">
+                      <Highlight text={paper.abstract} terms={q ? [q] : []} />
+                    </p>
+                  )}
+                  <PaperChips paper={paper} />
+
+                  <div className="mt-3 flex flex-wrap gap-2 border-t-[2px] border-gray-200 pt-3">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => viewer.openPaper(paper)}
+                    >
+                      View
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
+              {paged.map((paper) => (
+                <div
+                  key={paper.id}
+                  draggable
+                  onDragStart={(event) => startPaperDrag(event, paper)}
+                  className={`flex cursor-grab items-start gap-3 border-b border-gray-200 p-3 last:border-b-0 active:cursor-grabbing ${
+                    selectedIds.has(paper.id) ? "bg-accentSoft/60" : ""
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${paper.title}`}
+                    checked={selectedIds.has(paper.id)}
+                    onChange={() => toggleSelected(paper.id)}
+                    className="mt-1 h-4 w-4 accent-[#1f5f8b]"
+                  />
+
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-pixelify text-sm font-bold leading-5 text-ink">
+                      <MathText text={paper.title} />
+                    </h3>
+                    <p className="mt-1 text-xs text-muted">
+                      {paper.author ?? "Unknown author"}
+                      {paper.publication_year
+                        ? ` · ${paper.publication_year}`
+                        : ""}
+                    </p>
+                    <PaperChips paper={paper} />
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => viewer.openPaper(paper)}
+                    >
+                      View
+                    </Button>
+                    <button
+                      type="button"
+                      aria-label="Remove paper from collection"
+                      onClick={(event) => void handleRemove(paper, event)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white text-muted transition-colors hover:bg-accent hover:text-onAccent"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Drag-to-pet hint */}
+          <p className="text-xs leading-5 text-muted">
+            Tip: drag a saved paper onto the pixel pet to remove it
+            from your library (the table's × deletes it in place).
+          </p>
+
+          {/* Pagination */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded border-[3px] border-gray-900 bg-white px-4 py-2">
+            <span className="font-mono text-xs text-muted">
+              {filtered.length === 0
+                ? "0 papers"
+                : `${pageStart + 1}–${Math.min(
+                    pageStart + pageSize,
+                    filtered.length,
+                  )} of ${filtered.length}`}
+            </span>
+
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ‹ Prev
+              </Button>
+              <span className="font-mono text-xs text-muted">
+                {page} / {pageCount}
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={page >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              >
+                Next ›
+              </Button>
+
+              <label className="ml-2 flex items-center gap-1.5 text-xs text-muted">
+                per page
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                  className="min-h-8 rounded border-[3px] border-gray-900 bg-field px-1 text-xs text-ink"
+                >
+                  {PAGE_SIZES.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= DASHBOARD ================= */}
+      {tab === "dashboard" &&
+        (locked ? (
+          <LockedTab
+            title="Dashboard"
+            description={LOCKED_FEATURES.dashboard}
+            onOpenGarden={() => navigate("/lab")}
+          />
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {kpis.map((kpi) => (
+                <div
+                  key={kpi.label}
+                  className="rounded border-[3px] border-gray-900 bg-white p-4"
+                >
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+                    {kpi.label}
+                  </p>
+                  <p className="font-pixelify mt-1 text-3xl font-bold text-ink">
+                    {kpi.value}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">{kpi.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              {/* Papers by publication year */}
+              <div className="min-w-[320px] flex-1 rounded border-[3px] border-gray-900 bg-white p-4">
+                <h3 className="font-pixelify text-base font-bold text-ink">
+                  Papers by publication year
+                </h3>
+                <p className="text-xs text-muted">Five-year bins</p>
+
+                <div className="mt-4 flex h-40 items-end gap-2 border-b-[2px] border-gray-900">
+                  {bins.length === 0 ? (
+                    <p className="pb-2 text-xs text-muted">
+                      No dated papers yet.
+                    </p>
+                  ) : (
+                    bins.map((bin) => (
+                      <div
+                        key={bin.label}
+                        className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
+                      >
+                        <span className="font-mono text-[10px] font-bold text-ink">
+                          {bin.count}
+                        </span>
+                        <div
+                          className="w-full max-w-[56px] rounded-t border-[2px] border-b-0 border-gray-900 bg-accent"
+                          style={{ height: `${(bin.count / maxBin) * 100}%` }}
+                        />
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  {bins.map((bin) => (
+                    <span
+                      key={bin.label}
+                      className="min-w-0 flex-1 truncate text-center font-mono text-[10px] text-muted"
+                    >
+                      {bin.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Subjects */}
+              <div className="min-w-[280px] flex-1 rounded border-[3px] border-gray-900 bg-white p-4">
+                <h3 className="font-pixelify text-base font-bold text-ink">
+                  Subjects
+                </h3>
+                <p className="text-xs text-muted">
+                  Where the collection clusters
+                </p>
+
+                <div className="mt-4 flex flex-col gap-2.5">
+                  {subjectCounts.length === 0 ? (
+                    <p className="text-xs text-muted">
+                      No classified papers yet.
+                    </p>
+                  ) : (
+                    subjectCounts.slice(0, 6).map(([name, count]) => (
+                      <div
+                        key={name}
+                        className="grid grid-cols-[minmax(90px,1.2fr)_2fr_28px] items-center gap-2 text-xs"
+                      >
+                        <span className="truncate text-muted">{name}</span>
+                        <div className="h-2.5 overflow-hidden rounded-full border-[1px] border-gray-900 bg-canvas">
+                          <div
+                            className="h-full bg-accent"
+                            style={{
+                              width: `${(count / maxSubject) * 100}%`,
+                            }}
+                          />
+                        </div>
+                        <strong className="text-right font-mono text-ink">
+                          {count}
+                        </strong>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              {/* Most cited */}
+              <div className="min-w-[280px] flex-1 rounded border-[3px] border-gray-900 bg-white p-4">
+                <h3 className="font-pixelify text-base font-bold text-ink">
+                  Most cited
+                </h3>
+                <div className="mt-2">
+                  {mostCited.length === 0 ? (
+                    <p className="text-xs text-muted">
+                      Citation counts are filled by metadata enrichment.
+                    </p>
+                  ) : (
+                    mostCited.map((paper) => (
+                      <div
+                        key={paper.id}
+                        className="flex items-baseline gap-3 border-t border-gray-200 py-2 text-xs"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <MathText text={paper.title} />
+                        </span>
+                        <strong className="font-mono text-ink">
+                          {paper.citation_count ?? 0}
+                        </strong>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Most recent */}
+              <div className="min-w-[280px] flex-1 rounded border-[3px] border-gray-900 bg-white p-4">
+                <h3 className="font-pixelify text-base font-bold text-ink">
+                  Newest in the collection
+                </h3>
+                <div className="mt-2">
+                  {mostRecent.length === 0 ? (
+                    <p className="text-xs text-muted">No dated papers yet.</p>
+                  ) : (
+                    mostRecent.map((paper) => (
+                      <div
+                        key={paper.id}
+                        className="flex items-baseline gap-3 border-t border-gray-200 py-2 text-xs"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <MathText text={paper.title} />
+                        </span>
+                        <strong className="font-mono text-ink">
+                          {paper.publication_year ?? "—"}
+                        </strong>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Document types */}
+              <div className="min-w-[240px] flex-1 rounded border-[3px] border-gray-900 bg-white p-4">
+                <h3 className="font-pixelify text-base font-bold text-ink">
+                  Document types
+                </h3>
+                <div className="mt-4 flex flex-col gap-2.5">
+                  {docTypeCounts.map(([name, count]) => (
+                    <div
+                      key={name}
+                      className="flex items-center justify-between gap-2 text-xs"
+                    >
+                      <span className="truncate text-muted">{name}</span>
+                      <strong className="font-mono text-ink">{count}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+      {/* ================= GRAPH ================= */}
+      {tab === "graph" &&
+        (locked ? (
+          <LockedTab
+            title="Graph"
+            description={LOCKED_FEATURES.graph}
+            onOpenGarden={() => navigate("/lab")}
+          />
+        ) : (
+          <div className="flex gap-3">
+            {/* Papers menu — the loaded collection, pick to recompute */}
+            <aside className="w-full shrink-0 overflow-hidden rounded border-[3px] border-gray-900 bg-white sm:w-64">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
+                <p className="font-pixelify text-xs font-bold uppercase tracking-[0.15em] text-muted">
+                  Papers
+                </p>
+                <span className="font-mono text-[10px] font-bold text-muted">
+                  {papers.length}
+                </span>
+              </div>
+
+              <div className="max-h-[560px] space-y-1 overflow-y-auto p-2">
+                {papers.length === 0 ? (
+                  <p className="px-2 py-3 text-xs leading-5 text-muted">
+                    Save papers first, then pick one to explore its
+                    neighborhood.
+                  </p>
+                ) : (
+                  papers.map((paper) => {
+                    const active = graphPaperId === paper.id;
+
+                    return (
+                      <button
+                        key={paper.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setGraphPaperId(paper.id)}
+                        className={`flex w-full flex-col gap-0.5 rounded border-[2px] px-2 py-1.5 text-left transition-colors pixel-ease ${
+                          active
+                            ? "border-gray-900 bg-accent text-onAccent"
+                            : "border-gray-900 bg-surface text-ink hover:bg-accentSoft"
+                        }`}
+                      >
+                        <span className="line-clamp-2 font-pixelify text-xs font-bold leading-4">
+                          {paper.title}
+                        </span>
+                        <span
+                          className={`font-mono text-[10px] ${
+                            active ? "text-onAccent/70" : "text-muted"
+                          }`}
+                        >
+                          {paper.publication_year ?? "—"}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </aside>
+
+            {/* Graph column */}
+            <div className="font-pixelify flex min-w-0 flex-1 flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-3 rounded border-[3px] border-gray-900 bg-white px-4 py-3">
+                <label className="flex items-center gap-2 text-[13px] font-bold text-ink">
+                  <span className="font-mono text-[11px] font-bold uppercase tracking-[0.15em] text-muted">
+                    Neighbors
+                  </span>
+                  <input
+                    type="range"
+                    min={3}
+                    max={25}
+                    value={graphTopK}
+                    onChange={(event) =>
+                      setGraphTopK(Number(event.target.value))
+                    }
+                    className="w-36 accent-[#1f5f8b]"
+                  />
+                  <span className="w-8 font-mono text-sm font-bold text-ink">
+                    {graphTopK}
+                  </span>
+                </label>
+              </div>
+
+            {graphFocus ? (
+              <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
+                <ConnectedPapersGraph
+                  paperId={graphFocus.id}
+                  pipeline="tfidf_sbert_metadata"
+                  topK={graphTopK}
+                  widened
+                  controls
+                  sidePanel
+                  onAskAbout={(paperId, title) => {
+                    setTab("chat");
+                    void sendChat(
+                      `Tell me about "${title}" (paper #${paperId})`,
+                    );
+                  }}
+                  onOpenInLibrary={() => setTab("library")}
+                />
+              </div>
+            ) : (
+              <div className="rounded border-[3px] border-gray-900 bg-white p-6">
+                <EmptyState
+                  title="Pick a paper to explore."
+                  description="The graph draws the selected paper's closest neighbors from the repository's similarity network."
+                  figure={<PetFigure size={72} />}
+                />
+              </div>
+            )}
+            </div>
+          </div>
+        ))}
+
+      {/* ================= CHAT ================= */}
+      {tab === "chat" &&
+        (locked ? (
+          <LockedTab
+            title="Chat"
+            description={LOCKED_FEATURES.chat}
+            onOpenGarden={() => navigate("/lab")}
+          />
+        ) : (
+          <div className="font-pixelify flex gap-3">
+            {/* History rail — collapsible */}
+            <aside
+              className={`shrink-0 overflow-hidden rounded border-[3px] border-gray-900 bg-white ${
+                chatSidebarOpen ? "w-full sm:w-64" : "w-12"
+              }`}
+            >
+              {chatSidebarOpen ? (
+                <div className="flex h-full flex-col">
+                  <div className="flex shrink-0 items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
+                    <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
+                      History
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setChatSidebarOpen(false)}
+                      title="Collapse chat history"
+                      aria-label="Collapse chat history"
+                      className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-xs font-bold text-ink hover:bg-accentSoft"
+                    >
+                      «
+                    </button>
+                  </div>
+
+                  <div className="flex shrink-0 items-center justify-between gap-2 border-b-[2px] border-gray-200 px-3 py-1.5">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                      {conversations.length} chat
+                      {conversations.length === 1 ? "" : "s"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={deleteAllConversations}
+                      disabled={conversations.length === 0}
+                      title="Delete the whole chat history"
+                      aria-label="Delete the whole chat history"
+                      className="inline-flex items-center gap-1 rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 text-[10px] font-bold text-muted transition-colors hover:bg-accent hover:text-onAccent disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete all
+                    </button>
+                  </div>
+
+                  <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+                    {conversations.length === 0 ? (
+                      <p className="px-2 py-3 text-xs leading-5 text-muted">
+                        No chats yet. Ask a question and the conversation
+                        is kept here.
+                      </p>
+                    ) : (
+                      conversations.map((conversation) => {
+                        const active = conversation.id === activeConversation?.id;
+
+                        return (
+                          <div
+                            key={conversation.id}
+                            className={`flex items-center gap-1 rounded border-[2px] ${
+                              active
+                                ? "border-gray-900 bg-accent text-onAccent"
+                                : "border-gray-900 bg-surface text-ink hover:bg-accentSoft"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setActiveId(conversation.id)}
+                              className="min-w-0 flex-1 py-1.5 pl-2 pr-1 text-left"
+                            >
+                              <span className="block truncate text-xs font-bold">
+                                {conversation.title}
+                              </span>
+                              <span
+                                className={`block font-mono text-[10px] ${
+                                  active ? "text-onAccent/70" : "text-muted"
+                                }`}
+                              >
+                                {new Date(
+                                  conversation.updatedAt,
+                                ).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                                {" · "}
+                                {conversation.messages.filter(
+                                  (message) => message.role === "user",
+                                ).length}{" "}
+                                question
+                                {conversation.messages.filter(
+                                  (message) => message.role === "user",
+                                ).length === 1
+                                  ? ""
+                                  : "s"}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              aria-label={`Delete chat: ${conversation.title}`}
+                              onClick={() =>
+                                deleteConversation(conversation.id)
+                              }
+                              className={`mr-1 rounded border-[2px] px-1 py-0.5 transition-colors ${
+                                active
+                                  ? "border-white/40 bg-white/20 text-onAccent hover:bg-white/30"
+                                  : "border-gray-900 bg-white text-muted hover:bg-accent hover:text-onAccent"
+                              }`}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setChatSidebarOpen(true)}
+                  title="Show chat history"
+                  aria-label="Show chat history"
+                  className="flex h-full min-h-[320px] w-full flex-col items-center justify-center gap-2 bg-canvas font-mono text-lg font-bold text-muted hover:bg-accentSoft hover:text-ink"
+                >
+                  <span>»</span>
+                  <span className="rotate-90 whitespace-nowrap text-[10px] uppercase tracking-[0.2em]">
+                    History
+                  </span>
+                </button>
+              )}
+            </aside>
+
+            {/* Thread column */}
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
+              {/* Scope selector */}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded border-[3px] border-gray-900 bg-white px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-muted">
+                    Chatting with
+                  </span>
+                  {(
+                    [
+                      ["library", "Collection"],
+                      ["repo", "Repository"],
+                      ["web", "Web"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={chatScope === id}
+                      onClick={() => setChatScope(id)}
+                      className={`${CHIP_CLASS} ${
+                        chatScope === id ? CHIP_ACTIVE : CHIP_IDLE
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={startNewChat}
+                >
+                  New chat
+                </Button>
+              </div>
+
+              {/* Bounded, scrollable thread */}
+              <div
+                ref={threadRef}
+                className="h-[540px] overflow-y-auto rounded border-[3px] border-gray-900 bg-white p-5"
+              >
+                {!activeConversation ||
+                activeConversation.messages.length === 0 ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 py-8 text-center">
+                    <PetFigure size={64} />
+                    <p className="font-pixelify text-lg font-bold text-ink">
+                      Ask across your research
+                    </p>
+                    <p className="max-w-md text-sm leading-6 text-muted">
+                      Answers are grounded in retrieved sources — your
+                      collection, the whole repository, or the open web —
+                      and cited with bracket numbers like{" "}
+                      <span className="font-mono font-bold text-ink">[1]</span>.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-5">
+                    {activeConversation.messages.map((message, index) =>
+                      message.role === "user" ? (
+                        <div
+                          key={index}
+                          className="self-end max-w-[min(640px,92%)] rounded-xl rounded-br-sm border-[3px] border-gray-900 bg-accent px-4 py-3 text-sm leading-6 text-onAccent"
+                        >
+                          {message.content}
+                        </div>
+                      ) : (
+                        <div
+                          key={index}
+                          className="flex max-w-full flex-col gap-3"
+                        >
+                          {message.scope && (
+                            <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
+                              Searched {message.scope} ·{" "}
+                              {message.sources?.length ?? 0} source
+                              {message.sources?.length === 1 ? "" : "s"}{" "}
+                              used
+                            </p>
+                          )}
+
+<div className="self-start max-w-[min(720px,100%)] rounded-xl rounded-bl-sm border-[3px] border-gray-900 bg-white px-4 py-3 text-sm leading-6 text-ink">
+                          <ChatAnswer
+                            content={message.content.replace(
+                              /【(\d+)】/g,
+                              "[$1]",
+                            )}
+                          />
+                        </div>
+
+                          {message.usedFallback && (
+                            <p className="text-xs text-muted">
+                              The hosted language model was unavailable,
+                              so this is the extractive fallback: it
+                              quotes the most relevant sentence from
+                              each source directly.
+                            </p>
+                          )}
+
+                          {message.sources &&
+                            message.sources.length > 0 && (
+                              <div className="rounded border-[2px] border-gray-900 bg-canvas">
+                                <p className="border-b-[2px] border-gray-900 bg-white px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
+                                  Sources
+                                </p>
+                                {message.sources.map(
+                                  (source, sourceIndex) => (
+                                    <ChatSourceRow
+                                      key={sourceIndex}
+                                      source={source}
+                                      index={sourceIndex + 1}
+                                      papers={papers}
+                                      viewer={viewer}
+                                    />
+                                  ),
+                                )}
+                              </div>
+                            )}
+                        </div>
+                      ),
+                    )}
+
+                    {chatBusy && (
+                      <p className="animate-blink font-mono text-xs text-muted">
+                        Retrieving sources and composing…
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Suggested questions */}
+              <div
+                className="flex flex-wrap gap-2"
+                aria-busy={suggestBusy}
+              >
+                {suggestBusy
+                  ? [0, 1, 2].map((slot) => (
+                      <span
+                        key={slot}
+                        aria-hidden="true"
+                        className="h-8 w-52 animate-pulse rounded-full border-[3px] border-gray-900 bg-canvas"
+                      />
+                    ))
+                  : (
+                      [...(activeConversation?.messages ?? [])]
+                        .reverse()
+                        .find(
+                          (message) =>
+                            message.role === "assistant" &&
+                            message.suggestions &&
+                            message.suggestions.length > 0,
+                        )?.suggestions ?? DEFAULT_QUESTION_PILLS
+                    ).map((question) => (
+                      <button
+                        key={question}
+                        type="button"
+                        disabled={chatBusy}
+                        onClick={() => void sendChat(question)}
+                        className="rounded-full border-[3px] border-gray-900 bg-white px-3 py-1.5 text-left text-xs font-semibold text-ink transition-colors hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {question}
+                      </button>
+                    ))}
+              </div>
+
+              {/* Ask box */}
+              <div className="rounded border-[3px] border-gray-900 bg-white p-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={chatText}
+                    onChange={(event) => setChatText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        void sendChat();
+                      }
+                    }}
+                    placeholder="Ask about the literature…"
+                    disabled={chatBusy}
+                    className="ui-input disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                  <Button
+                    type="button"
+                    disabled={chatBusy || !chatText.trim()}
+                    onClick={() => void sendChat()}
+                  >
+                    Ask
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+      {burst && <PixelBurst key={burst.key} x={burst.x} y={burst.y} />}
+
+      <RetroDialog
+        open={confirmDeleteAll}
+        title="Delete chat history"
+        size="sm"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onCancel={() => setConfirmDeleteAll(false)}
+        onConfirm={() => {
+          setConfirmDeleteAll(false);
+          setConversations([]);
+          setActiveId(null);
+        }}
+      >
+        Delete the whole chat history? This cannot be undone.
+      </RetroDialog>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ */
+
+/** Render one line's inline markdown: **bold**, *italic*, `code`.
+ *  Anything else passes through verbatim. */
+function renderInline(text: string): ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      return (
+        <strong key={index} className="font-bold">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
+      return (
+        <code
+          key={index}
+          className="rounded border-[1px] border-gray-900 bg-canvas px-1 font-mono text-[0.9em]"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return (
+        <em key={index} className="italic">
+          {part.slice(1, -1)}
+        </em>
+      );
+    }
+
+    return part;
+  });
+}
+
+/** Render the assistant's markdown-ish answer as structured blocks:
+ *  headings -> bold lines, "-"/"*" bullets -> lists, blank lines ->
+ *  paragraphs. */
+function ChatAnswer({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const blocks: ReactNode[] = [];
+  let list: ReactNode[] = [];
+
+  const flushList = () => {
+    if (list.length > 0) {
+      blocks.push(
+        <ul key={`list-${blocks.length}`} className="ml-4 list-disc space-y-1">
+          {list}
+        </ul>,
+      );
+      list = [];
+    }
+  };
+
+  lines.forEach((line, index) => {
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+
+    if (bullet) {
+      list.push(<li key={index}>{renderInline(bullet[1])}</li>);
+      return;
+    }
+
+    flushList();
+
+    if (heading) {
+      blocks.push(
+        <p key={`h-${index}`} className="font-bold">
+          {renderInline(heading[2])}
+        </p>,
+      );
+      return;
+    }
+
+    if (line.trim() === "") {
+      return;
+    }
+
+    blocks.push(
+      <p key={`p-${index}`}>{renderInline(line)}</p>,
+    );
+  });
+
+  flushList();
+
+  return <div className="space-y-1.5">{blocks}</div>;
+}
+
+/* ------------------------------------------------------------ */
+
+function ChatSourceRow({
+  source,
+  index,
+  papers,
+  viewer,
+}: {
+  source: ResearchChatSource;
+  index: number;
+  papers: Paper[];
+  viewer: MyLibraryProProps["viewer"];
+}) {
+  const paper =
+    source.kind === "repo"
+      ? papers.find((entry) => entry.id === source.paper_id) ?? null
+      : null;
+
+  const title = (
+    <span className="font-bold text-ink">
+      <MathText text={source.title} />
+    </span>
+  );
+
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-gray-200 px-3 py-2.5 text-xs first:border-t-0">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border-[2px] border-gray-900 bg-white font-mono text-[10px] font-bold text-ink">
+          {index}
+        </span>
+
+        <span className="min-w-0 flex-1">
+          {source.kind === "web" && source.url ? (
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+              className="hover:underline"
+            >
+              {title}
+            </a>
+          ) : (
+            title
+          )}
+        </span>
+
+        <span className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-muted">
+          {source.kind === "repo" ? "repo" : "web"}
+        </span>
+      </div>
+
+      <p className="text-muted">
+        {source.author ?? "Unknown author"}
+        {source.year ? ` · ${source.year}` : ""}
+      </p>
+
+      {source.abstract && (
+        <p className="line-clamp-3 leading-5 text-muted">
+          {source.abstract}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 pt-0.5">
+        {source.kind === "repo" && paper && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => viewer.openPaper(paper)}
+          >
+            Open in library
+          </Button>
+        )}
+
+        {source.doi && (
+          <a
+            href={`https://doi.org/${source.doi}`}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded border-[2px] border-gray-900 bg-white px-2 py-1 font-mono text-[11px] font-bold text-ink transition-colors hover:bg-accentSoft"
+          >
+            DOI
+          </a>
+        )}
+
+        {source.kind === "web" && source.url && (
+          <a
+            href={source.url}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded border-[2px] border-gray-900 bg-white px-2 py-1 text-[11px] font-bold text-ink transition-colors hover:bg-accentSoft"
+          >
+            Open source ↗
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ */
+
+function LockedTab({
+  title,
+  description,
+  onOpenGarden,
+}: {
+  title: string;
+  description: string;
+  onOpenGarden: () => void;
+}) {
+  const shipped = useSiteMode().mode === "presentation";
+
+  return (
+    <div className="flex flex-col items-start gap-4 rounded border-[3px] border-gray-900 bg-white p-6">
+      <p className="font-pixelify inline-flex items-center gap-2 text-xl font-bold text-ink">
+        <Lock className="h-5 w-5 text-muted" />
+        {title} — PRO only
+      </p>
+      <p className="max-w-xl text-sm leading-6 text-muted">{description}</p>
+
+      {shipped ? (
+        <p className="max-w-xl text-xs leading-5 text-muted">
+          This tab is part of the PRO version.
+        </p>
+      ) : (
+        <>
+          <p className="max-w-xl text-xs leading-5 text-muted">
+            Unlock every PRO tab by growing any tree in the Lab's garden
+            past its Young stage — Seed → Seedling → Sapling → Young (Young
+            oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600,
+            redwood 1350).
+          </p>
+
+          <Button type="button" onClick={onOpenGarden}>
+            Open the Lab's garden
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ */
+
+function PaperChips({ paper }: { paper: Paper }) {
+  const { subject } = categoryOf(paper);
+  const chips: { label: string; title?: string; dark?: boolean }[] = [];
+
+  chips.push({
+    label: `cited ${paper.citation_count ?? 0}`,
+    title: "Citation count (from metadata enrichment)",
+  });
+
+  if (subject) {
+    chips.push({ label: subject, dark: true, title: "Subject category" });
+  }
+
+  if (paper.document_type) {
+    chips.push({ label: paper.document_type, title: "Document type" });
+  }
+
+  if (!paper.is_valid_for_recommendation) {
+    chips.push({ label: "missing fields", title: "Not valid for ranking" });
+  }
+
+  return (
+    <span className="mt-2 inline-flex flex-wrap items-center gap-1">
+      {chips.map((chip) => (
+        <span
+          key={chip.label}
+          title={chip.title}
+          className={`rounded-full border-[2px] border-gray-900 px-2 py-0.5 text-[11px] font-bold ${
+            chip.dark ? "bg-gray-900 text-white" : "bg-surface text-muted"
+          }`}
+        >
+          {chip.label}
+        </span>
+      ))}
+    </span>
+  );
+}

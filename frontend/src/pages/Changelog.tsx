@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Pagination from "../components/retro/Pagination";
 import StaggerIn from "../components/retro/StaggerIn";
 import { CHANGELOG, type ChangeTag, type ChangelogEntry } from "../data/changelog";
 
@@ -23,6 +24,9 @@ import { CHANGELOG, type ChangeTag, type ChangelogEntry } from "../data/changelo
    ============================================================ */
 
 const ENTRIES = CHANGELOG;
+
+/** Entries per page: enough to read in one sitting. */
+const PAGE_SIZE = 8;
 
 const TAG_STYLE: Record<ChangeTag, string> = {
   NEW: "bg-accent text-onAccent",
@@ -106,9 +110,19 @@ function EntryCard({ entry }: { entry: ChangelogEntry }) {
 
 export default function Changelog() {
   const [view, setView] = useState<LayoutView>("timeline");
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(ENTRIES.length / PAGE_SIZE));
+  const shown = ENTRIES.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  function goTo(next: number) {
+    setPage(Math.min(pageCount, Math.max(1, next)));
+    window.requestAnimationFrame(() =>
+      document.getElementById("changelog-top")?.scrollIntoView({ block: "start" }),
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div id="changelog-top" className="mx-auto max-w-4xl">
       {/* Header */}
       <div className="mb-8">
         <p className="text-sm font-bold text-muted">Release Notes</p>
@@ -152,7 +166,7 @@ export default function Changelog() {
         </div>
 
         <span className="ml-auto hidden text-xs text-muted sm:block">
-          {ENTRIES.length} changes logged
+          {ENTRIES.length} changes · page {page} of {pageCount}
         </span>
       </div>
 
@@ -171,7 +185,7 @@ export default function Changelog() {
            The previous version pinned the rail at x=104 while the card
            began at x=80, drawing the dot straight through the card. */
         <div className="relative space-y-3 before:absolute before:top-3 before:bottom-3 before:left-[9px] before:w-[3px] before:bg-gray-900/15">
-          {ENTRIES.map((entry, index) => (
+          {shown.map((entry, index) => (
             <StaggerIn
               key={entry.id}
               index={index}
@@ -200,7 +214,7 @@ export default function Changelog() {
       ) : (
         /* ================= GRID ================= */
         <div className="grid gap-4 sm:grid-cols-2">
-          {ENTRIES.map((entry, index) => (
+          {shown.map((entry, index) => (
             <StaggerIn
               key={entry.id}
               index={index}
@@ -222,6 +236,15 @@ export default function Changelog() {
           ))}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        pageCount={pageCount}
+        onPageChange={goTo}
+        total={ENTRIES.length}
+        pageSize={PAGE_SIZE}
+        className="mt-6"
+      />
     </div>
   );
 }

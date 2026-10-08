@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Re:Search Google Scholar Importer",
   "version": "1.0.0",
-  "description": "Imports Google Scholar BibTeX citations into Re:Search.",
+  "description": "Imports Google Scholar BibTeX / EndNote / RefMan citations into Re:Search.",
   "minimum_chrome_version": "110",
   "permissions": [],
   "host_permissions": [

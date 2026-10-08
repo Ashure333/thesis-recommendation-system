@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { FileText, Search, Type } from "lucide-react";
 
@@ -12,11 +12,10 @@ import {
 } from "../../api";
 
 import {
+  pipelineName,
   pipelineConfigs,
   customPipelineConfig,
 } from "../../data/pipelineConfigs";
-import PipelineDials from "../../components/PipelineDials";
-import WeightBar from "../../components/WeightBar";
 import StaggerIn from "../../components/retro/StaggerIn";
 import Pagination from "../../components/retro/Pagination";
 import MathText from "../../components/MathText";
@@ -25,6 +24,7 @@ import LayoutOptions from "../../components/LayoutOptions";
 import PixelProgress from "../../components/retro/PixelProgress";
 import { ArrowRight, Dot } from "../../components/retro/PixelIcons";
 import { usePipelineMode } from "../../state/pipelineMode";
+import { useNerdButtons } from "../../state/nerdButtons";
 import { useSiteMode } from "../../state/siteMode";
 import { useLayoutPrefs } from "../../state/layoutPrefs";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
@@ -51,6 +51,9 @@ import { HUNT_ITEMS } from "../../data/hunt";
    pane usable at any layout.
    ------------------------------------------------------------ */
 
+/** The Diversify (MMR) checkbox's lambda: used by the search and the trace. */
+const MMR_LAMBDA = 0.7;
+
 const LEFT_PANE_MIN = 240;
 const LEFT_PANE_MAX = 400;
 const RIGHT_PANE_MIN = 260;
@@ -67,9 +70,6 @@ const IMPLEMENTED = new Set([
   "sbert_metadata",
   "tfidf_sbert_metadata",
 ]);
-
-const FOCUS_INSET =
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900";
 
 const queryModes: {
   id: "keyword" | "title" | "seed";
@@ -115,12 +115,7 @@ export default function Recommendations() {
     RIGHT_PANE_MAX,
   );
 
-  const {
-    pipelineId: sharedPipeline,
-    setPipelineId,
-    customWeights,
-    setCustomWeights,
-  } = usePipelineMode();
+  const { pipelineId: sharedPipeline, customWeights } = usePipelineMode();
 
   const [mode, setMode] = useState<
     "keyword" | "title" | "seed"
@@ -146,15 +141,8 @@ export default function Recommendations() {
       ? sharedPipeline
       : "tfidf";
 
-  const [pipeline, setPipeline] =
-    useState(initialPipeline);
-
-  // The preset to return to when leaving the Dials tab.
-  const [lastPreset, setLastPreset] = useState(
-    initialPipeline === "custom"
-      ? "tfidf_sbert_metadata"
-      : initialPipeline
-  );
+  // Frozen at mount: the pipeline is chosen in the Repository filter console.
+  const [pipeline] = useState(initialPipeline);
 
   const [topK, setTopK] = useState(10);
 
@@ -200,8 +188,10 @@ export default function Recommendations() {
     );
   }, [results]);
 
+  const { on: nerdOn } = useNerdButtons();
+
   // Page-level view: results, the big Connections tab, or the math.
-  const [searchTab, setSearchTab] = useState<
+  const [searchTabRaw, setSearchTab] = useState<
     "results" | "connections" | "stats"
   >(() => {
     if (navState.searchTab) {
@@ -220,6 +210,9 @@ export default function Recommendations() {
       return "results";
     }
   });
+
+  // With the nerd buttons gone, the math tab is too.
+  const searchTab = nerdOn || searchTabRaw !== "stats" ? searchTabRaw : "results";
 
   function selectSearchTab(
     tab: "results" | "connections" | "stats"
@@ -245,7 +238,7 @@ export default function Recommendations() {
             <p className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
               <Dot className="animate-rec h-2 w-2 shrink-0 text-gold" />
               <span className="truncate">
-                {results.length} found · {activeConfig.codename}
+                {results.length} found · {pipelineName(activeConfig)}
               </span>
             </p>
           </div>
@@ -257,7 +250,7 @@ export default function Recommendations() {
               <div className="flex flex-col items-center justify-center gap-4 p-10">
                 <p className="flex items-center justify-center gap-1.5 text-sm font-bold text-ink">
                   <ArrowRight className="h-3 w-3 text-accent" />
-                  Searching with {activeConfig.codename}
+                  Searching with {pipelineName(activeConfig)}
                 </p>
                 <PixelProgress value={null} stage="SCANNING CORPUS" className="max-w-xs" />
               </div>
@@ -465,7 +458,7 @@ export default function Recommendations() {
             ? seedPaperId
             : undefined,
         topK,
-        ...(diversify ? { mmrLambda: 0.7 } : {}),
+        ...(diversify ? { mmrLambda: MMR_LAMBDA } : {}),
         ...(pipeline === "custom"
           ? { weights: customWeights }
           : {}),
@@ -622,7 +615,9 @@ const MIN_LOAD_MS = 900;
           options={[
             { id: "results", label: "Results" },
             { id: "connections", label: "Connections" },
-            { id: "stats", label: "Stats for Nerds" },
+            ...(nerdOn
+              ? [{ id: "stats" as const, label: "Stats for Nerds", nerd: true }]
+              : []),
           ]}
         />
       </div>
@@ -798,172 +793,7 @@ const MIN_LOAD_MS = 900;
             MIDDLE PANE — results (hidden on the Connections tab)
             ==================================================== */}
 
-        {searchTab === "results" && (
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white">
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
-            <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink">
-              Results
-            </p>
-
-            <p className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
-              <Dot className="animate-rec h-2 w-2 shrink-0 text-gold" />
-              <span className="truncate">
-                {results.length} found · {activeConfig.codename}
-              </span>
-            </p>
-          </div>
-
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-            {error && <div className="status-error">{error}</div>}
-
-            {loading ? (
-              <div className="flex flex-col items-center justify-center gap-4 p-10">
-                <p className="flex items-center justify-center gap-1.5 text-sm font-bold text-ink">
-                  <ArrowRight className="h-3 w-3 text-accent" />
-                  Searching with {activeConfig.codename}
-                </p>
-                <PixelProgress value={null} stage="SCANNING CORPUS" className="max-w-xs" />
-              </div>
-            ) : results.length === 0 ? (
-              <EmptyState
-                figure={<PetFigure size={80} />}
-                title={
-                  mode === "seed"
-                    ? "No recommendations found."
-                    : queryText.trim()
-                      ? "No matching papers found."
-                      : "Start a recommendation search."
-                }
-                description={
-                  mode === "seed"
-                    ? "Try another seed paper or recommendation pipeline."
-                    : "Enter a query in the left pane and choose one of the six pipelines."
-                }
-              />
-            ) : (
-              pagedResults.map((result, index) => {
-                const paper = result.paper;
-                const rank = pageStart + index + 1;
-
-                const isSaved =
-                  savedIds.has(paper.id);
-
-                return (
-                  <StaggerIn key={paper.id} index={pageStart + index}>
-                    <article
-                      className="surface scan-sweep p-5 transition-colors pixel-ease hover:border-muted"
-                    >
-                    <div className="flex flex-col gap-4">
-                      <div className="flex gap-4">
-                        {/* Rank — click to center the similar-papers graph */}
-                        <div className="hidden shrink-0 sm:block">
-                          <button
-                            type="button"
-                            onClick={() => setGraphPaperId(paper.id)}
-                            title="Show similar papers for this result"
-                            aria-label={`Show similar papers for ${paper.title}`}
-                            className={`flex h-8 w-8 items-center justify-center rounded border-[2px] border-gray-900 text-xs font-bold transition-colors pixel-ease ${
-                              graphPaperId === paper.id
-                                ? "bg-accent text-onAccent"
-                                : "bg-surface text-ink hover:bg-accentSoft"
-                            }`}
-                          >
-                            {rank}
-                          </button>
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="min-w-0">
-                              <h2 className="text-base font-bold leading-6 text-ink">
-                                <MathText text={paper.title} />
-                              </h2>
-
-                              {paper.author && (
-                                <p className="mt-1 text-xs leading-5 text-muted">
-                                  {paper.author}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="shrink-0">
-                              <div className="rounded border-[3px] border-gray-900 bg-surface px-3 py-2 text-right">
-                                <p className="text-xs font-bold text-muted">
-                                  Score
-                                </p>
-
-                                <p className="mt-0.5 text-sm font-semibold text-ink">
-                                  {Number(
-                                    result.score
-                                  ).toFixed(4)}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {paper.abstract && (
-                            <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted">
-                              <MathText text={paper.abstract} />
-                            </p>
-                          )}
-
-                          <ScoreBreakdown
-                            components={result.components}
-                            className="mt-3 max-w-sm"
-                          />
-
-                          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-                            {paper.publication_year && (
-                              <span>
-                                {paper.publication_year}
-                              </span>
-                            )}
-
-                            {paper.subject_category && (
-                              <span>
-                                {paper.subject_category}
-                              </span>
-                            )}
-
-                            <span>
-                              Paper #{paper.id}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end border-t border-gray-200 pt-3">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() =>
-                            handleSave(paper.id)
-                          }
-                          disabled={isSaved}
-                        >
-                          {isSaved
-                            ? "Saved"
-                            : "Save to library"}
-                        </Button>
-                      </div>
-                    </div>
-                    </article>
-                  </StaggerIn>
-                );
-              })
-            )}
-          </div>
-
-          <Pagination
-            page={page}
-            pageCount={pageCount}
-          onPageChange={setPage}
-          total={results.length}
-          pageSize={RESULTS_PAGE_SIZE}
-          className="shrink-0 border-t-[3px] border-gray-900"
-        />
-        </section>
-        )}
+        {searchTab === "results" && renderResultsSection()}
 
         {searchTab === "results" && prefs.details && (
         <PaneHandle
@@ -994,7 +824,7 @@ const MIN_LOAD_MS = 900;
             <ConnectionsPane
               paperId={graphPaperId}
               pipeline={pipeline}
-              pipelineLabel={activeConfig.codename}
+              pipelineLabel={pipelineName(activeConfig)}
               weights={
                 pipeline === "custom"
                   ? customWeights
@@ -1026,7 +856,7 @@ const MIN_LOAD_MS = 900;
             <ConnectionsWorkbench
               paperId={graphPaperId}
               pipeline={pipeline}
-              pipelineLabel={activeConfig.codename}
+              pipelineLabel={pipelineName(activeConfig)}
               weights={
                 pipeline === "custom"
                   ? customWeights
@@ -1153,7 +983,7 @@ const MIN_LOAD_MS = 900;
                 </label>
 
                 <span className="ml-auto font-mono text-xs text-muted">
-                  Ranked by {activeConfig.codename}
+                  Ranked by {pipelineName(activeConfig)}
                 </span>
               </div>
             )}
@@ -1173,14 +1003,14 @@ const MIN_LOAD_MS = 900;
                 </p>
 
                 <span className="font-mono text-xs text-muted">
-                  {activeConfig.codename}
+                  {pipelineName(activeConfig)}
                 </span>
               </div>
 
               <ConnectionsWorkbench
                 paperId={graphPaperId}
                 pipeline={pipeline}
-                pipelineLabel={activeConfig.codename}
+                pipelineLabel={pipelineName(activeConfig)}
                 weights={
                   pipeline === "custom"
                     ? customWeights
@@ -1208,7 +1038,7 @@ const MIN_LOAD_MS = 900;
               <ConnectionsWorkbench
                 paperId={graphPaperId}
                 pipeline={pipeline}
-                pipelineLabel={activeConfig.codename}
+                pipelineLabel={pipelineName(activeConfig)}
                 weights={
                   pipeline === "custom"
                     ? customWeights
@@ -1220,7 +1050,7 @@ const MIN_LOAD_MS = 900;
         </div>
       )}
 
-      {/* STATS FOR NERDS TAB — the mathematical pseudocode */}
+      {/* STATS FOR NERDS TAB — the live computation trace */}
       {searchTab === "stats" && (
         <section className="mt-4">
           <StatsForNerds
@@ -1229,8 +1059,9 @@ const MIN_LOAD_MS = 900;
               query: queryText,
               seedPaperId,
               topK,
+              mmrLambda: diversify ? MMR_LAMBDA : undefined,
             }}
-            contextNote="The active pipeline, its live weights, and the exact pseudocode that produced your ranking — expand the live trace to walk the very query above through every step."
+            contextNote="The active pipeline, its live weights, and the live trace that produced your ranking — expand it to walk the very query above through every step."
           />
         </section>
       )}

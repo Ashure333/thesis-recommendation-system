@@ -17,7 +17,7 @@ interface FindPdfPanelProps {
 /* ============================================================
    GITINGEST DESIGN LANGUAGE
    White result-panels with 3px gray-900 outlines · 4px radius
-   Orange = the one primary action · no red/blue/green state colours
+   Orange = the one primary action · no red/blue/green state colors
    Errors are plain ink text in an outlined panel.
    ============================================================ */
 

@@ -22,10 +22,12 @@ import {
 import { getLibraryFeatures } from "../api";
 import {
   DEFAULT_LIBRARY_FEATURES,
+  PRESENTATION_FEATURES,
   type SiteFeatureState,
 } from "../data/siteFeatures";
+import { enterPresentation, leavePresentation } from "../utils/presentation";
 
-export type SiteMode = "library" | "researcher";
+export type SiteMode = "library" | "researcher" | "presentation";
 
 const MODE_KEY = "paperrec_site_mode";
 const DEFAULT_MODE: SiteMode = "library";
@@ -49,7 +51,7 @@ function readStoredMode(): SiteMode {
   try {
     const stored = window.localStorage.getItem(MODE_KEY);
 
-    if (stored === "library" || stored === "researcher") {
+    if (stored === "library" || stored === "researcher" || stored === "presentation") {
       return stored;
     }
   } catch {
@@ -109,7 +111,7 @@ export function SiteModeProvider({
   // Researcher mode keeps the dense console scale.
   useEffect(() => {
     document.documentElement.style.fontSize =
-      mode === "library" ? "18px" : "";
+      mode === "researcher" ? "" : "18px";
   }, [mode]);
 
   const setMode = useCallback(
@@ -126,9 +128,23 @@ export function SiteModeProvider({
 
       window.setTimeout(() => {
         try {
-          window.localStorage.setItem(MODE_KEY, next);
+          if (next === "presentation") {
+            enterPresentation(window.localStorage);
+          } else if (mode === "presentation") {
+            leavePresentation(window.localStorage, next);
+          } else {
+            window.localStorage.setItem(MODE_KEY, next);
+          }
         } catch {
           // Persisting is best-effort.
+        }
+
+        // Presentation sets every preference aside (or puts them back), and
+        // the stores have already read storage: start the app afresh.
+        if (next === "presentation" || mode === "presentation") {
+          window.location.assign("/repository");
+
+          return;
         }
 
         setModeState(next);
@@ -142,6 +158,10 @@ export function SiteModeProvider({
     function stateFor(key: string): SiteFeatureState {
       if (mode === "researcher") {
         return "shown";
+      }
+
+      if (mode === "presentation") {
+        return PRESENTATION_FEATURES[key] ?? "hidden";
       }
 
       return features[key] ?? "shown";
@@ -170,7 +190,11 @@ export function SiteModeProvider({
  */
 function ModeSwitchScreen({ target }: { target: SiteMode }) {
   const entering =
-    target === "researcher" ? "RESEARCHER MODE" : "LIBRARY MODE";
+    target === "researcher"
+      ? "RESEARCHER MODE"
+      : target === "presentation"
+        ? "PRESENTATION MODE"
+        : "LIBRARY MODE";
 
   return (
     <div
@@ -194,7 +218,9 @@ function ModeSwitchScreen({ target }: { target: SiteMode }) {
       <p className="font-mono text-xs text-muted">
         {target === "researcher"
           ? "Warming up pipelines, arenas, and labs…"
-          : "Waking the librarian…"}
+          : target === "presentation"
+            ? "Setting everything to the shipped version…"
+            : "Waking the librarian…"}
       </p>
     </div>
   );

@@ -1,187 +1,58 @@
+/**
+ * MY LIBRARY — the collection page.
+ *
+ * One layout for everyone: the four-tab collection (Library,
+ * Dashboard, Graph, Chat). In basic form the last three tabs are
+ * locked — they unlock together once any garden tree reaches its
+ * Young stage (see data/knowledge.ts and state/sun.tsx). The
+ * layout is identical either way; PRO only reveals more.
+ */
+
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import {
-  getLibrary,
-  removeFromLibrary,
-  assignLibraryKeywords,
-  LibraryEntry,
-  Paper,
-} from "../../api";
+import { Lock } from "lucide-react";
+
+import { getLibrary, saveToLibrary, LibraryEntry, Paper } from "../../api";
 import PaperViewerModal from "../../components/PaperViewerModal";
-import LiteratureMenu from "../../components/LiteratureMenu";
-import MathText from "../../components/MathText";
+import RepositoryPickerDialog from "../../components/RepositoryPickerDialog";
 import PetFigure from "../../components/PetFigure";
-import { Button, EmptyState, PageHeader, PageShell } from "../../components/ui";
+import { Button, EmptyState, PageHeader } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
-import { crumpledBallDataURL } from "../../components/retro/CrumpledPaper";
 import { HUNT_ITEMS } from "../../data/hunt";
-import { triggerSlimeAnimation } from "../../utils/slimeEvents";
-import { useLongPressFeed } from "../../utils/longPress";
-import { CITATION_FORMATS, downloadCitations } from "../../utils/exportCitations";
-
-/* ============================================================
-   PAPER DRAG GHOST — the drag ghost for a library row.
-   Every row is dragged as a crumpled paper ball (the pet's own
-   crumple graphic): the paper is about to be disposed of, so it
-   already looks the part. The ghost is a decoded <img> (data
-   URL) prepared in advance, since Chromium ignores raw canvases.
-   ============================================================ */
-
-/* Prepared <img> ghost, decoded before the drag starts. */
-let dragGhost: HTMLImageElement | null = null;
-
-function prepareDragGhost(): HTMLImageElement {
-  if (dragGhost) return dragGhost;
-  const img = new Image();
-  img.src = crumpledBallDataURL(96);
-  void img.decode().catch(() => undefined);
-  dragGhost = img;
-  return img;
-}
-
-function petDragImage(): HTMLImageElement {
-  const img = prepareDragGhost();
-  /* Chromium only paints drag images that live in the document — a
-     bare offscreen img/canvas is silently ignored and the browser
-     falls back to its default icon. Pin it offscreen for the drag,
-     then drop it again. */
-  if (!img.isConnected) {
-    img.style.position = "fixed";
-    img.style.left = "-10000px";
-    img.style.top = "0";
-    img.style.width = "96px";
-    img.style.height = "96px";
-    img.style.pointerEvents = "none";
-    document.body.appendChild(img);
-    window.setTimeout(() => {
-      img.remove();
-    }, 1000);
-  }
-  return img;
-}
+import { useSiteMode } from "../../state/siteMode";
+import { useSun } from "../../state/sun";
+import MyLibraryPro from "./MyLibraryPro";
 
 export default function MyLibrary() {
-  const navigate = useNavigate();
+  const { proUnlocked } = useSun();
+  const presenting = useSiteMode().mode === "presentation";
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  /* Prepare the crumpled-paper drag ghost ahead of time. */
-  useEffect(() => {
-    prepareDragGhost();
-  }, []);
-
-  // PDF Viewer State
+  /* The viewer modal, shared by the collection's row actions. */
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
 
-  /* --------------------------------------------------------
-     Batch export: tick rows, then download every selected
-     paper's citation as ONE file (BibTeX / RIS / EndNote /
-     RefMan).
-     -------------------------------------------------------- */
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [exportOpen, setExportOpen] = useState(false);
-  const exportRef = useRef<HTMLDivElement>(null);
+  /* Mini-repository picker pop-up ("Browse Repository") — it returns
+     the chosen paper, which is saved straight into the library. */
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Right-click literature menu + status line for its actions.
-  const [literatureMenu, setLiteratureMenu] = useState<{
-    x: number;
-    y: number;
-    papers: Paper[];
-  } | null>(null);
-  const [actionMessage, setActionMessage] = useState("");
-
-  useEffect(() => {
-    if (!actionMessage) {
-      return;
-    }
-
-    const timer = window.setTimeout(
-      () => setActionMessage(""),
-      8000
-    );
-
-    return () => window.clearTimeout(timer);
-  }, [actionMessage]);
-
-  useEffect(() => {
-    if (!exportOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (
-        exportRef.current &&
-        !exportRef.current.contains(event.target as Node)
-      ) {
-        setExportOpen(false);
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
-  }, [exportOpen]);
-
-  /* Selection counts against the papers still in the list, so a
-     row the pet just ate never shows up as "selected". */
-  const selectedPapers = entries
-    .map((entry) => entry.paper)
-    .filter((paper) => selected.has(paper.id));
-  const selectedCount = selectedPapers.length;
-  const allSelected = entries.length > 0 && selectedCount === entries.length;
-
-  function togglePaper(paperId: number) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(paperId)) next.delete(paperId);
-      else next.add(paperId);
-      return next;
-    });
+  async function handlePickerPick(paper: Paper) {
+    await saveToLibrary(paper.id);
+    setPickerOpen(false);
   }
 
-  function toggleAll() {
-    setSelected(
-      allSelected ? new Set() : new Set(entries.map((entry) => entry.paper.id)),
-    );
-  }
+  const loadedRef = useRef(false);
 
   async function load() {
-    setLoading(true);
-    setError(null);
-
     try {
-      let list = await getLibrary();
-
-      /*
-       * Automatic keyword assigner: any saved paper that has no
-       * keywords gets them generated (locally, YAKE) before the
-       * list is shown -- no button, no prompt.
-       */
-      const needsKeywords = list.some(
-        (entry) => !(entry.paper.keywords ?? "").trim()
-      );
-
-      if (needsKeywords) {
-        try {
-          const result = await assignLibraryKeywords();
-
-          if (result.updated > 0) {
-            // Pick up the freshly generated keywords.
-            list = await getLibrary();
-          }
-        } catch {
-          // Best-effort: show the library even if the sweep failed.
-        }
-      }
-
+      const list = await getLibrary();
       setEntries(list);
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "Couldn't load your library."
-      );
+      setError(e instanceof Error ? e.message : "Failed to load the library.");
     } finally {
       setLoading(false);
+      loadedRef.current = true;
     }
   }
 
@@ -189,79 +60,33 @@ export default function MyLibrary() {
     void load();
   }, []);
 
-  /* Keep the list in sync when the pet deletes a paper by
-     eating/zapping/burning a dropped row. */
+  // Keep the page in sync when papers are saved/removed elsewhere.
   useEffect(() => {
-    async function refresh() {
-      try {
-        setEntries(await getLibrary());
-      } catch {
-        // Keep the current list; the next manual visit reloads.
-      }
+    function handleLibraryChange() {
+      void getLibrary()
+        .then(setEntries)
+        .catch(() => undefined);
     }
 
-    window.addEventListener("library-changed", refresh);
-    return () => window.removeEventListener("library-changed", refresh);
+    window.addEventListener("library-changed", handleLibraryChange);
+
+    return () =>
+      window.removeEventListener("library-changed", handleLibraryChange);
   }, []);
 
-  async function handleRemove(paperId: number) {
-    try {
-      await removeFromLibrary(paperId);
-      // The pet disposes of the paper it just removed.
-      triggerSlimeAnimation("burn");
-      if (selectedPaper?.id === paperId) {
-        handleClosePaper();
-      }
-      setEntries((prev) => prev.filter((entry) => entry.paper.id !== paperId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't remove paper from your library.");
-    }
-  }
-
-  // Touch long-press behaves like a right-click on a row.
-  const longPress = useLongPressFeed(openMenuAt);
-
-  function openMenuAt(paperId: number, x: number, y: number) {
-    const paper = selectedPapers.find((entry) => entry.id === paperId);
-
-    if (!paper) {
-      return;
-    }
-
-    const isChecked = selected.has(paperId);
-    const papersForMenu = isChecked
-      ? selectedPapers
-      : [paper];
-
-    if (!isChecked) {
-      setSelected(new Set([paperId]));
-    }
-
-    setLiteratureMenu({ x, y, papers: papersForMenu });
-  }
-
-  function handleOpenPaper(paper: Paper) {
-    setSelectedPaper(paper);
-    setIsViewerOpen(true);
-  }
-
-  function handleClosePaper() {
-    setIsViewerOpen(false);
-    setSelectedPaper(null);
-  }
-
-  function handleFindSimilar(paperId: number) {
-    navigate("/recommendations", {
-      state: {
-        mode: "seed",
-        seedPaperId: paperId,
-        pipeline: "tfidf",
-      },
-    });
+  function handlePaperUpdated(updated: Paper) {
+    setEntries((prev) =>
+      prev.map((entry) =>
+        entry.paper.id === updated.id ? { ...entry, paper: updated } : entry,
+      ),
+    );
+    setSelectedPaper((current) =>
+      current?.id === updated.id ? updated : current,
+    );
   }
 
   return (
-    <PageShell>
+    <div className="mx-auto w-full max-w-[1560px]">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-star")!} />
       <PageHeader
         eyebrow="Saved papers"
@@ -269,313 +94,99 @@ export default function MyLibrary() {
         description={
           loading
             ? "Loading your saved papers…"
-            : `${entries.length} saved paper${entries.length === 1 ? "" : "s"}.`
+            : `${entries.length} saved paper${entries.length === 1 ? "" : "s"} · ${
+                proUnlocked ? "PRO collection" : "collection"
+              }.`
         }
         action={
-          <Link to="/repository" className="text-sm font-bold text-ink underline hover:decoration-2">
-            + Browse Repository
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" onClick={() => setPickerOpen(true)}>
+              Browse Repository
+            </Button>
+
+            {proUnlocked ? (
+              <span className="font-pixelify inline-flex h-9 items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accent px-3 text-sm font-bold text-onAccent">
+                PRO
+              </span>
+            ) : (
+              <span
+                title={
+                  presenting
+                    ? "Part of the PRO version"
+                    : "Plant any tree past its Young stage in the Lab's garden to unlock the PRO tabs (Young oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600, redwood 1350)."
+                }
+                className="font-pixelify inline-flex h-9 cursor-help items-center gap-1.5 rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-bold text-muted"
+              >
+                <Lock className="h-3.5 w-3.5" /> PRO locked
+              </span>
+            )}
+          </div>
         }
       />
 
       {error && (
-        <div className="status-error mb-5">
-          Couldn't load your library: {error}. Is the backend running on port 8000?
+        <div className="status-error mb-4">
+          Couldn't load your library: {error}. Is the backend running on
+          port 8000?
         </div>
       )}
 
+      <div className="mt-4">
       {!loading && entries.length === 0 && !error ? (
         <EmptyState
           title="Your library is empty."
           description="Save papers from the repository or recommendation results to keep them here."
           figure={<PetFigure />}
           action={
-            <Link to="/repository" className="text-sm font-bold text-ink underline hover:decoration-2">
+            <Button type="button" onClick={() => setPickerOpen(true)}>
               Browse repository
-            </Link>
+            </Button>
           }
         />
       ) : (
-        <>
-        <p className="mb-4 text-xs text-muted">
-          Tip: drag a saved paper onto the pixel pet to remove it
-          from your library.
-        </p>
-
-        {/* Batch export toolbar: select rows, export one file. */}
-        <div className="mb-3 flex flex-wrap items-center gap-3">
-          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              className="h-4 w-4 cursor-pointer accent-gray-900"
-            />
-            Select all ({entries.length})
-          </label>
-
-          <span className="text-xs text-muted">
-            {selectedCount} selected
-          </span>
-
-          {actionMessage && (
-            <span
-              role="status"
-              className="font-mono text-xs text-muted"
-            >
-              {actionMessage}
-            </span>
-          )}
-
-          {selectedCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setSelected(new Set())}
-              className="text-xs font-semibold text-ink underline hover:decoration-2"
-            >
-              Clear
-            </button>
-          )}
-
-          <div ref={exportRef} className="relative ml-auto">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={selectedCount === 0}
-              onClick={() => setExportOpen((open) => !open)}
-              aria-haspopup="menu"
-              aria-expanded={exportOpen}
-              title={
-                selectedCount === 0
-                  ? "Tick the papers you want to export"
-                  : undefined
-              }
-            >
-              Export{selectedCount > 0 ? ` (${selectedCount})` : ""} ▾
-            </Button>
-
-            {exportOpen && (
-              <ul
-                role="menu"
-                aria-label="Batch export"
-                className="absolute right-0 top-full z-30 mt-1 w-60 overflow-hidden rounded border-[3px] border-gray-900 bg-white py-0.5"
-              >
-                {CITATION_FORMATS.map((format) => (
-                  <li key={format.id}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        downloadCitations(selectedPapers, format.id);
-                        setExportOpen(false);
-                      }}
-                      className="block w-full px-3 py-1.5 text-left text-sm font-medium text-gray-900 transition-colors pixel-ease hover:bg-accentSoft"
-                    >
-                      {format.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        <section className="overflow-hidden rounded border-[3px] border-gray-900 bg-white" data-tips="library-shortlist">
-          {entries.map(({ paper }) => {
-            const subject = paper.subject_category?.split(":")[0]?.trim() ?? "";
-            const isCS = subject.toLowerCase().includes("computer");
-
-            const keywordList =
-              paper.keywords
-                ?.split(",")
-                .map((k) => k.trim())
-                .filter(Boolean) ?? [];
-
-            return (
-              <article
-                key={paper.id}
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.setData(
-                    "application/x-research-paper",
-                    JSON.stringify({ id: paper.id, title: paper.title }),
-                  );
-                  event.dataTransfer.effectAllowed = "move";
-                  // The drag ghost is a crumpled paper ball for every row.
-                  event.dataTransfer.setDragImage(
-                    petDragImage(),
-                    48,
-                    48,
-                  );
-                }}
-                onPointerDown={(event) => {
-                  if (event.pointerType !== "mouse") {
-                    longPress.start(
-                      paper.id,
-                      event.clientX,
-                      event.clientY
-                    );
-                  }
-                }}
-                onPointerMove={(event) =>
-                  longPress.move(event.clientX, event.clientY)
-                }
-                onPointerUp={longPress.cancel}
-                onPointerCancel={longPress.cancel}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  longPress.cancel();
-                  openMenuAt(paper.id, event.clientX, event.clientY);
-                }}
-                title="Drag me onto the pet to dispose of this paper"
-                className="paper-row border-b border-gray-200 p-4 last:border-b-0"
-              >
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    {/* Metadata Header with Tags */}
-                    <div className="mb-2 flex items-center gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(paper.id)}
-                        onChange={() => togglePaper(paper.id)}
-                        aria-label={`Select ${paper.title} for batch export`}
-                        title="Select for batch export"
-                        className="h-4 w-4 shrink-0 cursor-pointer accent-gray-900"
-                      />
-                      {subject ? (
-                        <span
-                          className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-ink"
-                        >
-                          {isCS
-                            ? "CS"
-                            : subject === "Mathematics"
-                              ? "Math"
-                              : subject}
-                        </span>
-                      ) : (
-                        <span
-                          title="No subject assigned yet; the classifier could not place this one."
-                          className="rounded border-[2px] border-dashed border-gray-900 bg-white px-1.5 py-0.5 text-xs font-bold text-muted"
-                        >
-                          Unfiled
-                        </span>
-                      )}
-                      <span className="text-muted">
-                        {paper.publication_year ?? "—"}
-                      </span>
-                      <span className="text-muted">·</span>
-                      <span className="text-muted">
-                        {paper.citation_count ?? 0} cited
-                      </span>
-                    </div>
-
-                    {/* Clickable Title */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenPaper(paper)}
-                      title="Open paper"
-                      className="paper-title block text-left"
-                    >
-                      <MathText text={paper.title} />
-                    </button>
-
-                    <p className="mt-1 text-xs text-muted">
-                      {paper.author ?? "Unknown author"}
-                    </p>
-
-                    {paper.abstract && (
-                      <p className="mt-2 line-clamp-2 max-w-3xl text-xs leading-5 text-muted">
-                        <MathText text={paper.abstract} />
-                      </p>
-                    )}
-
-                    {/* Keywords List */}
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {keywordList.slice(0, 2).map((k) => (
-                        <span
-                          key={k}
-                          className="rounded border-[2px] border-gray-900 bg-white px-2 py-0.5 text-xs font-bold text-ink"
-                        >
-                          {k}
-                        </span>
-                      ))}
-                      {keywordList.length > 2 && (
-                        <span className="text-xs text-muted">
-                          +{keywordList.length - 2} more
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions - Vertically centered */}
-                  <div className="paper-actions flex items-center gap-2 shrink-0 lg:mt-0 lg:justify-end">
-                    <Button
-                      variant="secondary"
-                      type="button"
-                      disabled={!paper.is_valid_for_recommendation}
-                      title={
-                        paper.is_valid_for_recommendation
-                          ? undefined
-                          : "This paper is missing required fields for recommendation"
-                      }
-                      onClick={() => handleFindSimilar(paper.id)}
-                    >
-                      Find Similar
-                    </Button>
-
-                    <Button
-                      variant="quiet"
-                      type="button"
-                      onClick={() => handleOpenPaper(paper)}
-                    >
-                      View
-                    </Button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(paper.id)}
-                      className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </section>
-        </>
-      )}
-
-      {/* Right-click literature menu */}
-      {literatureMenu && (
-        <LiteratureMenu
-          papers={literatureMenu.papers}
-          x={literatureMenu.x}
-          y={literatureMenu.y}
-          onClose={() => setLiteratureMenu(null)}
-          onOpenFile={(paper) => handleOpenPaper(paper)}
-          onChanged={(message) => {
-            setActionMessage(message);
-            void load();
+        <MyLibraryPro
+          entries={entries}
+          locked={!proUnlocked}
+          onRemoved={(paperId) =>
+            setEntries((prev) =>
+              prev.filter((entry) => entry.paper.id !== paperId),
+            )
+          }
+          onPaperUpdated={handlePaperUpdated}
+          viewer={{
+            paper: selectedPaper,
+            open: isViewerOpen,
+            openPaper: (paper) => {
+              setSelectedPaper(paper);
+              setIsViewerOpen(true);
+            },
+            close: () => {
+              setIsViewerOpen(false);
+              setSelectedPaper(null);
+            },
           }}
         />
       )}
+      </div>
 
-      {/* PDF Viewer Modal */}
-<PaperViewerModal
-  paper={selectedPaper}
-  open={isViewerOpen}
-  onClose={handleClosePaper}
-  onPaperUpdated={(updated) => {
-    setEntries((prev) =>
-      prev.map((entry) =>
-        entry.paper.id === updated.id ? { ...entry, paper: updated } : entry
-      )
-    );
-    setSelectedPaper(updated);
-  }}
-/>
-    </PageShell>
+      {selectedPaper && (
+        <PaperViewerModal
+          paper={selectedPaper}
+          open={isViewerOpen}
+          onClose={() => {
+            setIsViewerOpen(false);
+            setSelectedPaper(null);
+          }}
+          canEdit
+          onPaperUpdated={handlePaperUpdated}
+        />
+      )}
+
+      <RepositoryPickerDialog
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onPick={handlePickerPick}
+      />
+    </div>
   );
 }

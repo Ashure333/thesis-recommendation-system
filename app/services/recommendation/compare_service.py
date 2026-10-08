@@ -32,15 +32,6 @@ PIPELINE_ORDER: tuple[str, ...] = (
     "tfidf_sbert_metadata",
 )
 
-PipelineName = Literal[
-    "tfidf",
-    "sbert",
-    "tfidf_sbert",
-    "tfidf_metadata",
-    "sbert_metadata",
-    "tfidf_sbert_metadata",
-]
-
 # Component set per pipeline. Two pipelines agree "independently"
 # only to the extent they share no building blocks: a hybrid's
 # top-k is partly a re-run of its own components, so its agreement
@@ -412,20 +403,14 @@ def _assemble_comparison(
     )
 
 
-def compare_web_results(
-    *,
-    query: str,
-    hits: list,
-    top_k: int,
-    custom_weights: dict[str, float] | None = None,
-) -> CompareResponse:
-    """Battle the pipelines over WEB hits instead of the repository.
+def _score_web_hits(*, query: str, hits: list):
+    """Vectorize web hits on the fly and score them against the query.
 
-    Each hit is vectorized on the fly with the same stored TF-IDF
-    vectorizer and S-BERT model, so the six presets (plus an
-    optional custom recipe) rank the same external candidates. The
-    response shape matches the repository Arena exactly, so the
-    Arena and Lab UIs render it unchanged.
+    Returns (papers, tfidf_raw, sbert_raw, meta_raw). The hits become
+    transient Paper objects with negative ids (web candidates never
+    collide with repository ids), and every component score is the raw
+    value: the pipelines min-max normalize and weight them afterwards,
+    exactly as they do for repository papers.
     """
 
     from app.models.models import Paper
@@ -437,12 +422,6 @@ def compare_web_results(
     )
     from app.services.recommendation.metadata_pipeline import (
         score_candidates as metadata_score_candidates,
-    )
-    from app.services.recommendation.pipeline_config import (
-        get_pipeline_weights,
-    )
-    from app.services.recommendation.search_service import (
-        min_max_normalize,
     )
 
     papers: list[Paper] = []
@@ -465,15 +444,7 @@ def compare_web_results(
         papers.append(paper)
 
     if not papers:
-        return CompareResponse(
-            query=query,
-            seed_paper_id=None,
-            top_k=top_k,
-            pipelines=[],
-            consensus=[],
-            pairwise=[],
-            winner=None,
-        )
+        return papers, {}, {}, {}
 
     prepared_query = build_prepared_text(query, None, None)
 
@@ -503,6 +474,48 @@ def compare_web_results(
         seed_paper=None,
         candidates=papers,
     )
+
+    return papers, tfidf_raw, sbert_raw, meta_raw
+
+
+def compare_web_results(
+    *,
+    query: str,
+    hits: list,
+    top_k: int,
+    custom_weights: dict[str, float] | None = None,
+) -> CompareResponse:
+    """Battle the pipelines over WEB hits instead of the repository.
+
+    Each hit is vectorized on the fly with the same stored TF-IDF
+    vectorizer and S-BERT model, so the six presets (plus an
+    optional custom recipe) rank the same external candidates. The
+    response shape matches the repository Arena exactly, so the
+    Arena and Lab UIs render it unchanged.
+    """
+
+    from app.services.recommendation.pipeline_config import (
+        get_pipeline_weights,
+    )
+    from app.services.recommendation.search_service import (
+        min_max_normalize,
+    )
+
+    papers, tfidf_raw, sbert_raw, meta_raw = _score_web_hits(
+        query=query,
+        hits=hits,
+    )
+
+    if not papers:
+        return CompareResponse(
+            query=query,
+            seed_paper_id=None,
+            top_k=top_k,
+            pipelines=[],
+            consensus=[],
+            pairwise=[],
+            winner=None,
+        )
 
     pipeline_order = list(PIPELINE_ORDER)
 
@@ -592,6 +605,86 @@ def compare_web_results(
         seed_paper_id=None,
         top_k=top_k,
     )
+
+
+def rank_web_results(
+    *,
+    query: str,
+    hits: list,
+    weights: dict[str, float],
+    top_k: int,
+) -> list[dict]:
+    """Rank live web hits with ONE pipeline's weights.
+
+    The same scoring a repository search uses: TF-IDF and S-BERT are
+    min-max normalized across the candidate set, metadata passes
+    through, and the weighted sum orders the hits (ties by newer year,
+    then title). Each row carries the hit, its final score and its
+    three component scores, so the UI can show why it ranked where it
+    did.
+    """
+
+    from app.services.recommendation.search_service import (
+        min_max_normalize,
+    )
+
+    papers, tfidf_raw, sbert_raw, meta_raw = _score_web_hits(
+        query=query,
+        hits=hits,
+    )
+
+    if not papers:
+        return []
+
+    norm_tfidf = (
+        min_max_normalize(tfidf_raw) if weights.get("tfidf", 0) > 0 else {}
+    )
+    norm_sbert = (
+        min_max_normalize(sbert_raw) if weights.get("sbert", 0) > 0 else {}
+    )
+
+    rows = []
+
+    for paper, hit in zip(papers, hits):
+        t = norm_tfidf.get(paper.id, 0.0)
+        b = norm_sbert.get(paper.id, 0.0)
+        m = meta_raw.get(paper.id, 0.0)
+        score = (
+            weights.get("tfidf", 0) * t
+            + weights.get("sbert", 0) * b
+            + weights.get("metadata", 0) * m
+        )
+
+        rows.append((score, hit, t, b, m))
+
+    rows.sort(
+        key=lambda row: (
+            -row[0],
+            -(row[1].publication_year or 0),
+            (row[1].title or "").lower(),
+        )
+    )
+
+    ranked = []
+
+    for position, (score, hit, t, b, m) in enumerate(
+        [row for row in rows if row[0] > 0][:top_k],
+        start=1,
+    ):
+        ranked.append(
+            {
+                **hit.to_dict(),
+                "rank": position,
+                "score": round(float(score), 6),
+                "components": {
+                    "tfidf": round(float(t), 6),
+                    "sbert": round(float(b), 6),
+                    "metadata": round(float(m), 6),
+                },
+            }
+        )
+
+    return ranked
 
 
 def _pick_winner(

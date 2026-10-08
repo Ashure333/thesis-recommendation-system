@@ -51,6 +51,10 @@ class RecommendationTraceRequest(BaseModel):
     w_tfidf: float | None = Field(default=None, ge=0, le=100)
     w_sbert: float | None = Field(default=None, ge=0, le=100)
     w_metadata: float | None = Field(default=None, ge=0, le=100)
+    # Opt-in MMR diversification, mirroring GET /api/recommendations, so
+    # the trace explains the same ranking the Search page displays.
+    mmr_lambda: float | None = Field(default=None, ge=0, le=1)
+    mmr_pool: int = Field(default=50, ge=1, le=100)
 
 
 class TraceEvent(BaseModel):
@@ -62,17 +66,6 @@ class TraceEvent(BaseModel):
 class RecommendationTraceResponse(BaseModel):
     events: list[TraceEvent]
     results: list[SearchResultOut]
-
-
-def _round_scores(
-    scores: dict[int, float],
-    digits: int = 6,
-) -> dict[int, float]:
-    """Round per-paper score dicts so the trace payload stays tidy."""
-    return {
-        paper_id: round(float(score), digits)
-        for paper_id, score in scores.items()
-    }
 
 
 class RecommendationTrace:
@@ -118,6 +111,8 @@ def run_traced_search(
     pipeline: str,
     top_k: int,
     custom_weights: dict[str, float] | None = None,
+    mmr_lambda: float | None = None,
+    mmr_pool: int = 50,
 ) -> RecommendationTraceResponse:
     """
     Run the real recommendation search with a trace recorder attached.
@@ -136,6 +131,8 @@ def run_traced_search(
         top_k=top_k,
         trace=trace,
         custom_weights=custom_weights,
+        mmr_lambda=mmr_lambda,
+        mmr_pool=mmr_pool,
     )
 
     return RecommendationTraceResponse(

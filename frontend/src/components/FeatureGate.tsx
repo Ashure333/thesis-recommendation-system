@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 
 import { featureByKey } from "../data/siteFeatures";
 import { useSiteMode } from "../state/siteMode";
@@ -21,12 +21,15 @@ export default function FeatureGate({
   feature: string;
   children: ReactNode;
 }) {
-  const { stateFor, setMode } = useSiteMode();
+  const { mode, stateFor, setMode } = useSiteMode();
   const state = stateFor(feature);
 
   if (state === "shown") {
     return <>{children}</>;
   }
+
+  // The shipped build has no switch to offer: send them somewhere that works.
+  if (mode === "presentation") return <Navigate to="/repository" replace />;
 
   const meta = featureByKey(feature);
   const label = meta?.label ?? "This area";

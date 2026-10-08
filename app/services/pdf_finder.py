@@ -96,13 +96,15 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from difflib import SequenceMatcher
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import pdfplumber
 import requests
+
+from app.services.url_safety import UnsafeUrlError, safe_get
 
 from app.models.models import Paper
 from app.services.storage import save_paper_file
@@ -1479,7 +1481,7 @@ def download_and_attach_pdf(
     """
 
     try:
-        response = requests.get(
+        response = safe_get(
             url,
             timeout=REQUEST_TIMEOUT,
             stream=True,
@@ -1495,6 +1497,9 @@ def download_and_attach_pdf(
                 "Accept": "application/pdf,*/*",
             },
         )
+    except UnsafeUrlError as exc:
+        raise ValueError(str(exc)) from exc
+
     except requests.RequestException as exc:
         raise ValueError(f"Could not reach that link: {exc}") from exc
 

@@ -1,6 +1,8 @@
+import { UI_CUSTOM_EVENT, applyUiCustom } from "./utils/uiCustom";
 import {
   createContext,
   useContext,
+  useEffect,
   useLayoutEffect,
   useState,
   type ReactNode,
@@ -534,16 +536,6 @@ function hslToTriplet(h: number, s: number, l: number): string {
   return `${Math.round((r + m) * 255)} ${Math.round((g + m) * 255)} ${Math.round((b + m) * 255)}`;
 }
 
-/** Same-hue shade at a lightness offset (tonal harmony — never clashes). */
-function tonal(triplet: string, lightnessOffset: number): string {
-  const { h, s, l } = tripletToHsl(triplet);
-  return hslToTriplet(
-    h,
-    s,
-    Math.max(0.18, Math.min(0.85, l + lightnessOffset)),
-  );
-}
-
 /**
  * Legible lightness per hue: yellow/green hues (35–165) are very
  * bright at 0.5 and would vanish on the white bar track, so they
@@ -750,6 +742,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useLayoutEffect(() => {
     applyAccent(accent, mode);
+    /* then the player's look (a skin, effects) goes on top of the theme */
+    applyUiCustom();
+  }, [accent, mode]);
+
+  /* a skin turned on or off: put the theme back, then re-apply the look */
+  useEffect(() => {
+    const reapply = () => {
+      applyAccent(accent, mode);
+      applyUiCustom();
+    };
+
+    window.addEventListener(UI_CUSTOM_EVENT, reapply);
+    window.addEventListener("storage", reapply);
+
+    return () => {
+      window.removeEventListener(UI_CUSTOM_EVENT, reapply);
+      window.removeEventListener("storage", reapply);
+    };
   }, [accent, mode]);
 
   function setAccent(id: AccentId) {

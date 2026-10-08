@@ -9,6 +9,8 @@
    Rose Ruins, Frost Spire.
    ============================================================ */
 
+import type { TreeSpeciesId } from "./knowledge";
+
 export const BACKDROP_W = 256;
 export const BACKDROP_H = 144;
 
@@ -524,9 +526,95 @@ function house(
   }
 }
 
+/* The camera only starts its upward zoom once the tree's growth
+   timeline passes this fraction (mirrors PixelGrowthTree's own PA
+   phase boundary) — elevation parallax and the cloud-sea haze both
+   key off it, so neither kicks in until the view actually begins
+   rising. */
+const ASCENT_START = 0.46;
+
+/* Per-species character for the haze-leaves: a distinct palette
+   and tiny silhouette per tree, so what drifts through the air
+   while climbing reads as "this species," not a generic scene
+   ornament. */
+const SPECIES_HAZE: Record<
+  TreeSpeciesId,
+  { colors: number[][]; shape: "star" | "lobed" | "oval" | "leaf" | "needle" }
+> = {
+  crimson: {
+    colors: [[196, 42, 28], [227, 122, 30], [242, 197, 88]],
+    shape: "star",
+  },
+  oak: {
+    colors: [[79, 168, 62], [47, 122, 46]],
+    shape: "lobed",
+  },
+  birch: {
+    colors: [[223, 196, 56], [244, 222, 120]],
+    shape: "oval",
+  },
+  elm: {
+    colors: [[214, 168, 40], [150, 120, 30]],
+    shape: "leaf",
+  },
+  redwood: {
+    colors: [[60, 110, 70], [40, 80, 55]],
+    shape: "needle",
+  },
+};
+
+/* Stamps a tiny per-species silhouette at (x, y) — a few `put()`
+   calls arranged to read as a leaf type at a glyph's distance,
+   not just a tinted dot. `c0`/`c1` are already depth/light-shaded;
+   `spin` (-1/1) flips the asymmetric shapes frame to frame. */
+function stampHazeLeaf(
+  put: (x: number, y: number, c: number[]) => void,
+  x: number,
+  y: number,
+  shape: string,
+  c0: number[],
+  c1: number[],
+  spin: number,
+) {
+  const xi = x | 0;
+  const yi = y | 0;
+  const sx = spin > 0 ? 1 : -1;
+  switch (shape) {
+    case "star":
+      /* maple: a little five-point whirl */
+      put(xi, yi, c0);
+      put(xi + sx, yi, c1);
+      put(xi, yi - 1, c1);
+      put(xi, yi + 1, c0);
+      break;
+    case "lobed":
+      /* oak: a chunky blob with a stem fleck */
+      put(xi, yi, c0);
+      put(xi + 1, yi, c0);
+      put(xi, yi + 1, c1);
+      break;
+    case "oval":
+      /* birch: a thin pale streak */
+      put(xi, yi, c1);
+      put(xi, yi + 1, c0);
+      break;
+    case "needle":
+      /* redwood: a short vertical sliver */
+      put(xi, yi - 1, c1);
+      put(xi, yi, c0);
+      put(xi, yi + 1, c1);
+      break;
+    default:
+      /* elm: a simple diagonal pair */
+      put(xi, yi, c0);
+      put(xi + sx, yi, c1);
+  }
+}
+
 /* Renders one frame of a scene into an ImageData buffer.
 
-   `parallax` (0..1, the tree's growth) drives a depth parallax:
+   `parallax` (0..1, the tree's growth) drives a depth parallax —
+   but only once the camera begins its upward zoom (ASCENT_START):
    as the tree rises, the near ground leads, the mid band (lakes,
    shores) follows, and the far hills lag — the sky stays put. The
    ground extends downward seamlessly, so the stage never gaps. */
@@ -536,7 +624,12 @@ export function renderFrame(
   t: number,
   tm: number,
   parallax = 0,
+  speciesId?: TreeSpeciesId,
+  /** Scenery layers the player has switched off: clouds, weather,
+   *  fireflies, fence, house. */
+  off?: ReadonlySet<string>,
 ) {
+  const hidden = (id: string) => off?.has(id) === true;
   const W = BACKDROP_W;
   const H = BACKDROP_H;
   const S = scene;
@@ -545,9 +638,12 @@ export function renderFrame(
   const Sk: number[][] = [];
   for (let i = 0; i < 7; i += 1) Sk.push(mix(top, bot, i / 6));
 
-  /* Layer offsets: far lags, mid follows, near leads. */
+  /* Layer offsets: far lags, mid follows, near leads. Holds at
+     zero until the camera actually starts rising (ASCENT_START),
+     then ramps across the rest of the climb — no elevation shift
+     during ordinary growth. */
   const ease = (u: number) => u * u * (3 - 2 * u);
-  const P = ease(clamp(parallax, 0, 1));
+  const P = ease(clamp((parallax - ASCENT_START) / (1 - ASCENT_START), 0, 1));
   const oFar = Math.round(3.5 * P);
   const oMid = Math.round(6 * P);
   const oNear = Math.round(10 * P);
@@ -649,7 +745,7 @@ export function renderFrame(
           put(mx + dx, my + dy, [238, 234, 250]);
   }
 
-  if (S.cu) {
+  if (S.cu && !hidden("clouds")) {
     const CMK = new Uint8Array(W * H);
     for (const { x, y: yb, blobs, sp } of CU) {
       const ox = (x + tm * sp + 80) % (W + 160) - 80;
@@ -728,8 +824,8 @@ export function renderFrame(
   for (const [x, y] of S.FP) put(x, y - oFar, tc);
 
   const putFar = (x: number, y: number, c: number[]) => put(x, y - oFar, c);
-  if (S.n === "meadow") house(putFar, S.HF, 194, 14, mul(far, 0.7), mul(far, 1.22), st);
-  if (S.n === "winter") house(putFar, S.HF, 200, 14, mul(far, 0.72), [236, 240, 248], st);
+  if (S.n === "meadow" && !hidden("house")) house(putFar, S.HF, 194, 14, mul(far, 0.7), mul(far, 1.22), st);
+  if (S.n === "winter" && !hidden("house")) house(putFar, S.HF, 200, 14, mul(far, 0.72), [236, 240, 248], st);
 
   if (S.lake) {
     const C = { bot, far, mid, grass, soil };
@@ -944,7 +1040,7 @@ export function renderFrame(
     for (const [x, y] of S.MP) put(x, y, pc);
   }
 
-  if (S.fence) {
+  if (S.fence && !hidden("fence")) {
     const fc = mix(mid, [72, 58, 46], 0.6);
     for (let x = 0; x < W; x += 1) {
       if (x % 24 < 2) {
@@ -996,7 +1092,7 @@ export function renderFrame(
       );
   }
 
-  if (S.fx === "ff")
+  if (S.fx === "ff" && !hidden("fireflies"))
     FF.forEach(([x0, y0, ax, ay, fx, fy, ph]) => {
       if (ph / 6.28 >= st) return;
       const b = Math.sin(tm * 2.6 + ph * 5);
@@ -1014,7 +1110,7 @@ export function renderFrame(
       }
     });
 
-  if (S.fx === "sn")
+  if (S.fx === "sn" && !hidden("weather"))
     PK.forEach(([x0, y0, sp, ph]) => {
       const x = (x0 + Math.sin(tm * 0.8 + ph) * 5 + W) % W;
       const y = (y0 + tm * sp) % H;
@@ -1022,7 +1118,7 @@ export function renderFrame(
       if (sp > 16) put(x + 1, y, [220, 228, 240]);
     });
 
-  if (S.fx === "du" && st < 0.5)
+  if (S.fx === "du" && st < 0.5 && !hidden("weather"))
     PK.forEach(([x0, y0, sp, ph]) => {
       if (sp > 14)
         put((x0 + tm * sp * 2) % W, 90 + y0 / 3 + Math.sin(tm + ph) * 3, mul(grass, 1.12));
@@ -1033,13 +1129,19 @@ export function renderFrame(
      already live in each scene; the higher a band of the picture
      sits, the thicker the haze on it, so the canopy above the
      field fades into drifting cloud while the ground keeps its
-     colour. The saturation wash runs one band higher — above the
+     color. The saturation wash runs one band higher — above the
      giant stage everything the canopy has left below drains to
-     grey. The haze is alive: two sheets drift at different rates
+     gray. The haze is alive: two sheets drift at different rates
      and heave gently, leaves fall through it, and birds cross the
      hazy sky. */
-  const cf = ease(clamp((parallax - 0.66) / 0.24, 0, 1));
-  const wash = ease(clamp((parallax - 0.8) / 0.2, 0, 1));
+  /* Both keyed off ASCENT_START too, so the haze builds in step
+     with the elevation shift above instead of arriving a stage
+     later: cf reaches full density about 70% of the way up the
+     climb, wash (the gray-out) finishes exactly at the summit. */
+  const cf = ease(clamp((parallax - ASCENT_START) / ((1 - ASCENT_START) * 0.7), 0, 1));
+  const wash = ease(
+    clamp((parallax - (ASCENT_START + (1 - ASCENT_START) * 0.4)) / ((1 - ASCENT_START) * 0.6), 0, 1),
+  );
   if (cf > 0.02 || wash > 0.02) {
     const mask = new Float32Array(W * H);
     if (S.cu) {
@@ -1069,9 +1171,9 @@ export function renderFrame(
     for (let y = 0; y < H; y += 1)
       for (let x = 0; x < W; x += 1) {
         const base = get(x, y);
-        /* The wash: above the giant stage the scene drains to grey. */
-        const grey = (base[0] + base[1] + base[2]) / 3;
-        const washed = mix(base, [grey, grey, grey], 0.55 * wash);
+        /* The wash: above the giant stage the scene drains to gray. */
+        const gray = (base[0] + base[1] + base[2]) / 3;
+        const washed = mix(base, [gray, gray, gray], 0.55 * wash);
         /* The haze is proportional to the tree's height: the higher
            the canopy climbs, the denser the blanket — same density
            across the frame, breathing gently as it drifts. */
@@ -1092,21 +1194,65 @@ export function renderFrame(
       }
   }
 
-  /* Leaves fall through the hazy air, at two depths. */
-  if (cf > 0.03) {
+  /* Leaves fall through the hazy air, at two depths, in the active
+     species' own colors and silhouette. Most just fall straight
+     through; a few catch on the haze instead, drift to a hang, sway
+     there a while, then fade and restart — "sometimes gather in
+     the frame" rather than only ever raining past. */
+  if (cf > 0.03 && !hidden("haze")) {
+    const species = speciesId ? SPECIES_HAZE[speciesId] : undefined;
     const tc = mul(S.tf, 0.5 + 0.5 * (1 - st));
     for (let k = 0; k < 26; k += 1) {
       const seed = hash(k, 7);
       const near = seed > 0.6;
-      const spd = near ? 17 : 9;
       const ph = hash(k, 11) * 6.283;
-      const y = ((tm * spd + ph * 6 + P * 12) % (H + 8)) - 4;
-      if (y < 0 || y > H - 1) continue;
-      const x0 = seed * (W + 20) - 10;
-      const x = Math.abs(x0 + Math.sin(tm * (near ? 1.5 : 0.8) + ph) * 3) % W;
-      put(x | 0, y | 0, mul(tc, near ? 1.3 : 1.05));
-      put((x + (Math.sin(tm + ph) > 0 ? 1 : -1)) | 0, y | 0, mul(tc, near ? 1.1 : 0.9));
-      if (near) put(x | 0, (y + 1) | 0, mul(tc, 0.9));
+      const gathers = hash(k, 47) > 0.65;
+      let x: number;
+      let y: number;
+      let alpha = 1;
+      if (!gathers) {
+        const spd = near ? 17 : 9;
+        y = ((tm * spd + ph * 6 + P * 12) % (H + 8)) - 4;
+        if (y < 0 || y > H - 1) continue;
+        const x0 = seed * (W + 20) - 10;
+        x = Math.abs(x0 + Math.sin(tm * (near ? 1.5 : 0.8) + ph) * 3) % W;
+      } else {
+        const cyc = 11 + hash(k, 41) * 9;
+        const t0 = hash(k, 43) * cyc;
+        const cp = ((tm + t0) % cyc) / cyc;
+        const fallFrac = 0.32 + hash(k, 51) * 0.12;
+        const restY = H * (0.14 + 0.5 * hash(k, 53));
+        const x0 = seed * (W + 20) - 10;
+        if (cp < fallFrac) {
+          y = (cp / fallFrac) * (restY + 4) - 4;
+          x = Math.abs(x0 + Math.sin(tm * (near ? 1.5 : 0.8) + ph) * 3) % W;
+        } else {
+          const rp = (cp - fallFrac) / (1 - fallFrac);
+          y = restY + Math.sin(tm * 0.6 + k) * 1.1;
+          x = Math.abs(x0 + Math.sin(tm * 0.3 + ph) * 1.2) % W;
+          alpha = rp > 0.78 ? clamp(1 - (rp - 0.78) / 0.22, 0, 1) : 1;
+          if (alpha <= 0.03) continue;
+        }
+        if (y < 0 || y > H - 1) continue;
+      }
+      const spin = Math.sin(tm * 1.3 + ph) > 0 ? 1 : -1;
+      const c0 = species
+        ? mul(species.colors[k % species.colors.length], near ? 1.2 : 0.95)
+        : mul(tc, near ? 1.3 : 1.05);
+      const c1 = species
+        ? mul(species.colors[(k + 1) % species.colors.length], near ? 1.05 : 0.85)
+        : mul(tc, near ? 1.1 : 0.9);
+      const shape = species ? species.shape : "leaf";
+      const stampPut =
+        alpha >= 0.999
+          ? put
+          : (px: number, py: number, c: number[]) => {
+              const pxi = px | 0;
+              const pyi = py | 0;
+              if (pxi < 0 || pyi < 0 || pxi >= W || pyi >= H) return;
+              put(pxi, pyi, mix(get(pxi, pyi), c, alpha));
+            };
+      stampHazeLeaf(stampPut, x, y, shape, c0, c1, spin);
     }
   }
 

@@ -1,25 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import { useNerdButtons } from "../../state/nerdButtons";
 import {
   comparePipelines,
   webComparePipelines,
   type CompareResponse,
 } from "../../api";
-import { pipelineConfigs, adjustDialAllocation } from "../../data/pipelineConfigs";
+import { pipelineConfigs, adjustDialAllocation, normalizeDialPositions } from "../../data/pipelineConfigs";
+import { usePipelineMode } from "../../state/pipelineMode";
 import PixelProgress from "../../components/retro/PixelProgress";
 import FreqBars from "../../components/retro/FreqBars";
 import Pagination from "../../components/retro/Pagination";
 import TreeOfKnowledge from "../../components/retro/TreeOfKnowledge";
-import SunGlyph from "../../components/retro/SunGlyph";
-import TokenGlyph from "../../components/retro/TokenGlyph";
-import {
-  knowledgeStageFromHeight,
-  nextKnowledgeHeight,
-  TREE_GROWTH_MARKERS,
-  TREE_GROWTH_TARGET,
-  KNOWLEDGE_STAGES,
-} from "../../data/knowledge";
-import { useSun } from "../../state/sun";
-import SunShop from "../../components/retro/SunShop";
+import RetroDialog from "../../components/retro/RetroDialog";
 import StatsForNerds from "../../components/StatsForNerds";
 import { PageHeader } from "../../components/ui";
 import { ArrowRight } from "../../components/retro/PixelIcons";
@@ -181,9 +173,44 @@ export default function Lab() {
 
 
 
-  const [tab, setTab] = useState<"recipe" | "garden" | "stats">(
+  const [tab, setTab] = useState<"recipe" | "garden">(
     "recipe",
   );
+
+  const { setCustomWeights, setPipelineId } = usePipelineMode();
+
+  /* Right-side Stats for Nerds pane: collapsible, and it traces the
+     dial mix against a query you type here. */
+  const { on: nerdOn } = useNerdButtons();
+  const [statsOpenRaw, setStatsOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("paperrec_lab_stats") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const statsOpen = statsOpenRaw && nerdOn;
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "paperrec_lab_stats",
+        statsOpen ? "1" : "0"
+      );
+    } catch {
+      // best-effort
+    }
+  }, [statsOpen]);
+
+  /* The trace follows the Recipe bench: the stats pane activates the
+     custom pipeline and mirrors the bench dials into it. */
+  useEffect(() => {
+    if (statsOpen) {
+      setPipelineId("custom");
+      setCustomWeights(normalizeDialPositions(dials));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statsOpen, setPipelineId, setCustomWeights]);
 
   /* Warn when the window is too narrow for the garden layout. */
   const gardenPanelRef = useRef<HTMLDivElement | null>(null);
@@ -212,7 +239,22 @@ export default function Lab() {
     recipes.find((r) => r.name === recipeName)?.name ?? recipeName;
 
   function setDial(key: "tfidf" | "sbert" | "metadata", value: number) {
-    setDials((current) => adjustDialAllocation(current, key, value));
+    setDials((current) => {
+      const next = adjustDialAllocation(current, key, value);
+
+      // Mirror the bench into the shared custom pipeline so the
+      // stats trace follows the dials.
+      setCustomWeights(normalizeDialPositions(next));
+
+      return next;
+    });
+  }
+
+  /** Load a mix into the dials and activate the custom pipeline. */
+  function loadMix(mix: { tfidf: number; sbert: number; metadata: number }) {
+    setDials({ ...mix });
+    setCustomWeights(normalizeDialPositions(mix));
+    setPipelineId("custom");
   }
 
   function saveRecipe() {
@@ -244,7 +286,7 @@ export default function Lab() {
 
   function loadRecipe(recipe: Recipe) {
     setRecipeName(recipe.name);
-    setDials({ ...recipe.weights });
+    loadMix(recipe.weights);
   }
 
   async function runBattle() {
@@ -367,7 +409,8 @@ export default function Lab() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1400px]">
+    <div className="mx-auto flex w-full max-w-[1560px] items-start gap-4">
+      <div className="min-w-0 flex-1">
       <PageHeader
         eyebrow="Lab"
         title="Re:Search Laboratory"
@@ -393,7 +436,7 @@ export default function Lab() {
           role="tab"
           aria-selected={tab === "garden"}
           onClick={() => setTab("garden")}
-          className={`-ml-[3px] border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
+          className={`-ml-[3px] rounded-r border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
             tab === "garden"
               ? "bg-accent text-onAccent"
               : "bg-surface text-ink hover:bg-accentSoft"
@@ -401,19 +444,23 @@ export default function Lab() {
         >
           Garden
         </button>
+
+        {nerdOn && (
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === "stats"}
-          onClick={() => setTab("stats")}
-          className={`-ml-[3px] rounded-r border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
-            tab === "stats"
+          data-nerd=""
+          aria-pressed={statsOpen}
+          onClick={() => setStatsOpen((value) => !value)}
+          title="Toggle the live Stats for Nerds panel (traces the dial mix)"
+          className={`nerd-glitch-in ml-auto rounded border-[3px] border-gray-900 px-3 py-1.5 text-xs font-bold transition-colors pixel-ease ${
+            statsOpen
               ? "bg-accent text-onAccent"
               : "bg-surface text-ink hover:bg-accentSoft"
           }`}
         >
-          Stats for Nerds
+          Stats for Nerds {statsOpen ? "≫" : "≪"}
         </button>
+        )}
       </div>
 
       {tab === "recipe" && (
@@ -507,9 +554,7 @@ export default function Lab() {
 
             <button
               type="button"
-              onClick={() =>
-                setDials({ tfidf: 10, sbert: 90, metadata: 0 })
-              }
+              onClick={() => loadMix({ tfidf: 10, sbert: 90, metadata: 0 })}
               className="mt-2 rounded border-[2px] border-gray-900 bg-white px-2 py-1 font-mono text-[10px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
             >
               Load learned weights (10/90/0)
@@ -908,10 +953,11 @@ export default function Lab() {
                 The Garden
               </p>
               <p className="mt-1 max-w-xl text-xs leading-5 text-muted">
-                The tree carries its own menus: the sun and token
-                chips open the shop, the skins, and the wallet in the
-                card itself. Three thousand packets take it from seed to
-                ancient oak.
+                The tree carries its own wooden menu: Shop opens the sun
+                shop, the skins and the themes, and the Almanac holds
+                its charms (parts of the garden it unlocks as it grows),
+                the scenery switches and how to earn sun. Three thousand
+                packets take it from seed to ancient tree.
               </p>
             </div>
             <div
@@ -930,12 +976,26 @@ export default function Lab() {
           <TreeOfKnowledge />
         </div>
       )}
+      </div>
 
-      {tab === "stats" && (
-        <div className="mt-6">
-          <StatsForNerds contextNote="Tune the dials in the Recipe bench and watch the pseudocode follow the live weights — the same maths the search runs, ready for your methodology chapter." />
-        </div>
-      )}
+      {/* Stats for Nerds — pop-up, like the repository picker */}
+      <RetroDialog
+        open={statsOpen}
+        title="Stats for Nerds"
+        size="lg"
+        confirmLabel="Close"
+        onConfirm={() => setStatsOpen(false)}
+      >
+        <StatsForNerds
+          hideHeader
+          contextNote="The trace follows the Lab's query and Top-K, through the Recipe bench dials — the same computation the search runs, ready for your methodology chapter."
+          inputs={
+            query.trim()
+              ? { mode: "keyword", query, topK }
+              : null
+          }
+        />
+      </RetroDialog>
     </div>
   );
 }

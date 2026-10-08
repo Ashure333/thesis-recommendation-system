@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from app.models.models import Paper
@@ -85,18 +86,20 @@ def _text_similarity_scores(
     except ValueError:
         return [0.0] * len(candidate_values)
 
-    query_vector = matrix[0].toarray()[0].tolist()
+    dense = matrix.toarray()
+    query_vector = np.array(dense[0])
     scores = []
+    candidate_index = 0
     for candidate_text in normalized_candidates:
         if not candidate_text:
             scores.append(0.0)
             continue
 
-        candidate_index = 1 + sum(
-            1 for previous in normalized_candidates[:len(scores)]
-            if previous
-        )
-        candidate_vector = matrix[candidate_index].toarray()[0].tolist()
+        candidate_index += 1
+        # Fresh copy (not a view): BLAS dot results can differ in the
+        # last bit with memory alignment, and the old code always
+        # handed cosine_similarity a freshly allocated array.
+        candidate_vector = np.array(dense[candidate_index])
         score = cosine_similarity(query_vector, candidate_vector)
 
         # Protect the component from floating-point values outside

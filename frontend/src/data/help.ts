@@ -71,8 +71,9 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "tempest",
     ],
     body:
-      "TEMPEST built this system for the BSMCS thesis project. Ask " +
-      "for Stats for Nerds to see the mathematics behind the ranking.",
+      "TEMPEST built this system for the BSMCS thesis project. See the " +
+      "Engine tab for the mathematics behind the ranking, or Stats for " +
+      "Nerds for the computation traced live.",
   },
   {
     title: "SCAVENGER HUNT",
@@ -126,7 +127,6 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "shop",
       "sun",
       "fertilizer",
-      "fertiliser",
       "tokens",
       "currency",
       "packet",
@@ -184,8 +184,8 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "redundant",
     ],
     body:
-      "The Diversify checkbox on the Search page reranks results with " +
-      "maximal marginal relevance (MMR). Each next paper balances its " +
+      "The Diversify toggle in the Repository's Recommend scope reranks results " +
+      "with maximal marginal relevance (MMR). Each next paper balances its " +
       "score against its difference from the papers already listed. " +
       "Near-identical papers do not stack. The option can reduce " +
       "precision a small amount. Leave it off for pure score order.",

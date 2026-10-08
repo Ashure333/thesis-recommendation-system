@@ -1,3 +1,5 @@
+import type { CitationStyle } from "./utils/preferences";
+
 const API_URL =
   import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -22,12 +24,6 @@ export interface Paper {
   snippet?: string | null;
   /** Near-duplicate records hidden from a relevance result list. */
   duplicate_count?: number;
-}
-
-export interface RepositoryStats {
-  total_papers: number;
-  by_subject: Record<string, number>;
-  category_count: number;
 }
 
 export interface LibraryEntry {
@@ -65,9 +61,18 @@ export interface PdfCandidate {
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    const detail = body?.detail;
+
+    // FastAPI sends validation problems as a list of {msg, loc}.
+    const message = Array.isArray(detail)
+      ? detail
+          .map((item: { msg?: string }) => item?.msg)
+          .filter(Boolean)
+          .join("; ")
+      : detail;
 
     throw new Error(
-      body.detail ?? `Request failed (${res.status})`
+      message || `Request failed (${res.status})`
     );
   }
 
@@ -105,14 +110,18 @@ export function listPapers(
   ).then(handle<Paper[]>);
 }
 
-export function getRepositoryStats(): Promise<RepositoryStats> {
-  return fetch(`${API_URL}/api/papers/stats`).then(
-    handle<RepositoryStats>
-  );
-}
-
 // ============================================================
 // CATALOG (backend-owned taxonomy, auto-grows with new papers)
+
+export interface RepositoryStats {
+  total_papers: number;
+  by_subject: Record<string, number>;
+  category_count: number;
+}
+
+export function getRepositoryStats(): Promise<RepositoryStats> {
+  return fetch(`${API_URL}/api/papers/stats`).then(handle<RepositoryStats>);
+}
 
 export interface Catalog {
   subjects: string[];
@@ -146,6 +155,96 @@ export function getPaper(id: number): Promise<Paper> {
 // refresh the paper.
 // ============================================================
 
+// ============================================================
+// RESEARCH CHAT (repository / collection / web grounded)
+// ============================================================
+
+export type ResearchChatScope = "repo" | "library" | "web";
+
+export interface ResearchChatSource {
+  kind: "repo" | "web";
+  paper_id: number | null;
+  title: string;
+  author: string | null;
+  year: number | null;
+  score: number;
+  abstract: string | null;
+  doi: string | null;
+  url: string | null;
+  document_type: string | null;
+}
+
+export interface ResearchChatHistoryItem {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ResearchChatResponse {
+  answer: string;
+  sources: ResearchChatSource[];
+  used_fallback: boolean;
+}
+
+/** Ask the research assistant; retrieval is grounded in the
+ *  repository, a saved collection, or the open web. */
+export function researchChat(params: {
+  message: string;
+  pipeline?: "tfidf" | "sbert";
+  topK?: number;
+  scope?: ResearchChatScope;
+  paperIds?: number[];
+  history?: ResearchChatHistoryItem[];
+  /** Settings > citation style: the answer's in-text citations and
+   *  reference list follow it. Omitted = bracket numbers. */
+  citationStyle?: CitationStyle;
+  includeDoi?: boolean;
+}): Promise<ResearchChatResponse> {
+  return fetch(`${API_URL}/api/research-chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message: params.message,
+      pipeline: params.pipeline ?? "sbert",
+      top_k: params.topK ?? 6,
+      scope: params.scope ?? "repo",
+      paper_ids: params.paperIds ?? [],
+      history: params.history ?? [],
+      citation_style: params.citationStyle ?? null,
+      include_doi: params.includeDoi ?? true,
+    }),
+  }).then(handle<ResearchChatResponse>);
+}
+
+export interface ResearchChatSuggestions {
+  suggestions: string[];
+  /** True when the model was unavailable and templates were used. */
+  used_fallback: boolean;
+}
+
+/** Follow-up questions for the chat's suggestion pills, from the
+ *  latest question, its answer and the sources it used. */
+export function researchChatSuggestions(params: {
+  question: string;
+  answer: string;
+  sourceTitles?: string[];
+  count?: number;
+}): Promise<ResearchChatSuggestions> {
+  return fetch(`${API_URL}/api/research-chat/suggestions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      question: params.question,
+      answer: params.answer,
+      source_titles: params.sourceTitles ?? [],
+      count: params.count ?? 3,
+    }),
+  }).then(handle<ResearchChatSuggestions>);
+}
+
 export type EnrichmentStatus =
   | "idle"
   | "queued"
@@ -178,14 +277,63 @@ export function updatePaper(
   }).then(handle<Paper>);
 }
 
-export function uploadPaper(file: File): Promise<Paper> {
+/** What the Upload form reviews: the fields saved with a paper. */
+export interface ReviewedFields {
+  title: string;
+  abstract: string;
+  keywords: string;
+  publication_year: number | null;
+  author: string | null;
+  doi: string | null;
+  subject_category: string | null;
+  document_type: string | null;
+  citation_count: number | null;
+}
+
+/**
+ * Import a file. The reviewed fields travel with it, so the paper is
+ * saved once, already corrected (no second request that can fail and
+ * leave a half-edited record). A form post cannot tell "left out" from
+ * "left blank", so emptied fields are listed in `cleared`.
+ */
+export function uploadPaper(
+  file: File,
+  fields?: ReviewedFields
+): Promise<Paper> {
   const formData = new FormData();
   formData.append("file", file);
+
+  if (fields) {
+    const cleared: string[] = [];
+
+    for (const [name, value] of Object.entries(fields)) {
+      if (value === null || value === "") {
+        cleared.push(name);
+      } else {
+        formData.append(name, String(value));
+      }
+    }
+
+    if (cleared.length > 0) {
+      formData.append("cleared", cleared.join(","));
+    }
+  }
 
   return fetch(`${API_URL}/api/papers/upload`, {
     method: "POST",
     body: formData,
   }).then(handle<Paper>);
+}
+
+/** Read a file's metadata without saving anything. */
+export function previewPaperFile(file: File): Promise<PaperPreviewData> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return fetch(`${API_URL}/api/papers/preview`, {
+    method: "POST",
+    body: formData,
+  }).then(handle<PaperPreviewData>);
 }
 
 // ============================================================
@@ -207,6 +355,8 @@ export interface PaperPreviewData {
   missing_fields: string | null;
   source_filename: string | null;
   extraction_method: string | null;
+  /** The stored paper this one would be rejected as a copy of. */
+  duplicate_of?: { id: number; title: string | null } | null;
   pdf_candidates?: Array<{
     url: string;
     source: string;
@@ -231,6 +381,33 @@ export function previewIdentifier(
     },
     body: JSON.stringify({ identifier }),
   }).then(handle<PaperPreviewData>);
+}
+
+// ============================================================
+// GOOGLE SCHOLAR EXPORT LINKS (BibTeX / EndNote / RefMan)
+// ============================================================
+
+export interface ScholarCitation {
+  format: "bib" | "enw" | "ris";
+  text: string;
+  url: string;
+}
+
+/**
+ * Fetch a Google Scholar export link server-side (the browser
+ * cannot fetch scholar.google.com directly). Nothing is persisted:
+ * `format` + `text` feed the normal preview → review → save flow.
+ */
+export function fetchScholarCitation(
+  url: string
+): Promise<ScholarCitation> {
+  return fetch(`${API_URL}/api/papers/scholar-fetch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url }),
+  }).then(handle<ScholarCitation>);
 }
 
 export interface MetadataImportInput {
@@ -283,6 +460,12 @@ export interface WebSearchResult {
   document_type: string | null;
   /** Direct full-text link (arXiv results carry one). */
   pdf_url?: string | null;
+  /** Set when the hit was ranked by a recommendation pipeline. */
+  rank?: number;
+  /** The pipeline's final score for this hit (0..1). */
+  score?: number;
+  /** The component scores behind `score`. */
+  components?: { tfidf: number; sbert: number; metadata: number };
 }
 
 export interface WebSearchParams {
@@ -321,23 +504,50 @@ export function searchWeb(
   }).then(handle<WebSearchResult[]>);
 }
 
-export async function importBibtex(
-  bibtex: string,
-  filename = "google-scholar.bib"
-): Promise<Paper> {
-  const blob = new Blob([bibtex], {
-    type: "application/x-bibtex",
+export interface WebRecommendationParams {
+  q: string;
+  pipeline: string;
+  topK?: number;
+  year_min?: number | null;
+  year_max?: number | null;
+  peer_reviewed?: boolean;
+  open_access?: boolean;
+  sources?: string;
+  /** Dial allocation for pipeline="custom" (0..100 per signal). */
+  weights?: DialWeights;
+  signal?: AbortSignal;
+}
+
+/**
+ * Recommend from the open web: live OpenAlex / Crossref / arXiv hits
+ * ranked by ONE pipeline (or the custom dials), each row carrying its
+ * rank, score and component scores.
+ */
+export function getWebRecommendations(
+  params: WebRecommendationParams
+): Promise<WebSearchResult[]> {
+  const query = new URLSearchParams({
+    q: params.q,
+    pipeline: params.pipeline,
   });
 
-  const file = new File(
-    [blob],
-    filename,
-    {
-      type: "application/x-bibtex",
-    }
-  );
+  if (params.topK !== undefined) query.set("top_k", String(params.topK));
+  if (params.year_min != null) query.set("year_min", String(params.year_min));
+  if (params.year_max != null) query.set("year_max", String(params.year_max));
+  query.set("peer_reviewed", String(params.peer_reviewed ?? true));
+  query.set("open_access", String(params.open_access ?? false));
+  if (params.sources) query.set("sources", params.sources);
 
-  return uploadPaper(file);
+  if (params.weights) {
+    query.set("w_tfidf", String(params.weights.tfidf));
+    query.set("w_sbert", String(params.weights.sbert));
+    query.set("w_metadata", String(params.weights.metadata));
+  }
+
+  return fetch(
+    `${API_URL}/api/recommendations/web?${query.toString()}`,
+    { signal: params.signal }
+  ).then(handle<WebSearchResult[]>);
 }
 
 export function getLibrary(): Promise<LibraryEntry[]> {
@@ -520,6 +730,8 @@ export function getRecommendationTrace(
             w_metadata: params.weights.metadata,
           }
         : {}),
+      mmr_lambda: params.mmrLambda ?? null,
+      mmr_pool: params.mmrPool ?? 50,
     }),
   }).then(handle<RecommendationTrace>);
 }
@@ -755,6 +967,7 @@ export interface SimilarGraphNode {
   publication_year: number | null;
   abstract: string | null;
   doi: string | null;
+  citation_count: number | null;
   similarity: number;
   relationship: "current" | "similar";
   /** Shortest weighted path from the origin (start_id) to this node. */
@@ -810,55 +1023,6 @@ export function getSimilarPapersGraph(
   return fetch(
     `${API_URL}/api/papers/${paperId}/similar-graph?${search.toString()}`
   ).then(handle<SimilarPapersGraph>);
-}
-
-// ============================================================
-// RESEARCH ASSISTANT
-// Add this near the other API types/functions in frontend/src/api.ts
-// ============================================================
-
-export interface ResearchChatHistoryItem {
-  role: "user" | "assistant";
-  content: string;
-}
-
-export interface ResearchChatSource {
-  paper_id: number;
-  title: string;
-  author: string | null;
-  year: number | null;
-  score: number;
-  abstract: string | null;
-}
-
-export interface ResearchChatResponse {
-  answer: string;
-  sources: ResearchChatSource[];
-  used_fallback: boolean;
-}
-
-export interface ResearchChatParams {
-  message: string;
-  pipeline?: "tfidf" | "sbert";
-  topK?: number;
-  history?: ResearchChatHistoryItem[];
-}
-
-export function researchChat(
-  params: ResearchChatParams
-): Promise<ResearchChatResponse> {
-  return fetch(`${API_URL}/api/research-chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message: params.message,
-      pipeline: params.pipeline ?? "sbert",
-      top_k: params.topK ?? 6,
-      history: params.history ?? [],
-    }),
-  }).then(handle<ResearchChatResponse>);
 }
 
 // ============================================================
@@ -1028,7 +1192,7 @@ export interface ClusterWork {
   count: number;
 }
 
-/** One OpenAlex work in the web neighbourhood. */
+/** One OpenAlex work in the web neighborhood. */
 export interface WebWork {
   work_id: string;
   title: string | null;

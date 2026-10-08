@@ -17,6 +17,7 @@ export default function ConnectionsPane({
   weights,
   defaultTopK,
   onExpand,
+  controls = false,
 }: {
   paperId: number;
   pipeline: string;
@@ -24,6 +25,7 @@ export default function ConnectionsPane({
   weights?: DialWeights;
   defaultTopK?: number;
   onExpand?: () => void;
+  controls?: boolean;
 }) {
   return (
     <ConnectionsWorkbench
@@ -33,6 +35,7 @@ export default function ConnectionsPane({
       weights={weights}
       defaultTopK={defaultTopK}
       compact
+      controls={controls}
       onExpand={onExpand}
     />
   );
