@@ -210,6 +210,16 @@ export default function DevPanel({ garden = false }: { garden?: boolean }) {
       </Section>
 
       <Section title="Live scenery behind the app">
+        <Row
+          title="Look wallpapers"
+          note="Every look has its own live wallpaper: Nokia-style games on Pocket Green, a sawmill on Lumberyard, digital rain on Phosphor, a drafting table on Blueprint, a sunset grid on Neon Horizon, a scriptorium on Old Parchment."
+        >
+          <Switch
+            on={custom.wallpaper}
+            label={`Look wallpapers: ${custom.wallpaper ? "on" : "off"}`}
+            onClick={() => setUiCustom((c) => ({ ...c, wallpaper: !c.wallpaper }))}
+          />
+        </Row>
         <Row title="Live background" note="The garden's scene, dimmed under the page so text stays readable.">
           <Switch
             on={custom.live.on}

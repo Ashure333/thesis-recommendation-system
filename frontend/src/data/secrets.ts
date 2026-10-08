@@ -32,7 +32,7 @@ export const SECRETS: Secret[] = [
     kind: "skin",
     skin: "gameboy",
     hint: "A gray brick from 1989 that played in four shades of green.",
-    blurb: "The whole app on a handheld's four-shade green screen.",
+    blurb: "The whole app on a handheld's four-shade green screen, with Nokia-style games playing themselves behind it.",
   },
   {
     id: "wood",
@@ -41,7 +41,7 @@ export const SECRETS: Secret[] = [
     kind: "skin",
     skin: "wood",
     hint: "What the garden's menu is made of, felled and planed.",
-    blurb: "Warm oak boards and carved edges everywhere.",
+    blurb: "Warm oak boards and carved edges, with a sawmill working behind the pages.",
   },
   {
     id: "terminal",
@@ -50,7 +50,7 @@ export const SECRETS: Secret[] = [
     kind: "skin",
     skin: "terminal",
     hint: "Follow the white rabbit; the glass is green.",
-    blurb: "Green phosphor on black, like an old terminal.",
+    blurb: "Green phosphor on black, with digital rain falling behind the pages.",
   },
   {
     id: "blueprint",
@@ -59,7 +59,7 @@ export const SECRETS: Secret[] = [
     kind: "skin",
     skin: "blueprint",
     hint: "Architects' paper, white lines on cyan-blue.",
-    blurb: "White ink on blueprint blue, with a drawing grid.",
+    blurb: "White ink on blueprint blue, with a drafting table inking itself behind the pages.",
   },
   {
     id: "synthwave",
@@ -68,7 +68,7 @@ export const SECRETS: Secret[] = [
     kind: "skin",
     skin: "synthwave",
     hint: "1985, a chrome sun setting over a purple grid.",
-    blurb: "Magenta and violet with a glowing horizon.",
+    blurb: "Magenta and violet with a glowing horizon: a synthwave sunset races behind the pages.",
   },
   {
     id: "parchment",
@@ -77,7 +77,7 @@ export const SECRETS: Secret[] = [
     kind: "skin",
     skin: "parchment",
     hint: "Ink on something older than paper.",
-    blurb: "Sepia pages and serif type.",
+    blurb: "Sepia pages and serif type, with a quill writing by candlelight behind them.",
   },
   {
     id: "crt",

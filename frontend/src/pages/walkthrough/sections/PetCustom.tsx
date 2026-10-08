@@ -140,6 +140,31 @@ export function Customizing() {
           </WikiNote>
         </WikiSub>
 
+        <WikiSub id="wallpapers" title="Look wallpapers">
+          <P>
+            Each of the six looks brings its own live wallpaper, drawn in pixel art behind the pages and
+            dimmed just enough that the text stays clear: <Chip>Pocket Green</Chip> plays Nokia-style games
+            (a self-playing Snake, a Space Impact shooter, a bouncing ball, drifting envelopes, hearts and
+            phones, and a boy and his dog walking past); <Chip>Lumberyard</Chip> is a sawmill;{" "}
+            <Chip>Phosphor</Chip> is digital rain; <Chip>Blueprint</Chip> is a drafting table inking itself;{" "}
+            <Chip>Neon Horizon</Chip> is a synthwave sunset; and <Chip>Old Parchment</Chip> is a scriptorium by
+            candlelight. They run at a gentle 12 frames a second, pause while the tab is hidden and show a
+            single still frame if your system asks for reduced motion.
+          </P>
+          <WikiGallery
+            cols={3}
+            ids={[
+              "wallpaper-pocket-green", "wallpaper-lumberyard", "wallpaper-phosphor",
+              "wallpaper-blueprint", "wallpaper-neon-horizon", "wallpaper-old-parchment",
+            ]}
+          />
+          <P>
+            Settings → Developer has a <Chip>Look wallpapers</Chip> switch, the "Page color over it" slider
+            and the "Still picture" switch. Turning the garden's <Chip>diorama</Chip> on puts the garden's
+            scene there instead.
+          </P>
+        </WikiSub>
+
         <WikiSub id="nerd" title="The NERD switch">
           <P>
             The switch beside the theme button decides whether the Stats for Nerds controls exist at

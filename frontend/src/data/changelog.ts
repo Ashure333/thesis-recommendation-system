@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "look-wallpapers",
+    date: "Oct 8",
+    title: "Every look gets its own live wallpaper",
+    tag: "NEW",
+    body: "Pocket Green plays Nokia-style games (Snake, a shooter, a bouncing ball), Lumberyard runs a sawmill, Phosphor rains glyphs, Blueprint inks a drafting table, Neon Horizon races a synthwave grid and Old Parchment writes by candlelight.",
+    details: [
+      "Each scene is pixel art drawn on a canvas of about 240 pixels across and scaled by a whole number, at 12 frames a second; it pauses while the tab is hidden and shows one frame under reduced motion.",
+      "A switch in Settings → Developer turns the wallpapers off; the page-color slider and the still-picture switch apply to them, and the diorama (the garden scene) still takes precedence when it is on.",
+      "Fixed: the body's own background covered the live background, so the garden diorama never showed through; the body is now transparent while a live background is on.",
+    ],
+  },
+  {
     id: "wiki-pages-screenshots",
     date: "Oct 8",
     title: "The Walkthrough and Engine become a wiki",

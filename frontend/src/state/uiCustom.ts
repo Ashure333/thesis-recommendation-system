@@ -94,6 +94,7 @@ export function resetLooks() {
   setUiCustom((c) => ({
     ...DEFAULT_UI_CUSTOM,
     live: { ...DEFAULT_UI_CUSTOM.live, scene: c.live.scene, dim: c.live.dim },
+    wallpaper: c.wallpaper,
     discovered: c.discovered,
   }));
 }

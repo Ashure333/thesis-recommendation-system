@@ -150,6 +150,8 @@ export interface UiCustom {
   crt: boolean;
   pixelFont: boolean;
   live: LiveBackground;
+  /** Each look brings its own live wallpaper (on by default). */
+  wallpaper: boolean;
   /** Hidden cheats the player has found. */
   discovered: string[];
 }
@@ -159,6 +161,7 @@ export const DEFAULT_UI_CUSTOM: UiCustom = {
   crt: false,
   pixelFont: false,
   live: { on: false, scene: "garden", dim: 0.78, still: false },
+  wallpaper: true,
   discovered: [],
 };
 
@@ -183,6 +186,7 @@ export function normalize(raw: unknown): UiCustom {
       dim,
       still: live.still === true,
     },
+    wallpaper: o.wallpaper !== false,
     discovered: Array.isArray(o.discovered)
       ? o.discovered.filter((id): id is string => typeof id === "string")
       : [],
@@ -290,7 +294,7 @@ export function applyUiCustom(root: HTMLElement = document.documentElement): voi
 
   flag("data-crt", custom.crt);
   flag("data-pixelfont", custom.pixelFont);
-  flag("data-live-bg", custom.live.on);
+  flag("data-live-bg", custom.live.on || (skin !== null && custom.wallpaper));
 }
 
 export { SKIN_VARS };

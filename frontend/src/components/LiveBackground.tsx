@@ -17,6 +17,7 @@ import {
   type BackdropThemeId,
 } from "../data/backdrops";
 import { useUiCustom } from "../state/uiCustom";
+import SkinWallpaper from "./wallpaper/SkinWallpaper";
 
 const GARDEN_ACTIVE_KEY = "paperrec_backdrop_theme";
 
@@ -37,8 +38,10 @@ function gardenScene(): BackdropThemeId {
 export default function LiveBackground() {
   const { custom } = useUiCustom();
   const live = custom.live;
+  /* a look's own wallpaper, unless the garden's scene was asked for */
+  const wallpaper = !live.on && custom.skin !== null && custom.wallpaper ? custom.skin : null;
 
-  if (!live.on) return null;
+  if (!live.on && !wallpaper) return null;
 
   const scene: BackdropThemeId =
     live.scene === "garden"
@@ -46,7 +49,11 @@ export default function LiveBackground() {
       : BACKDROP_THEMES.some((theme) => theme.id === live.scene)
         ? (live.scene as BackdropThemeId)
         : DEFAULT_BACKDROP_THEME;
-  const edge = Math.max(0.5, live.dim * 0.7);
+  /* A look's wallpaper is the point of the look, so the page color lies
+     lighter over it than over the garden's scene (the cards and the text
+     keep their own opaque backgrounds). */
+  const center = wallpaper ? Math.max(0.45, live.dim - 0.2) : live.dim;
+  const edge = wallpaper ? center * 0.45 : Math.max(0.5, live.dim * 0.7);
 
   return (
     <div
@@ -54,12 +61,16 @@ export default function LiveBackground() {
       data-live-background=""
       className="live-bg pointer-events-none fixed inset-0 -z-10 overflow-hidden"
     >
-      <GardenBackdrop theme={scene} parallax={0} maxFps={live.still ? 0.2 : 10} />
+      {wallpaper ? (
+        <SkinWallpaper skin={wallpaper} still={live.still} />
+      ) : (
+        <GardenBackdrop theme={scene} parallax={0} maxFps={live.still ? 0.2 : 10} />
+      )}
       {/* the page color over the scene: heavy in the middle, lighter at the sides */}
       <div
         className="absolute inset-0"
         style={{
-          background: `radial-gradient(ellipse 70% 90% at 50% 45%, rgb(var(--canvas) / ${live.dim}) 0%, rgb(var(--canvas) / ${live.dim}) 55%, rgb(var(--canvas) / ${edge}) 100%)`,
+          background: `radial-gradient(ellipse 70% 90% at 50% 45%, rgb(var(--canvas) / ${center}) 0%, rgb(var(--canvas) / ${center}) 55%, rgb(var(--canvas) / ${edge}) 100%)`,
         }}
       />
     </div>

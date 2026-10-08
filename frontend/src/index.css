@@ -1007,6 +1007,10 @@ html[data-skin] #app-shell,
 html[data-live-bg] #app-shell {
   background-color: transparent !important;
 }
+/* The body paints above the negative-z live background unless it lets it through. */
+html[data-live-bg] body {
+  background-color: transparent !important;
+}
 
 /* --- Pocket Green: square corners, a pixel grid, the pixel face --- */
 html[data-skin="gameboy"] body,
