@@ -442,7 +442,7 @@ export function Ranking() {
               <p className="text-sm leading-6 text-ink">
                 A pure relevance ranking can fill up with near-duplicates of
                 one paper. The <Chip>Diversify (MMR)</Chip> checkbox on the
-                Search page turns on Maximal Marginal Relevance (Carbonell
+                algorithm bar (Recommend scope) turns on Maximal Marginal Relevance (Carbonell
                 &amp; Goldstein, 1998): the positive-score results are
                 reranked greedily so each pick balances its own relevance
                 against its similarity to the papers already picked.

@@ -168,7 +168,7 @@ export function Customizing() {
         <WikiSub id="nerd" title="The NERD switch">
           <P>
             The switch beside the theme button decides whether the Stats for Nerds controls exist at
-            all. Off removes them from the Repository, the Arena, the Search page and the Lab, with a pixel
+            all. Off removes them from the Repository, the Arena and the Lab, with a pixel
             shatter; on brings them back with a glitch. The choice is remembered. It is covered with the
             screenshots under <Xref to="/walkthrough/repository#repo-stats">Stats for Nerds</Xref>.
           </P>
