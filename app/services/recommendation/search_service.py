@@ -144,6 +144,7 @@ def _normalization_bounds(
 
 def _get_valid_candidates(
     db: Session,
+    paper_ids: list[int] | None = None,
 ) -> list[Paper]:
     """
     Return papers that are valid for recommendation and have
@@ -151,18 +152,22 @@ def _get_valid_candidates(
 
     The rebuild process is responsible for determining whether
     a paper is valid for recommendation.
+
+    ``paper_ids`` narrows the candidate set (the research chat
+    scopes retrieval to a saved collection this way); None means
+    the whole repository.
     """
 
-    return (
-        db.query(Paper)
-        .filter(
-            Paper.is_valid_for_recommendation.is_(True)
-        )
-        .filter(
-            Paper.prepared_text.isnot(None)
-        )
-        .all()
+    query = db.query(Paper).filter(
+        Paper.is_valid_for_recommendation.is_(True)
+    ).filter(
+        Paper.prepared_text.isnot(None)
     )
+
+    if paper_ids:
+        query = query.filter(Paper.id.in_(paper_ids))
+
+    return query.all()
 
 
 def _get_seed_paper(
@@ -360,6 +365,7 @@ def search_papers(
     custom_weights: PipelineWeights | None = None,
     mmr_lambda: float | None = None,
     mmr_pool: int = 50,
+    paper_ids: list[int] | None = None,
 ) -> list[dict]:
     """
     Run one of the six configured recommendation pipelines — or the
@@ -496,7 +502,7 @@ def search_papers(
     # Get candidates
     # --------------------------------------------------------
 
-    candidates = _get_valid_candidates(db)
+    candidates = _get_valid_candidates(db, paper_ids=paper_ids)
 
     if not candidates:
         return []

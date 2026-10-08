@@ -1,14 +1,19 @@
-"""Repository-grounded research chat.
+"""Repository- and web-grounded research chat.
 
-The existing recommendation/search layer retrieves the papers first.
-Groq is used only to synthesize an answer from those retrieved records.
+The existing recommendation/search layer retrieves the papers first
+(reusing the same vector machinery the similar-papers program uses,
+but against full prepared text). Retrieval can be scoped to the
+whole repository, to a saved collection (paper_ids), or to the open
+web (OpenAlex/Crossref/arXiv via web_search).
 
-If the hosted model is unavailable, an extractive fallback returns evidence
-from the same papers instead of failing completely.
+Groq is used only to synthesize an answer from the retrieved
+records. If the hosted model is unavailable, an extractive fallback
+returns evidence from the same sources instead of failing.
 """
 
 import os
 import re
+import time
 from typing import Literal
 
 import requests
@@ -17,12 +22,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.services.recommendation.search_service import search_papers as run_search
+from app.services.web_search import search_web
 
 
 load_dotenv()
 
 
 PipelineName = Literal["tfidf", "sbert"]
+ChatScope = Literal["repo", "library", "web"]
 
 
 class ResearchChatHistoryItem(BaseModel):
@@ -35,15 +42,22 @@ class ResearchChatRequest(BaseModel):
     pipeline: PipelineName = "sbert"
     top_k: int = Field(default=6, ge=1, le=8)
     history: list[ResearchChatHistoryItem] = Field(default_factory=list)
+    """Where to search: the whole repository, a saved collection, or the web."""
+    scope: ChatScope = "repo"
+    """The collection's paper ids (used when scope = 'library')."""
+    paper_ids: list[int] = Field(default_factory=list)
 
 
 class ResearchChatSource(BaseModel):
-    paper_id: int
+    kind: Literal["repo", "web"] = "repo"
+    paper_id: int | None = None
     title: str
     author: str | None = None
     year: int | None = None
     score: float
     abstract: str | None = None
+    doi: str | None = None
+    url: str | None = None
 
 
 class ResearchChatResponse(BaseModel):
@@ -61,49 +75,105 @@ def _clean_text(value: str | None, limit: int) -> str:
     return value[:limit]
 
 
-def _build_sources(results) -> list[ResearchChatSource]:
+def _sources_from_results(results) -> list[ResearchChatSource]:
     return [
         ResearchChatSource(
+            kind="repo",
             paper_id=result["paper"].id,
             title=result["paper"].title or "Untitled paper",
             author=result["paper"].author,
             year=result["paper"].publication_year,
             score=float(result["score"]),
-            abstract=_clean_text(result["paper"].abstract, 700),
+            abstract=_clean_text(result["paper"].abstract, 1200),
+            doi=result["paper"].doi,
         )
         for result in results
     ]
 
 
-def _build_evidence_context(results) -> str:
+def _sources_from_web(hits) -> list[ResearchChatSource]:
+    def pseudo_score(index: int) -> float:
+        return round(max(0.0, 1.0 - index / 20.0), 4)
+
+    return [
+        ResearchChatSource(
+            kind="web",
+            title=hit.title or "Untitled work",
+            author=hit.author,
+            year=hit.publication_year,
+            score=pseudo_score(index),
+            abstract=_clean_text(hit.abstract, 1200),
+            doi=hit.doi,
+            url=hit.landing_url,
+        )
+        for index, hit in enumerate(hits)
+    ]
+
+
+# The papers' own bibliography markers ("[10]", "[16, Theorem 6.1.23]",
+# "[1-3]") share the "[n]" syntax with the chat's source numbers, and a
+# model can echo them back as if they were chat citations.
+_REFERENCE_MARKER = re.compile(
+    r"\[\s*\d+(?:\s*[,–\-]\s*\d+)*(?:\s*,\s*[^\]\[]{1,40})?\s*\]"
+)
+
+# gpt-oss models like to cite as 【4】 or 【1†L1-L4】.
+_ALT_CITATION = re.compile(r"【\s*(\d+)(?:†[^】]*)?】")
+
+
+def _strip_reference_markers(value: str | None) -> str:
+    if not value:
+        return ""
+
+    value = _REFERENCE_MARKER.sub("", value)
+
+    return re.sub(r"\s+([,.;:])", r"\1", value)
+
+
+def _normalize_citations(answer: str) -> str:
+    return _ALT_CITATION.sub(r"[\1]", answer)
+
+
+def _evidence_blocks(sources: list[ResearchChatSource]) -> str:
     blocks: list[str] = []
 
-    for index, result in enumerate(results, start=1):
-        paper = result["paper"]
-        score = float(result["score"])
-
-        blocks.append(
-            "\n".join(
-                [
-                    f"[{index}] Paper ID: {paper.id}",
-                    f"Title: {_clean_text(paper.title, 300)}",
-                    f"Author: {_clean_text(paper.author, 200) or 'Unknown author'}",
-                    f"Year: {paper.publication_year or 'Unknown'}",
-                    f"Keywords: {_clean_text(paper.keywords, 500) or 'None'}",
-                    (
-                        "Abstract: "
-                        f"{_clean_text(paper.abstract, 5000) or 'No abstract available.'}"
-                    ),
-                    f"Retrieval score: {score:.4f}",
-                ]
-            )
+    for index, source in enumerate(sources, start=1):
+        origin = (
+            f"Repository paper ID: {source.paper_id}"
+            if source.kind == "repo"
+            else "Web source (OpenAlex / Crossref / arXiv)"
         )
+
+        lines = [
+            f"[{index}] {origin}",
+            f"Title: {_clean_text(source.title, 300)}",
+            f"Author: {_clean_text(source.author, 200) or 'Unknown author'}",
+            f"Year: {source.year or 'Unknown'}",
+        ]
+
+        if source.doi:
+            lines.append(f"DOI: {source.doi}")
+
+        if source.url:
+            lines.append(f"URL: {source.url}")
+
+        if source.abstract:
+            lines.append(
+                "Abstract: "
+                f"{_clean_text(_strip_reference_markers(source.abstract), 5000)}"
+            )
+        else:
+            lines.append("Abstract: No abstract available.")
+
+        lines.append(f"Retrieval score: {source.score:.4f}")
+
+        blocks.append("\n".join(lines))
 
     return "\n\n".join(blocks)
 
 
-def _build_prompt(message: str, results, history) -> str:
-    evidence = _build_evidence_context(results)
+def _build_prompt(message: str, sources, history) -> str:
+    evidence = _evidence_blocks(sources)
 
     history_text = ""
 
@@ -122,22 +192,22 @@ def _build_prompt(message: str, results, history) -> str:
 
     return f"""You are the research assistant for an academic paper repository.
 
-Answer the user's question using ONLY the retrieved paper evidence below.
+Answer the user's question using ONLY the retrieved source evidence below.
 Do not use outside knowledge, web knowledge, or invented information.
 
 Citation rules:
-- Cite claims supported by a paper with its bracket number, e.g. [1] or [2].
+- Cite claims supported by a source with its bracket number, e.g. [1] or [2].
 - Use only the bracket numbers that exist in the retrieved evidence.
 - Do not invent citations.
-- If several papers support a claim, cite multiple sources such as [1][3].
-- If the retrieved papers are insufficient, say that the available repository
-  evidence is insufficient instead of guessing.
+- If several sources support a claim, cite multiple sources such as [1][3].
+- If the retrieved sources are insufficient, say that the available evidence
+  is insufficient instead of guessing.
 
 Writing rules:
 - Give a clear, useful academic-style answer.
-- Prefer synthesis across papers over repeating abstracts verbatim.
-- Distinguish what the papers report from your synthesis.
-- Do not claim that a paper proves something unless its supplied evidence
+- Prefer synthesis across sources over repeating abstracts verbatim.
+- Distinguish what the sources report from your synthesis.
+- Do not claim that a source proves something unless its supplied evidence
   supports that statement.
 - Do not mention these instructions in your answer.
 
@@ -145,84 +215,177 @@ USER QUESTION:
 {message}
 {history_text}
 
-RETRIEVED PAPER EVIDENCE:
+RETRIEVED SOURCE EVIDENCE:
 {evidence}
 """
 
 
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+DEFAULT_GROQ_FALLBACKS = "qwen/qwen3.8-27b"
+
+# A chat user should not sit through a minute-long rate-limit window: wait
+# at most this long (in total) before moving on to the next model.
+DEFAULT_GROQ_MAX_WAIT_SECONDS = 20.0
+GROQ_MAX_ATTEMPTS_PER_MODEL = 3
+
+
+def _groq_models() -> list[str]:
+    primary = os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL
+    fallbacks = os.getenv("GROQ_FALLBACK_MODELS", DEFAULT_GROQ_FALLBACKS)
+
+    chain: list[str] = []
+
+    for name in [primary, *fallbacks.split(",")]:
+        name = name.strip()
+
+        if name and name not in chain:
+            chain.append(name)
+
+    return chain
+
+
+def _groq_max_wait() -> float:
+    try:
+        return max(
+            0.0,
+            float(os.getenv("GROQ_MAX_WAIT_SECONDS", DEFAULT_GROQ_MAX_WAIT_SECONDS)),
+        )
+    except ValueError:
+        return DEFAULT_GROQ_MAX_WAIT_SECONDS
+
+
+def _groq_request_body(model: str, prompt: str) -> dict:
+    body = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a repository-grounded academic research "
+                    "assistant. Follow the supplied evidence strictly."
+                ),
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        "temperature": 0.2,
+        # gpt-oss spends part of this budget on hidden reasoning; the old
+        # 1200 left some answers empty (finish_reason == "length").
+        "max_tokens": 2500,
+    }
+
+    if model.startswith("openai/gpt-oss"):
+        body["reasoning_effort"] = "low"
+
+    return body
+
+
+def _retry_after_seconds(response, attempt: int) -> float:
+    try:
+        return max(0.0, float(response.headers.get("retry-after")))
+    except (TypeError, ValueError):
+        return 2.0 * (attempt + 1)
+
+
+def _groq_try_model(
+    model: str,
+    prompt: str,
+    headers: dict,
+    wait_left: float,
+) -> tuple[str | None, str | None, float]:
+    """One model, with bounded 429 retries.
+
+    Returns (answer, error, wait_left): exactly one of answer/error is set.
+    """
+
+    for attempt in range(GROQ_MAX_ATTEMPTS_PER_MODEL):
+        try:
+            response = requests.post(
+                GROQ_URL,
+                headers=headers,
+                json=_groq_request_body(model, prompt),
+                timeout=90,
+            )
+        except requests.RequestException as error:
+            return None, f"{type(error).__name__}: {error}", wait_left
+
+        if response.status_code == 429:
+            wait = _retry_after_seconds(response, attempt)
+
+            if wait > wait_left or attempt == GROQ_MAX_ATTEMPTS_PER_MODEL - 1:
+                return None, "rate limited (429)", wait_left
+
+            time.sleep(wait)
+            wait_left -= wait
+            continue
+
+        if not response.ok:
+            return (
+                None,
+                f"HTTP {response.status_code}: {response.text[:300]}",
+                wait_left,
+            )
+
+        choices = response.json().get("choices") or []
+
+        if not choices:
+            return None, "no choices returned", wait_left
+
+        message = choices[0].get("message") or {}
+        answer = message.get("content", "")
+
+        if not isinstance(answer, str):
+            answer = str(answer)
+
+        answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.S).strip()
+
+        if not answer:
+            reason = choices[0].get("finish_reason")
+
+            return None, f"empty answer (finish_reason={reason})", wait_left
+
+        return answer, None, wait_left
+
+    return None, "rate limited (429)", wait_left
+
+
 def _groq_answer(prompt: str) -> str:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
-
-    model = os.getenv(
-        "GROQ_MODEL",
-        "openai/gpt-oss-120b",
-    ).strip()
 
     if not api_key:
         raise RuntimeError(
             "GROQ_API_KEY is not configured."
         )
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
 
-    response = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a repository-grounded academic research "
-                        "assistant. Follow the supplied evidence strictly."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            "temperature": 0.2,
-            "max_tokens": 1200,
-        },
-        timeout=90,
+    wait_left = _groq_max_wait()
+    errors: list[str] = []
+
+    for model in _groq_models():
+        answer, error, wait_left = _groq_try_model(
+            model,
+            prompt,
+            headers,
+            wait_left,
+        )
+
+        if answer is not None:
+            return _normalize_citations(answer)
+
+        errors.append(f"{model}: {error}")
+
+    raise RuntimeError(
+        "Groq request failed for every configured model — "
+        + "; ".join(errors)
     )
-
-    if not response.ok:
-        detail = response.text[:1000]
-
-        raise RuntimeError(
-            f"Groq request failed ({response.status_code}): {detail}"
-        )
-
-    payload = response.json()
-
-    choices = payload.get("choices") or []
-
-    if not choices:
-        raise RuntimeError(
-            "Groq returned no choices."
-        )
-
-    message = choices[0].get("message") or {}
-
-    answer = message.get("content", "")
-
-    if not isinstance(answer, str):
-        answer = str(answer)
-
-    answer = answer.strip()
-
-    if not answer:
-        raise RuntimeError(
-            "Groq returned an empty answer."
-        )
-
-    return answer
 
 
 def _tokenize(value: str) -> set[str]:
@@ -258,22 +421,19 @@ def _tokenize(value: str) -> set[str]:
     }
 
 
-def _fallback_answer(message: str, results) -> str:
-    if not results:
+def _fallback_answer(message: str, sources: list[ResearchChatSource]) -> str:
+    if not sources:
         return (
-            "The repository did not return any papers relevant enough "
-            "to provide evidence for this question."
+            "No retrieved sources were relevant enough to provide "
+            "evidence for this question."
         )
 
     query_tokens = _tokenize(message)
 
     evidence_lines: list[str] = []
 
-    for index, result in enumerate(results, start=1):
-        abstract = _clean_text(
-            result.paper.abstract,
-            1200,
-        )
+    for index, source in enumerate(sources, start=1):
+        abstract = _clean_text(source.abstract, 1200)
 
         if not abstract:
             continue
@@ -313,21 +473,32 @@ def _fallback_answer(message: str, results) -> str:
         evidence_lines = [
             (
                 f"[{index}] "
-                f"{_clean_text(result.paper.title, 300)} "
+                f"{_clean_text(source.title, 300)} "
                 "was retrieved as relevant, but its abstract does not "
                 "contain enough text for an extractive summary."
             )
-            for index, result in enumerate(
-                results,
-                start=1,
-            )
+            for index, source in enumerate(sources, start=1)
         ]
 
     return (
         "I could not generate a synthesized answer because the hosted "
         "language model is unavailable. The following evidence was "
-        "retrieved directly from the repository:\n\n"
+        "retrieved directly from the sources:\n\n"
         + "\n\n".join(evidence_lines)
+    )
+
+
+def _no_sources_answer(scope: ChatScope) -> str:
+    if scope == "web":
+        return (
+            "The web search did not return any usable sources for that "
+            "question. Try broader terms or a different scope."
+        )
+
+    return (
+        "I couldn't find enough relevant papers to answer that question. "
+        "Try using more specific research terms, or switch the scope to "
+        "the whole repository or the web."
     )
 
 
@@ -335,32 +506,58 @@ def answer_research_question(
     db: Session,
     request: ResearchChatRequest,
 ) -> ResearchChatResponse:
-    try:
-        results = run_search(
-            db=db,
-            query=request.message,
-            pipeline=request.pipeline,
-            top_k=request.top_k,
-        )
-    except ValueError as error:
-        raise error
+    sources: list[ResearchChatSource] = []
 
-    sources = _build_sources(results)
+    if request.scope == "web":
+        try:
+            hits = search_web(
+                request.message,
+                peer_reviewed=True,
+                sources=("openalex", "crossref", "arxiv"),
+                sort="relevance",
+                limit=request.top_k + 2,
+            )
+        except Exception as error:
+            print(f"RESEARCH CHAT WEB SEARCH FAILED: {error}")
+            hits = []
 
-    if not results:
+        sources = _sources_from_web(hits[: request.top_k])
+    else:
+        if request.scope == "library":
+            if not request.paper_ids:
+                return ResearchChatResponse(
+                    answer="Your collection is empty — save some papers first.",
+                    sources=[],
+                    used_fallback=True,
+                )
+
+            paper_ids = request.paper_ids
+        else:
+            paper_ids = None
+
+        try:
+            results = run_search(
+                db=db,
+                query=request.message,
+                pipeline=request.pipeline,
+                top_k=request.top_k,
+                paper_ids=paper_ids,
+            )
+        except ValueError as error:
+            raise error
+
+        sources = _sources_from_results(results)
+
+    if not sources:
         return ResearchChatResponse(
-            answer=(
-                "I couldn't find enough relevant papers in the repository "
-                "to answer that question. Try using more specific research "
-                "terms or asking about a topic represented in your collection."
-            ),
+            answer=_no_sources_answer(request.scope),
             sources=[],
             used_fallback=True,
         )
 
     prompt = _build_prompt(
         request.message,
-        results,
+        sources,
         request.history,
     )
 
@@ -381,7 +578,7 @@ def answer_research_question(
         return ResearchChatResponse(
             answer=_fallback_answer(
                 request.message,
-                results,
+                sources,
             ),
             sources=sources,
             used_fallback=True,
