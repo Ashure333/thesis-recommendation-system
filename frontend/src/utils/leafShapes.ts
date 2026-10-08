@@ -7,8 +7,8 @@
  *   elm      oval and lopsided at the base, toothed, with parallel side veins
  *   redwood  a flat spray: a twig with short needles set along both sides
  *
- * A leaf is worked out once as a list of pixels around its centre, each with
- * a shade index into a five-step colour ramp (0 darkest .. 4 lightest). Detail
+ * A leaf is worked out once as a list of pixels around its center, each with
+ * a shade index into a five-step color ramp (0 darkest .. 4 lightest). Detail
  * scales with size: at 1-2 px a leaf is just its silhouette; veins, teeth and
  * lobe tips show up from about 3 px, and the stem from 4.
  *
@@ -44,7 +44,7 @@ const MAPLE_WIDTH = [0.4, 0.36, 0.36, 0.32, 0.32];
 const width0 = (i: number) => MAPLE_WIDTH[i] * 0.4;
 
 function mapleAt(a: number, b: number, r: number): Hit {
-  /* The palmate junction sits a little behind the centre. */
+  /* The palmate junction sits a little behind the center. */
   const ox = -0.12 * r;
   const x = a - ox;
   const d = Math.hypot(x, b);
@@ -229,7 +229,7 @@ const SHAPES: Record<LeafShape, (a: number, b: number, r: number) => Hit> = {
 /**
  * The pixels of one leaf of `shape` and radius `r`, turned `ph` radians,
  * lit from the upper left. `tone` (about 0.4..0.9) picks how light it sits
- * on the ramp. Offsets are from the leaf's centre.
+ * on the ramp. Offsets are from the leaf's center.
  */
 export function leafPixels(
   shape: LeafShape,

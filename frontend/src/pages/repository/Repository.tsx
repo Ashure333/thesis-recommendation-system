@@ -19,6 +19,7 @@ import {
   searchWeb,
   importPaperFromMetadata,
   getRecommendations,
+  getWebRecommendations,
   notifyRecommendationIndexStale,
   Paper,
   SearchResult,
@@ -45,6 +46,7 @@ import HuntItem from "../../components/retro/HuntItem";
 import { HUNT_ITEMS } from "../../data/hunt";
 import { usePipelineMode } from "../../state/pipelineMode";
 import {
+  pipelineName,
   pipelineConfigs,
   customPipelineConfig,
 } from "../../data/pipelineConfigs";
@@ -55,6 +57,8 @@ import {
 } from "../../data/catalog";
 import { useCatalog } from "../../hooks/useCatalog";
 import { useLayoutPrefs } from "../../state/layoutPrefs";
+import { useNerdButtons } from "../../state/nerdButtons";
+import { useSiteMode } from "../../state/siteMode";
 import { useLongPressFeed } from "../../utils/longPress";
 import { useStatsDrawer } from "../../state/statsDrawer";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
@@ -87,6 +91,7 @@ function webKey(result: WebSearchResult): string {
 export default function Repository() {
   const catalog = useCatalog();
   const { prefs } = useLayoutPrefs();
+  const presenting = useSiteMode().mode === "presentation";
 
   /* Resizable pane widths (persisted per browser). */
 
@@ -150,6 +155,8 @@ export default function Repository() {
     string | null
   >(null);
   const [recommendSearched, setRecommendSearched] = useState(false);
+  const lastRecommendRef = useRef<{ query: string; seed?: number } | null>(null);
+  const recommendRequestRef = useRef(0);
   const [topK, setTopK] = useState(10);
   const [diversify, setDiversify] = useState(false);
   const [subject, setSubject] = useState(subjects[0]);
@@ -190,13 +197,16 @@ export default function Repository() {
   >("details");
 
   // Right-side Stats for Nerds pane (live while you search).
-  const [statsOpen, setStatsOpen] = useState<boolean>(() => {
+  const { on: nerdOn } = useNerdButtons();
+  const [statsOpenRaw, setStatsOpen] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem("paperrec_repo_stats") === "1";
     } catch {
       return false;
     }
   });
+  // The pane goes with its button when the nerd buttons are switched off.
+  const statsOpen = statsOpenRaw && nerdOn;
 
   function toggleStats() {
     const next = !statsOpen;
@@ -459,9 +469,11 @@ export default function Repository() {
   const [peerReviewed, setPeerReviewed] = useState(true);
   const [openAccessOnly, setOpenAccessOnly] = useState(false);
   const [webSources, setWebSources] = useState("openalex,crossref,arxiv");
-  const [webSort, setWebSort] = useState<"relevance" | "citations" | "year">(
-    "relevance",
-  );
+  // "algorithm" ranks the hits with the active recommendation pipeline;
+  // the others keep the sources' own ordering.
+  const [webSort, setWebSort] = useState<
+    "algorithm" | "relevance" | "citations" | "year"
+  >("algorithm");
   const [importingKey, setImportingKey] = useState<string | null>(null);
   const [webImportStatus, setWebImportStatus] = useState<
     Record<string, "saved" | "exists">
@@ -645,6 +657,10 @@ export default function Repository() {
       return;
     }
 
+    // What an algorithm click re-runs, and which response is the newest.
+    lastRecommendRef.current = { query, seed: seedOverride };
+    const requestId = ++recommendRequestRef.current;
+
     setRecommendLoading(true);
     setRecommendError(null);
 
@@ -663,6 +679,9 @@ export default function Repository() {
         ...(diversify ? { mmrLambda: MMR_LAMBDA } : {}),
       });
 
+      // A newer search (e.g. another algorithm clicked meanwhile) wins.
+      if (requestId !== recommendRequestRef.current) return;
+
       setRecommendResults(results);
       setRecommendSearched(true);
 
@@ -675,15 +694,54 @@ export default function Repository() {
         ...(diversify ? { mmrLambda: MMR_LAMBDA } : {}),
       });
     } catch (e) {
+      if (requestId !== recommendRequestRef.current) return;
+
       setRecommendError(
         e instanceof Error
           ? e.message
           : "Recommendation search failed."
       );
     } finally {
-      setRecommendLoading(false);
+      if (requestId === recommendRequestRef.current) {
+        setRecommendLoading(false);
+      }
     }
   }
+
+  // Pressing another algorithm (or moving the dials, Top K or Diversify)
+  // re-ranks the query already on screen with that algorithm.
+  useEffect(() => {
+    if (searchMode !== "recommend" || !recommendSearched) return;
+
+    const last = lastRecommendRef.current;
+
+    if (!last) return;
+
+    const timer = window.setTimeout(
+      () => void runRecommendSearch(last.query, last.seed),
+      250,
+    );
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineId, customWeights, topK, diversify]);
+
+  // The same for web results: a new algorithm re-ranks the live hits.
+  useEffect(() => {
+    if (
+      searchMode !== "web" ||
+      !webSearched ||
+      webSort !== "algorithm" ||
+      !search.trim()
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => void runWebSearch(), 250);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineId, customWeights]);
 
   async function runWebSearch() {
     const query = search.trim();
@@ -701,17 +759,31 @@ export default function Repository() {
     webAbortRef.current = controller;
 
     try {
-      const results = await searchWeb({
-        q: query,
-        year_min: yearFilter(minYear),
-        year_max: yearFilter(maxYear),
-        peer_reviewed: peerReviewed,
-        open_access: openAccessOnly,
-        sources: webSources,
-        sort: webSort,
-        limit: 20,
-        signal: controller.signal,
-      });
+      const results =
+        webSort === "algorithm"
+          ? await getWebRecommendations({
+              q: query,
+              pipeline: pipelineId,
+              topK: 20,
+              year_min: yearFilter(minYear),
+              year_max: yearFilter(maxYear),
+              peer_reviewed: peerReviewed,
+              open_access: openAccessOnly,
+              sources: webSources,
+              ...(pipelineId === "custom" ? { weights: customWeights } : {}),
+              signal: controller.signal,
+            })
+          : await searchWeb({
+              q: query,
+              year_min: yearFilter(minYear),
+              year_max: yearFilter(maxYear),
+              peer_reviewed: peerReviewed,
+              open_access: openAccessOnly,
+              sources: webSources,
+              sort: webSort,
+              limit: 20,
+              signal: controller.signal,
+            });
 
       if (controller.signal.aborted) return;
 
@@ -1003,17 +1075,20 @@ export default function Repository() {
                     : "peer-reviewed by default"
                 }`
               : searchMode === "recommend"
-                ? `Ranked recommendations · ${activePipelineConfig.codename}.`
+                ? `Ranked recommendations · ${pipelineName(activePipelineConfig)}.`
                 : `${papers.length} papers. Pick one to open its record.`
         }
         action={
           <div className="flex flex-wrap items-center justify-end gap-3">
+            {!presenting && (<>
+            {nerdOn && (
             <button
               type="button"
+              data-nerd=""
               aria-pressed={statsOpen}
               onClick={toggleStats}
               title="Toggle the live Stats for Nerds pane on the right"
-              className={`inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 px-3 text-sm font-semibold transition-colors ${
+              className={`nerd-glitch-in inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 px-3 text-sm font-semibold transition-colors ${
                 statsOpen
                   ? "bg-accent text-onAccent"
                   : "bg-white text-ink hover:bg-accentSoft"
@@ -1021,7 +1096,9 @@ export default function Repository() {
             >
               Stats for Nerds
             </button>
+            )}
             <LayoutOptions />
+            </>)}
             <Button type="button" onClick={() => navigate("/upload")}>
               Upload paper
             </Button>
@@ -1042,6 +1119,7 @@ export default function Repository() {
       <div className="mt-4">
         <AlgorithmConsole
           recommendMode={searchMode === "recommend"}
+          webMode={searchMode === "web"}
           topK={topK}
           onTopKChange={setTopK}
           diversify={diversify}
@@ -1259,12 +1337,19 @@ export default function Repository() {
                       value={webSort}
                       onChange={(e) =>
                         setWebSort(
-                          e.target.value as "relevance" | "citations" | "year",
+                          e.target.value as
+                            | "algorithm"
+                            | "relevance"
+                            | "citations"
+                            | "year",
                         )
                       }
                       className="min-h-10 w-full rounded border-[3px] border-gray-900 bg-field px-3 py-2 text-sm font-medium text-ink"
                     >
-                      <option value="relevance">Relevance</option>
+                      <option value="algorithm">
+                        Algorithm · {pipelineName(activePipelineConfig)}
+                      </option>
+                      <option value="relevance">Source relevance</option>
                       <option value="citations">Most cited</option>
                       <option value="year">Newest</option>
                     </select>
@@ -1447,7 +1532,7 @@ export default function Repository() {
                   <option value="publication_year">Publication year</option>
                   <option value="relevance">Relevance</option>
                   <option value="similarity">
-                    Similarity ({activePipelineConfig.codename})
+                    Similarity ({pipelineName(activePipelineConfig)})
                   </option>
                 </select>
 
@@ -1455,7 +1540,7 @@ export default function Repository() {
               <p className="mt-1.5 text-xs leading-5 text-muted">
                 {!selectedPaper
                   ? "Select a paper in the list to rank by similarity."
-                  : `Ranked by ${activePipelineConfig.codename} against the selected paper.`}
+                  : `Ranked by ${pipelineName(activePipelineConfig)} against the selected paper.`}
               </p>
             )}
           </div>
@@ -1509,17 +1594,21 @@ export default function Repository() {
                 {searchMode === "web"
                   ? webLoading
                     ? "…"
-                    : `${webResults.length} result${webResults.length === 1 ? "" : "s"}`
+                    : `${webResults.length} result${webResults.length === 1 ? "" : "s"}${
+                        webSort === "algorithm" && webSearched
+                          ? ` ranked via ${pipelineName(activePipelineConfig)}`
+                          : ""
+                      }`
                   : searchMode === "recommend"
                     ? recommendLoading
                       ? "ranking…"
                       : recommendSearched
-                        ? `${recommendResults.length} ranked via ${activePipelineConfig.codename}`
+                        ? `${recommendResults.length} ranked via ${pipelineName(activePipelineConfig)}`
                         : ""
                     : similarityMode
                       ? similarityLoading
-                        ? `ranking via ${activePipelineConfig.codename}…`
-                        : `${rankedPapers.length} ranked via ${activePipelineConfig.codename}`
+                        ? `ranking via ${pipelineName(activePipelineConfig)}…`
+                        : `${rankedPapers.length} ranked via ${pipelineName(activePipelineConfig)}`
                       : loading
                         ? "…"
                         : `${rankedPapers.length} result${rankedPapers.length === 1 ? "" : "s"}`}
@@ -1577,7 +1666,9 @@ export default function Repository() {
               webLoading ? (
                 <div className="p-8 text-center">
                   <p className="animate-blink text-sm font-bold text-muted">
-                    Searching OpenAlex &amp; Crossref…
+                    {webSort === "algorithm"
+                      ? `Searching the web and ranking with ${pipelineName(activePipelineConfig)}…`
+                      : "Searching OpenAlex & Crossref…"}
                   </p>
                 </div>
               ) : !webSearched ? (
@@ -1615,6 +1706,18 @@ export default function Repository() {
                           <span className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-xs font-bold uppercase tracking-[0.1em] text-ink">
                             {result.source}
                           </span>
+                          {result.score != null && (
+                            <span
+                              className="rounded border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 font-mono text-xs font-bold text-onAccent"
+                              title={
+                                result.components
+                                  ? `TF-IDF ${result.components.tfidf.toFixed(2)} · S-BERT ${result.components.sbert.toFixed(2)} · Metadata ${result.components.metadata.toFixed(2)}`
+                                  : undefined
+                              }
+                            >
+                              #{result.rank} · {result.score.toFixed(3)}
+                            </span>
+                          )}
                           <span className="text-muted">{result.publication_year ?? "—"}</span>
                           <span className="text-muted">·</span>
                           <span className="text-muted">{result.document_type ?? "Work"}</span>
@@ -1696,7 +1799,7 @@ export default function Repository() {
               recommendLoading ? (
                 <div className="p-8 text-center">
                   <p className="animate-blink text-sm font-bold text-muted">
-                    Ranking with {activePipelineConfig.codename}…
+                    Ranking with {pipelineName(activePipelineConfig)}…
                   </p>
                 </div>
               ) : recommendError ? (
@@ -2489,7 +2592,7 @@ export default function Repository() {
                   <ConnectionsPane
                     paperId={selected.id}
                     pipeline={pipelineId}
-                    pipelineLabel={activePipelineConfig.codename}
+                    pipelineLabel={pipelineName(activePipelineConfig)}
                     weights={
                       pipelineId === "custom"
                         ? customWeights
@@ -2757,7 +2860,7 @@ export default function Repository() {
           {searchMode === "web"
             ? "scope: web"
             : searchMode === "recommend"
-              ? `scope: ${activePipelineConfig.codename}`
+              ? `scope: ${pipelineName(activePipelineConfig)}`
               : `scope: ${systemView === "all" ? "all" : systemView === "favorites" ? "favorites" : systemView === "unsorted" ? "unsorted" : "recently added"}`}
         </span>
         {authorFilter && <span>author: {authorFilter}</span>}

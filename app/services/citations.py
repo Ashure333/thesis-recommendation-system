@@ -252,7 +252,7 @@ def refresh_paper_citations(
     max_cited_by: int = 200,
 ) -> dict:
     """
-    Refresh one paper's cached OpenAlex citation neighbourhood.
+    Refresh one paper's cached OpenAlex citation neighborhood.
 
     Resolves https://api.openalex.org/works/doi:{doi}, stores
     referenced_works as direction "cites", then fetches

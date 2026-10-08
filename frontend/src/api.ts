@@ -400,6 +400,12 @@ export interface WebSearchResult {
   document_type: string | null;
   /** Direct full-text link (arXiv results carry one). */
   pdf_url?: string | null;
+  /** Set when the hit was ranked by a recommendation pipeline. */
+  rank?: number;
+  /** The pipeline's final score for this hit (0..1). */
+  score?: number;
+  /** The component scores behind `score`. */
+  components?: { tfidf: number; sbert: number; metadata: number };
 }
 
 export interface WebSearchParams {
@@ -436,6 +442,52 @@ export function searchWeb(
   return fetch(`${API_URL}/api/search-web?${query.toString()}`, {
     signal: params.signal,
   }).then(handle<WebSearchResult[]>);
+}
+
+export interface WebRecommendationParams {
+  q: string;
+  pipeline: string;
+  topK?: number;
+  year_min?: number | null;
+  year_max?: number | null;
+  peer_reviewed?: boolean;
+  open_access?: boolean;
+  sources?: string;
+  /** Dial allocation for pipeline="custom" (0..100 per signal). */
+  weights?: DialWeights;
+  signal?: AbortSignal;
+}
+
+/**
+ * Recommend from the open web: live OpenAlex / Crossref / arXiv hits
+ * ranked by ONE pipeline (or the custom dials), each row carrying its
+ * rank, score and component scores.
+ */
+export function getWebRecommendations(
+  params: WebRecommendationParams
+): Promise<WebSearchResult[]> {
+  const query = new URLSearchParams({
+    q: params.q,
+    pipeline: params.pipeline,
+  });
+
+  if (params.topK !== undefined) query.set("top_k", String(params.topK));
+  if (params.year_min != null) query.set("year_min", String(params.year_min));
+  if (params.year_max != null) query.set("year_max", String(params.year_max));
+  query.set("peer_reviewed", String(params.peer_reviewed ?? true));
+  query.set("open_access", String(params.open_access ?? false));
+  if (params.sources) query.set("sources", params.sources);
+
+  if (params.weights) {
+    query.set("w_tfidf", String(params.weights.tfidf));
+    query.set("w_sbert", String(params.weights.sbert));
+    query.set("w_metadata", String(params.weights.metadata));
+  }
+
+  return fetch(
+    `${API_URL}/api/recommendations/web?${query.toString()}`,
+    { signal: params.signal }
+  ).then(handle<WebSearchResult[]>);
 }
 
 export function getLibrary(): Promise<LibraryEntry[]> {
@@ -1080,7 +1132,7 @@ export interface ClusterWork {
   count: number;
 }
 
-/** One OpenAlex work in the web neighbourhood. */
+/** One OpenAlex work in the web neighborhood. */
 export interface WebWork {
   work_id: string;
   title: string | null;

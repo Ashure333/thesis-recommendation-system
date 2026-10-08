@@ -1,9 +1,9 @@
 /* ============================================================
    SHOP CARD — the card every garden shop shares.
 
-   Modelled on the Theme shop: a framed pixel preview, the name with
+   Modeled on the Theme shop: a framed pixel preview, the name with
    a status badge, a line of blurb, and one action on the right. The
-   active card is lifted and tinted. Colours come from the adaptive
+   active card is lifted and tinted. Colors come from the adaptive
    theme tokens (ink, surface, accentSoft, onAccent), so the cards read
    in both light and dark mode.
 

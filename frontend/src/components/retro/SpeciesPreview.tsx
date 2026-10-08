@@ -34,7 +34,7 @@ export default function SpeciesPreview({
   dim?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
-  /* The cards show each tree in the colours the player chose for it. */
+  /* The cards show each tree in the colors the player chose for it. */
   const [variantId] = useTreeVariant(speciesId);
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 /**
- * The chosen colour variant for each species, remembered in local storage
+ * The chosen color variant for each species, remembered in local storage
  * and shared live between everything that draws a tree (the garden, the
  * skin cards, the picker), so a pick shows everywhere at once.
  */

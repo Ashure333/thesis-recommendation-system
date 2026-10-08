@@ -79,8 +79,8 @@ test("every css length lands on whole device pixels", () => {
   }
 });
 
-test("art pixels centre without a half pixel", () => {
-  // a 192x128 tree centred in the 256x144 stage leaves 32 art px each side
+test("art pixels center without a half pixel", () => {
+  // a 192x128 tree centerd in the 256x144 stage leaves 32 art px each side
   for (const scale of [1, 2, 3, 7, 11]) {
     assert.equal(((W - 192) / 2) * scale, Math.floor(((W - 192) / 2) * scale));
   }

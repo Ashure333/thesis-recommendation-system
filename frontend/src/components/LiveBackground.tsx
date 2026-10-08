@@ -2,10 +2,10 @@
  * The garden's scene as a live background behind the whole app.
  *
  * It is the same pixel scene the garden shows, drawn small and stretched to
- * cover the window, with the page colour laid over it so text keeps its
+ * cover the window, with the page color laid over it so text keeps its
  * contrast: strongest over the reading column in the middle, a little lighter
  * toward the edges where the scene can show. The player chooses how much the
- * page colour covers (the `dim` setting, never below 60%). It sits behind
+ * page color covers (the `dim` setting, never below 60%). It sits behind
  * everything, takes no clicks, and stops moving when the tab is hidden or the
  * player prefers reduced motion.
  */
@@ -55,7 +55,7 @@ export default function LiveBackground() {
       className="live-bg pointer-events-none fixed inset-0 -z-10 overflow-hidden"
     >
       <GardenBackdrop theme={scene} parallax={0} maxFps={live.still ? 0.2 : 10} />
-      {/* the page colour over the scene: heavy in the middle, lighter at the sides */}
+      {/* the page color over the scene: heavy in the middle, lighter at the sides */}
       <div
         className="absolute inset-0"
         style={{

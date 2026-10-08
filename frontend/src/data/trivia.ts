@@ -121,7 +121,7 @@ export const TRIVIA: Trivia[] = [
     tier: 0,
     topic: "Walkthrough",
     text:
-      "There are 38 tips in the catalogue: 27 base tips and 11 deep " +
+      "There are 38 tips in the catalog: 27 base tips and 11 deep " +
       "tips that stay locked until the hunt is complete.",
   },
   {

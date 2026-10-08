@@ -52,7 +52,7 @@ export default function GardenBackdrop({
       cloud sea that swallows the scene as the tree rises. */
   parallax?: number;
   /** The planted tree's species — gives the haze-leaves that
-      drift through the climb their own colour and silhouette. */
+      drift through the climb their own color and silhouette. */
   speciesId?: TreeSpeciesId;
   /** Animation rate cap; the scene is redrawn at most this often. */
   maxFps?: number;
@@ -159,7 +159,7 @@ export default function GardenBackdrop({
     };
 
     /* First paint, with the species too (it used to be left out, so the
-       haze leaves flashed the wrong colour for a frame). */
+       haze leaves flashed the wrong color for a frame). */
     renderFrame(
       img.data,
       scene,

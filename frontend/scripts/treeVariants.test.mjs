@@ -1,5 +1,5 @@
 /**
- * Unit tests for the tree colour variants.
+ * Unit tests for the tree color variants.
  *
  *   npm run test:units
  */
@@ -21,7 +21,7 @@ import {
 const SPECIES = ["crimson", "oak", "birch", "elm", "redwood"];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
-test("every species has its original colours plus three more palettes", () => {
+test("every species has its original colors plus three more palettes", () => {
   for (const id of SPECIES) {
     const list = variantsFor(id);
 
@@ -43,7 +43,7 @@ test("the original palette changes nothing", () => {
   }
 });
 
-test("colour conversion round-trips", () => {
+test("color conversion round-trips", () => {
   for (const c of [[200, 40, 30], [30, 120, 60], [250, 220, 90], [128, 128, 128], [12, 12, 200]]) {
     const back = hslToRgb(...rgbToHsl(c));
 
@@ -61,7 +61,7 @@ test("a hue turn moves the hue by that many degrees", () => {
   assert.ok(Math.abs(diff) < 3, `hue moved by ${h1 - h0}`);
 });
 
-test("every variant visibly recolours the foliage of its species", () => {
+test("every variant visibly recolors the foliage of its species", () => {
   const leaves = {
     crimson: [[232, 71, 42], [255, 122, 77], [196, 42, 28]],
     oak: [[60, 150, 60], [100, 190, 80]],
@@ -122,7 +122,7 @@ test("an unknown variant or species falls back to the original", () => {
   assert.equal(resolveVariant("elm", "wisteria").id, "wisteria");
 });
 
-test("swatches show four colours, and the original matches the art", async () => {
+test("swatches show four colors, and the original matches the art", async () => {
   const { variantSwatch } = await import("../src/utils/treeVariants.ts");
 
   for (const id of SPECIES) {

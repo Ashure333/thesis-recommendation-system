@@ -99,7 +99,7 @@ function smoke(code, accent, booted) {
       problems.push(`data-accent not set to "${accent}"`);
     }
     if (!properties["--tag-cs"] || !properties["--tag-math"]) {
-      problems.push("tag colours were not set");
+      problems.push("tag colors were not set");
     }
   }
 

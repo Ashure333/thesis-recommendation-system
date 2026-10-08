@@ -151,7 +151,7 @@ export default function ConnectionsWorkbench({
   }, [scope, paperId, pipeline, topK, weightsKey]);
 
   // ----------------------------------------------------------
-  // Data: web neighbourhood (live OpenAlex)
+  // Data: web neighborhood (live OpenAlex)
   // ----------------------------------------------------------
 
   useEffect(() => {

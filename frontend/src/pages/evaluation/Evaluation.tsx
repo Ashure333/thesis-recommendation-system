@@ -18,7 +18,8 @@ import {
   CompareResponse,
 } from "../../api";
 
-import { pipelineConfigs } from "../../data/pipelineConfigs";
+import { pipelineConfigs, pipelineName } from "../../data/pipelineConfigs";
+import { isPresentationStored } from "../../utils/presentation";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 import PixelProgress from "../../components/retro/PixelProgress";
 import { useSun } from "../../state/sun";
@@ -31,6 +32,7 @@ import { ArrowRight, Star } from "../../components/retro/PixelIcons";
 import { Button, PageHeader, PageShell } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
 import { HUNT_ITEMS } from "../../data/hunt";
+import { useNerdButtons } from "../../state/nerdButtons";
 import { useStatsDrawer } from "../../state/statsDrawer";
 
 // ============================================================
@@ -55,10 +57,14 @@ const BATTLE_IDS = [
   "tfidf_sbert_metadata",
 ];
 
+function displayName(id: string): string {
+  const config = configById.get(id);
+
+  return config ? pipelineName(config) : id;
+}
+
 /* Battle round names: the six pipelines in execution order. */
-const BATTLE_STAGES = BATTLE_IDS.map(
-  (id) => configById.get(id)?.codename ?? id,
-);
+const BATTLE_STAGES = BATTLE_IDS.map((id) => displayName(id));
 
 /* Minimum loading-state duration so the battle rounds play. */
 const MIN_BATTLE_MS = 2_400;
@@ -93,15 +99,17 @@ function PipelineChip({
           grow ? "max-w-full truncate" : "max-w-[150px] truncate"
         }`}
       >
-        {config?.codename ?? pipelineId}
+        {displayName(pipelineId)}
       </span>
-      <span
-        className={`font-mono text-xs text-muted ${
-          grow ? "w-full truncate" : "max-w-[150px] truncate"
-        }`}
-      >
-        {pipelineId}
-      </span>
+      {!isPresentationStored() && (
+        <span
+          className={`font-mono text-xs text-muted ${
+            grow ? "w-full truncate" : "max-w-[150px] truncate"
+          }`}
+        >
+          {pipelineId}
+        </span>
+      )}
     </span>
   );
 }
@@ -127,7 +135,9 @@ export default function Evaluation() {
   const [copiedCitation, setCopiedCitation] = useState<string | null>(null);
 
   /* Page-level view: the battle, or the ranking math. */
-  const [pageTab, setPageTab] = useState<"battle" | "stats">("battle");
+  const { on: nerdOn } = useNerdButtons();
+  const [pageTabRaw, setPageTab] = useState<"battle" | "stats">("battle");
+  const pageTab = nerdOn ? pageTabRaw : "battle";
 
   /* Arena results are tab-separated instead of one long stack. */
   const [resultsTab, setResultsTab] = useState<
@@ -406,7 +416,7 @@ export default function Evaluation() {
       : `seed paper #${battle.seed_paper_id}`;
 
     const winnerId = battle.winner?.pipeline_id ?? "n/a";
-    const winnerChip = configById.get(winnerId)?.codename ?? winnerId;
+    const winnerChip = displayName(winnerId);
     const winnerPct = battle.winner
       ? Math.round(battle.winner.value * 100)
       : 0;
@@ -432,7 +442,7 @@ export default function Evaluation() {
     );
     const closest = rankedPairs[0];
     const farthest = rankedPairs[rankedPairs.length - 1];
-    const nameOf = (id: string) => configById.get(id)?.codename ?? id;
+    const nameOf = (id: string) => displayName(id);
     const pairText = (pair: (typeof battle.pairwise)[number] | undefined) =>
       pair
         ? `${nameOf(pair.a)} and ${nameOf(pair.b)}, which shared ` +
@@ -563,7 +573,9 @@ export default function Evaluation() {
           onChange={setPageTab}
           options={[
             { id: "battle", label: "Battle" },
-            { id: "stats", label: "Stats for Nerds" },
+            ...(nerdOn && !isPresentationStored()
+              ? [{ id: "stats" as const, label: "Stats for Nerds", nerd: true }]
+              : []),
           ]}
         />
       </div>
@@ -647,7 +659,7 @@ export default function Evaluation() {
               htmlFor="arena-query"
               className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-onInk"
             >
-              Player one · enter query
+              {isPresentationStored() ? "Search query" : "Player one · enter query"}
             </label>
             <div className="mt-1.5 flex items-center gap-2 border-b-[3px] border-accent pb-1.5">
               <span aria-hidden="true" className="font-pixelify text-xl font-bold text-onInk">
@@ -690,7 +702,7 @@ export default function Evaluation() {
                   !loading && queryText.trim() ? "animate-blink" : ""
                 }`}
               >
-                {loading ? "Battling…" : "Press start"}
+                {loading ? "Running…" : isPresentationStored() ? "Run Arena" : "Press start"}
               </button>
             </div>
 
@@ -761,7 +773,7 @@ export default function Evaluation() {
               ) : battle?.winner ? (
                 <p className="font-mono text-xs leading-5 text-onInk/90">
                   <span className="font-bold uppercase tracking-[0.2em] text-onInk">Last battle · </span>
-                  {configById.get(battle.winner.pipeline_id)?.codename ?? battle.winner.pipeline_id} won with{" "}
+                  {displayName(battle.winner.pipeline_id)} won with{" "}
                   {(battle.winner.value * 100).toFixed(0)}% of the consensus. The result is below.
                 </p>
               ) : (
@@ -784,7 +796,7 @@ export default function Evaluation() {
           >
             <p className="flex items-center gap-1.5 font-pixelify text-sm font-bold uppercase tracking-[0.2em] text-onInk">
               <Trophy className="h-4 w-4" aria-hidden="true" />
-              High scores
+              {isPresentationStored() ? "Win tally" : "High scores"}
             </p>
             <ol className="mt-3 space-y-1.5">
               {tally.map((entry, index) => {
@@ -795,7 +807,7 @@ export default function Evaluation() {
                     <div className="flex items-center gap-2">
                       <span className="w-4 text-right text-onInk/85">{index + 1}</span>
                       <span className="min-w-0 flex-1 truncate font-bold tracking-[0.1em] text-onInk">
-                        {configById.get(entry.id)?.codename ?? entry.id}
+                        {displayName(entry.id)}
                       </span>
                       {index === 0 && entry.wins > 0 && (
                         <Star className="animate-blink h-3 w-3 text-accent" aria-label="Champion" />
@@ -812,7 +824,7 @@ export default function Evaluation() {
             <p className="mt-auto border-t border-onInk/20 pt-3 font-mono text-[10px] font-bold uppercase leading-4 tracking-[0.15em] text-onInk/75">
               {totalRuns} {totalRuns === 1 ? "battle" : "battles"} fought
               {currentStreak > 1
-                ? ` · streak ×${currentStreak} for ${configById.get(leader.id)?.codename ?? leader.id}`
+                ? ` · streak ×${currentStreak} for ${displayName(leader.id)}`
                 : ""}
             </p>
           </aside>
@@ -897,8 +909,7 @@ export default function Evaluation() {
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <span className="rounded border-[2px] border-gray-900 bg-surface px-2 py-1 font-mono text-sm font-bold tracking-[0.12em] text-ink">
-                      {configById.get(battle.winner.pipeline_id)?.codename ??
-                        battle.winner.pipeline_id}
+                      {displayName(battle.winner.pipeline_id)}
                     </span>
                     <span className="font-mono text-xs text-onInk/70">
                       {battle.winner.pipeline_id}

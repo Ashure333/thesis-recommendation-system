@@ -740,7 +740,7 @@ export default function SunShop({
         <div className="mt-4">
           <DevPanel garden />
           <p className="mt-3 text-xs leading-5 text-muted">
-            The full control panel (all looks, tree colours, backup) is under
+            The full control panel (all looks, tree colors, backup) is under
             Settings, Developer. Press ` anywhere for the cheat console.
           </p>
         </div>

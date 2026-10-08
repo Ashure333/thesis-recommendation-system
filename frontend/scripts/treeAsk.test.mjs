@@ -83,7 +83,7 @@ test("a brushed-off ask still counts, so pestering keeps the tree grumpy", () =>
   assert.equal(second.times.length, 2);
 });
 
-test("grumpy lines are short, in the tree's voice, and species flavoured", () => {
+test("grumpy lines are short, in the tree's voice, and species flavored", () => {
   const seen = new Set();
 
   for (const species of ["crimson", "oak", "birch", "elm", "redwood", "ghost"]) {

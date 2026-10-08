@@ -191,7 +191,7 @@ function writeAskCount(count: number) {
 /* ---------------- menu bar pieces ----------------
    The garden menu groups its controls by purpose (the tree, feeding it,
    the shops). Every chip shows an icon, a word and, where it has one, a
-   value, and takes its colours from the adaptive theme tokens (ink,
+   value, and takes its colors from the adaptive theme tokens (ink,
    surface, accentSoft): fixed navy text on the accent-soft fill was
    unreadable in dark mode. */
 
@@ -396,7 +396,7 @@ export default function TreeOfKnowledge({
 
   /* The landscape stage is sized in WHOLE art pixels (usePixelStage):
      the backdrop and the tree share one pixel grid at one whole-number
-     scale, so no art pixel is ever drawn wider than its neighbour.
+     scale, so no art pixel is ever drawn wider than its neighbor.
      "Immersive" is the full-screen view: the stage takes the whole
      screen and the menus tuck into a drawer. */
   const stageColRef = useRef<HTMLDivElement | null>(null);

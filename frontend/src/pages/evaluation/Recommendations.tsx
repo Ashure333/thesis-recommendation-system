@@ -12,6 +12,7 @@ import {
 } from "../../api";
 
 import {
+  pipelineName,
   pipelineConfigs,
   customPipelineConfig,
 } from "../../data/pipelineConfigs";
@@ -23,6 +24,7 @@ import LayoutOptions from "../../components/LayoutOptions";
 import PixelProgress from "../../components/retro/PixelProgress";
 import { ArrowRight, Dot } from "../../components/retro/PixelIcons";
 import { usePipelineMode } from "../../state/pipelineMode";
+import { useNerdButtons } from "../../state/nerdButtons";
 import { useSiteMode } from "../../state/siteMode";
 import { useLayoutPrefs } from "../../state/layoutPrefs";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
@@ -186,8 +188,10 @@ export default function Recommendations() {
     );
   }, [results]);
 
+  const { on: nerdOn } = useNerdButtons();
+
   // Page-level view: results, the big Connections tab, or the math.
-  const [searchTab, setSearchTab] = useState<
+  const [searchTabRaw, setSearchTab] = useState<
     "results" | "connections" | "stats"
   >(() => {
     if (navState.searchTab) {
@@ -206,6 +210,9 @@ export default function Recommendations() {
       return "results";
     }
   });
+
+  // With the nerd buttons gone, the math tab is too.
+  const searchTab = nerdOn || searchTabRaw !== "stats" ? searchTabRaw : "results";
 
   function selectSearchTab(
     tab: "results" | "connections" | "stats"
@@ -231,7 +238,7 @@ export default function Recommendations() {
             <p className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
               <Dot className="animate-rec h-2 w-2 shrink-0 text-gold" />
               <span className="truncate">
-                {results.length} found · {activeConfig.codename}
+                {results.length} found · {pipelineName(activeConfig)}
               </span>
             </p>
           </div>
@@ -243,7 +250,7 @@ export default function Recommendations() {
               <div className="flex flex-col items-center justify-center gap-4 p-10">
                 <p className="flex items-center justify-center gap-1.5 text-sm font-bold text-ink">
                   <ArrowRight className="h-3 w-3 text-accent" />
-                  Searching with {activeConfig.codename}
+                  Searching with {pipelineName(activeConfig)}
                 </p>
                 <PixelProgress value={null} stage="SCANNING CORPUS" className="max-w-xs" />
               </div>
@@ -608,7 +615,9 @@ const MIN_LOAD_MS = 900;
           options={[
             { id: "results", label: "Results" },
             { id: "connections", label: "Connections" },
-            { id: "stats", label: "Stats for Nerds" },
+            ...(nerdOn
+              ? [{ id: "stats" as const, label: "Stats for Nerds", nerd: true }]
+              : []),
           ]}
         />
       </div>
@@ -815,7 +824,7 @@ const MIN_LOAD_MS = 900;
             <ConnectionsPane
               paperId={graphPaperId}
               pipeline={pipeline}
-              pipelineLabel={activeConfig.codename}
+              pipelineLabel={pipelineName(activeConfig)}
               weights={
                 pipeline === "custom"
                   ? customWeights
@@ -847,7 +856,7 @@ const MIN_LOAD_MS = 900;
             <ConnectionsWorkbench
               paperId={graphPaperId}
               pipeline={pipeline}
-              pipelineLabel={activeConfig.codename}
+              pipelineLabel={pipelineName(activeConfig)}
               weights={
                 pipeline === "custom"
                   ? customWeights
@@ -974,7 +983,7 @@ const MIN_LOAD_MS = 900;
                 </label>
 
                 <span className="ml-auto font-mono text-xs text-muted">
-                  Ranked by {activeConfig.codename}
+                  Ranked by {pipelineName(activeConfig)}
                 </span>
               </div>
             )}
@@ -994,14 +1003,14 @@ const MIN_LOAD_MS = 900;
                 </p>
 
                 <span className="font-mono text-xs text-muted">
-                  {activeConfig.codename}
+                  {pipelineName(activeConfig)}
                 </span>
               </div>
 
               <ConnectionsWorkbench
                 paperId={graphPaperId}
                 pipeline={pipeline}
-                pipelineLabel={activeConfig.codename}
+                pipelineLabel={pipelineName(activeConfig)}
                 weights={
                   pipeline === "custom"
                     ? customWeights
@@ -1029,7 +1038,7 @@ const MIN_LOAD_MS = 900;
               <ConnectionsWorkbench
                 paperId={graphPaperId}
                 pipeline={pipeline}
-                pipelineLabel={activeConfig.codename}
+                pipelineLabel={pipelineName(activeConfig)}
                 weights={
                   pipeline === "custom"
                     ? customWeights

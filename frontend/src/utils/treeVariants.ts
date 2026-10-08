@@ -1,9 +1,9 @@
 /**
- * Tree colour variants: painted skins for each species.
+ * Tree color variants: painted skins for each species.
  *
- * A variant recolours the same pixel art: its foliage is turned in hue,
+ * A variant recolors the same pixel art: its foliage is turned in hue,
  * saturation and lightness, and its bark and moss are washed with a tint.
- * Nothing about the shape changes. Each species has its original colours
+ * Nothing about the shape changes. Each species has its original colors
  * plus three more palettes.
  *
  * Pure and dependency-free (no browser APIs outside the storage helpers,
@@ -17,7 +17,7 @@ export interface TreeVariant {
   label: string;
   /** Foliage: hue turn in degrees, saturation multiplier, lightness shift. */
   foliage: { hue: number; sat: number; light: number };
-  /** Bark and moss are washed toward this colour by `amount` (0..1). */
+  /** Bark and moss are washed toward this color by `amount` (0..1). */
   wash: { rgb: [number, number, number]; amount: number };
 }
 
@@ -71,7 +71,7 @@ export function resolveVariant(species: string, id: string | null | undefined): 
 }
 
 /* ------------------------------------------------------------ */
-/* Colour maths                                                  */
+/* Color maths                                                  */
 /* ------------------------------------------------------------ */
 
 type Rgb = number[];
@@ -127,7 +127,7 @@ export function hslToRgb(h: number, s: number, l: number): number[] {
   );
 }
 
-/** Turn a foliage colour: hue rotated, saturation scaled, lightness shifted. */
+/** Turn a foliage color: hue rotated, saturation scaled, lightness shifted. */
 export function tintFoliage(variant: TreeVariant, color: Rgb): number[] {
   const { hue, sat, light } = variant.foliage;
 
@@ -138,13 +138,13 @@ export function tintFoliage(variant: TreeVariant, color: Rgb): number[] {
   return hslToRgb(h + hue, clamp01(s * sat), clamp01(l + light));
 }
 
-/** Wash a bark or moss colour toward the variant's tint, keeping its value. */
+/** Wash a bark or moss color toward the variant's tint, keeping its value. */
 export function tintBark(variant: TreeVariant, color: Rgb): number[] {
   const { rgb, amount } = variant.wash;
 
   if (amount <= 0) return color.slice();
 
-  /* Keep the colour's own lightness so the bark's shading survives. */
+  /* Keep the color's own lightness so the bark's shading survives. */
   const [, , l0] = rgbToHsl(color);
   const mixed = [0, 1, 2].map((i) => color[i] + (rgb[i] - color[i]) * amount);
   const [h, s] = rgbToHsl(mixed);
@@ -171,7 +171,7 @@ const hexRgb = (hex: string): number[] => [
   parseInt(hex.slice(5, 7), 16),
 ];
 
-/** Four CSS colours that show a variant at a glance: three leaves and bark. */
+/** Four CSS colors that show a variant at a glance: three leaves and bark. */
 export function variantSwatch(species: string, variant: TreeVariant): string[] {
   const base = SWATCH_BASE[species as VariantSpeciesId] ?? SWATCH_BASE.crimson;
   const css = (c: number[]) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;

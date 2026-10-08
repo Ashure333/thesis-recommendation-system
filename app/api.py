@@ -53,7 +53,7 @@ from app.services.citations import (
     refresh_paper_citations,
 )
 from app.services.web_connections import (
-    fetch_web_neighbourhood,
+    fetch_web_neighborhood,
     resolve_work_titles,
 )
 from app.services.attachment_lock import attachment_lock
@@ -97,6 +97,7 @@ from app.services.recommendation.compare_service import (
     CompareResponse,
     compare_pipelines,
     compare_web_results,
+    rank_web_results,
 )
 
 from app.services.pdf_finder import (
@@ -2620,6 +2621,115 @@ def web_compare_recommendation_pipelines(
         ) from error
 
 
+@app.get("/api/recommendations/web")
+def recommend_from_web(
+    q: str,
+    pipeline: str,
+    top_k: int = 20,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    peer_reviewed: bool = True,
+    open_access: bool = False,
+    sources: str = "openalex,crossref,arxiv",
+    w_tfidf: float | None = None,
+    w_sbert: float | None = None,
+    w_metadata: float | None = None,
+):
+    """
+    Recommend from the open web with ONE of the pipelines.
+
+    Fetches live hits from OpenAlex, Crossref and arXiv (the same
+    sources as the web search), vectorizes them on the fly with the
+    stored TF-IDF vectorizer and the S-BERT model, and ranks them with
+    the chosen pipeline's weights (or the custom dial allocation). Each
+    row is the web hit plus its rank, final score and component scores.
+    Web recommendations are exploratory and are never recorded.
+    """
+
+    if pipeline not in ALL_PIPELINE_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported recommendation pipeline: {pipeline}. "
+                f"Supported pipelines: "
+                f"{', '.join(sorted(IMPLEMENTED_PIPELINES))}, custom"
+            ),
+        )
+
+    query = (q or "").strip()
+
+    if not query:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a search query.",
+        )
+
+    if top_k <= 0 or top_k > 25:
+        raise HTTPException(
+            status_code=400,
+            detail="top_k must be between 1 and 25 for web results.",
+        )
+
+    custom_weights = _resolve_custom_weights(
+        pipeline,
+        w_tfidf,
+        w_sbert,
+        w_metadata,
+    )
+
+    from app.services.recommendation.pipeline_config import (
+        get_pipeline_weights,
+    )
+
+    weights = (
+        custom_weights
+        if pipeline == "custom"
+        else get_pipeline_weights(pipeline)
+    )
+
+    requested_sources = tuple(
+        source.strip()
+        for source in sources.split(",")
+        if source.strip() in ("openalex", "crossref", "arxiv")
+    )
+
+    try:
+        hits = search_web(
+            query,
+            year_min=year_min,
+            year_max=year_max,
+            peer_reviewed=peer_reviewed,
+            open_access_only=open_access,
+            sources=requested_sources,
+            sort="relevance",
+            limit=25,
+        )
+
+    except WebSearchError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="The web search services could not be reached.",
+        ) from error
+
+    try:
+        return rank_web_results(
+            query=query,
+            hits=hits,
+            weights=weights,
+            top_k=top_k,
+        )
+
+    except Exception as error:
+        print()
+        print("WEB RECOMMENDATION FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Web recommendation failed.",
+        ) from error
+
+
 # ============================================================
 # BATTLE HISTORY
 # ============================================================
@@ -2947,7 +3057,7 @@ def get_similar_papers_graph(
     # Prior / derivative works: the external works the graph set
     # cites most (seminal references) and the works citing the most
     # graph papers (surveys / follow-ups). Clustered from the cached
-    # OpenAlex neighbourhood; empty when nothing overlaps yet.
+    # OpenAlex neighborhood; empty when nothing overlaps yet.
     prior_works, derivative_works = clustered_works(
         db,
         [node["id"] for node in nodes],
@@ -3000,7 +3110,7 @@ def paper_web_connections(
     paper_id: int,
     db: Session = Depends(get_session),
 ):
-    """WEB scope of the similar-papers pane: OpenAlex neighbourhood.
+    """WEB scope of the similar-papers pane: OpenAlex neighborhood.
 
     Prior works = the paper's references (heavily-cited first);
     derivative works = the works citing it. Live OpenAlex lookups,
@@ -3019,7 +3129,7 @@ def paper_web_connections(
             detail="Paper not found.",
         )
 
-    result = fetch_web_neighbourhood(paper)
+    result = fetch_web_neighborhood(paper)
 
     if not result.get("ok"):
         reason = result.get("reason")

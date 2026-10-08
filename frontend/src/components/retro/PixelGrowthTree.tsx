@@ -388,7 +388,7 @@ interface Art {
   ground: number[][];
   blinkNear: number;
   blinkWin: number;
-  /** Canopy centre used for the cluster birth ramp. */
+  /** Canopy center used for the cluster birth ramp. */
   clusterCX: number;
   clusterCY: number;
   /** Cluster-birth ramp radius in the 800-unit world. */
@@ -892,7 +892,7 @@ export default function PixelGrowthTree({
   /** Paint ONE frame at `growth` and stop: no growth replay, no
    *  idle sway — used for the small card snapshots. */
   static?: boolean;
-  /** A painted colour variant of the species ("original" by default). */
+  /** A painted color variant of the species ("original" by default). */
   variantId?: string;
   /** Scenery the player has switched off (see SCENE_LAYERS). */
   layersOff?: string[];
@@ -997,7 +997,7 @@ export default function PixelGrowthTree({
 
     /* ---- species art tables ---- */
     /* The painted variant: foliage turns in hue, bark is washed with a
-       tint. The original variant leaves every colour untouched. */
+       tint. The original variant leaves every color untouched. */
     const VARIANT = resolveVariant(speciesId, variantId);
     const tf = (c: number[]) => tintFoliage(VARIANT, c);
     const tb = (c: number[]) => tintBark(VARIANT, c);
@@ -1063,7 +1063,7 @@ export default function PixelGrowthTree({
       MS = MS.map(tf);
       LICH = tb(LICH);
     }
-    /* Leaf colour sets, in the variant's colours. */
+    /* Leaf color sets, in the variant's colors. */
     const LEAF_RAMPS = art.leafRamps ? art.leafRamps.map(tfAll) : null;
     const MAPLE_R = MAPLE_RAMPS.map(tfAll);
     const TURN_R = art.turnRamp ? tfAll(art.turnRamp) : undefined;
@@ -1306,7 +1306,7 @@ export default function PixelGrowthTree({
     const AR2 = rng(speciesId.length * 97 + 13);
     /* The summit: where the climb ends, the trunk gives out into a
        spreading crown. In world units, a little above the frame's
-       centre at the top of the climb, so it sits near the top of the
+       center at the top of the climb, so it sits near the top of the
        screen when the camera arrives. */
     const SUMMIT_Y = 742 - art.DYW - 160;
     const SUMMIT_ROOM = (W / 2 - 6) / (S * art.ZM);
@@ -1543,9 +1543,9 @@ export default function PixelGrowthTree({
        camera is still near the ground), and, higher in the climb, vines
        and leaf tufts that sway in the wind with a slow wave of light
        through the leaves. Everything steps at the pixel-art cadence
-       (MOTION_HZ) and moves in whole art pixels. Colours come from the
+       (MOTION_HZ) and moves in whole art pixels. Colors come from the
        species' own tables: bark and moss for the roots, the resin ramp
-       for the sap (birch's resin ramp is ash grey, so it takes its
+       for the sap (birch's resin ramp is ash gray, so it takes its
        golden-cream ramp instead), the foliage ramp for the shimmer. */
     const matureG =
       (SPECIES_STAGE_FERT[speciesId]?.[4] ?? 2000) / TREE_GROWTH_TARGET;
@@ -1889,7 +1889,7 @@ export default function PixelGrowthTree({
       }
       for (let k = 0; k < (layersRef.current.has("vines") ? 0 : 5); k++) {
         /* Wind: the vine shifts by whole art pixels (offset / pq is
-           that many pixels in world units), a travelling wave along
+           that many pixels in world units), a traveling wave along
            its length. Each vine winds at its own pitch and breadth,
            and the extra ones only run part of the climb, so the trunk
            is hung with vines of different lengths. */
@@ -1960,7 +1960,7 @@ export default function PixelGrowthTree({
     };
 
     /* The canopy paints hundreds of leaves a frame. Each distinct leaf
-       (size, turn, tone, colours) is worked out once, by the species' own
+       (size, turn, tone, colors) is worked out once, by the species' own
        leaf design (see utils/leafShapes), into a list of pixels, and then
        stamped at a whole-pixel position. */
     const leafSprites = new Map<
@@ -2100,9 +2100,9 @@ export default function PixelGrowthTree({
 
     /* A loose tuft of small leaves scattered around the stub's
        tip, scaled from world units into the current screen zoom. */
-    /* The leaf colours for the tufts and the big falling leaves: the
+    /* The leaf colors for the tufts and the big falling leaves: the
        species' own ramps (the maple's gold, orange and crimson, the
-       birch's yellows, ...), mostly colour with the odd green leaf. The
+       birch's yellows, ...), mostly color with the odd green leaf. The
        oak stays green. */
     const LEAF_SET: number[][][] | null =
       LEAF_RAMPS ?? (art.mapleLeaf ? MAPLE_R : null);
@@ -2400,7 +2400,7 @@ export default function PixelGrowthTree({
     /* ---- what the climb brings into view: vines hanging from above,
        sylphs on the wing, motes of light drifting up, and shafts of sun.
        They sit in front of the tree, grow in with the climb (`asc`, 0..1)
-       and are tinted from the species' own colours. ---- */
+       and are tinted from the species' own colors. ---- */
     const VINES = vineSpecs(9, speciesId.length * 11 + 3);
     const lighten = (c: number[], k: number) => mixRgb(c, [255, 255, 255], k);
     const SYLPH_BODY = lighten(FOLI[Math.min(4, FOLI.length - 1)], 0.62);

@@ -8,7 +8,7 @@
  *
  * Everything advances on a STEPPED clock (MOTION_HZ ticks a second) and
  * moves in WHOLE art pixels, so it reads as pixel-art animation and never
- * splits a pixel. Colours are chosen by the caller from the species' own
+ * splits a pixel. Colors are chosen by the caller from the species' own
  * palettes; this module only decides indices, offsets and geometry.
  */
 

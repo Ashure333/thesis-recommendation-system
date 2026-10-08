@@ -41,6 +41,7 @@ import { Button, EmptyState } from "../../components/ui";
 import { emitPetChat } from "../../utils/petChat";
 import { contextTerm } from "../../utils/petMarkov";
 import { readSettings } from "../../utils/preferences";
+import { useSiteMode } from "../../state/siteMode";
 
 /* The pills shown before the conversation has anything to follow up on;
    after each answer they are replaced by model-written follow-ups. */
@@ -150,6 +151,7 @@ export default function MyLibraryPro({
   onPaperUpdated,
   viewer,
 }: MyLibraryProProps) {
+  const presenting = useSiteMode().mode === "presentation";
   const navigate = useNavigate();
   const [tab, setTab] = useState<ProTab>("library");
   const [query, setQuery] = useState("");
@@ -696,7 +698,11 @@ export default function MyLibraryPro({
             <div className="flex items-center gap-2">
               {locked && (
                 <span
-                  title="Research chat unlocks with PRO — grow any garden tree past its Young stage"
+                  title={
+                    presenting
+                      ? "Research chat is part of the PRO version"
+                      : "Research chat unlocks with PRO — grow any garden tree past its Young stage"
+                  }
                   aria-label="Locked — available in PRO mode"
                   className="shrink-0 text-muted"
                 >
@@ -726,7 +732,9 @@ export default function MyLibraryPro({
             </div>
             <p className="mt-2 text-xs leading-5 text-muted">
               {locked
-                ? "The research chat is locked in your current mode — it unlocks with PRO. Selection, search, dashboard, and the graph are live."
+                ? presenting
+                  ? "The research chat is part of the PRO version."
+                  : "The research chat is locked in your current mode — it unlocks with PRO. Selection, search, dashboard, and the graph are live."
                 : "Enter a question and press Enter: the Chat tab answers it against your collection, the repository, or the web, citing the sources it used."}
             </p>
           </div>
@@ -1853,6 +1861,8 @@ function LockedTab({
   description: string;
   onOpenGarden: () => void;
 }) {
+  const shipped = useSiteMode().mode === "presentation";
+
   return (
     <div className="flex flex-col items-start gap-4 rounded border-[3px] border-gray-900 bg-white p-6">
       <p className="font-pixelify inline-flex items-center gap-2 text-xl font-bold text-ink">
@@ -1861,16 +1871,24 @@ function LockedTab({
       </p>
       <p className="max-w-xl text-sm leading-6 text-muted">{description}</p>
 
-      <p className="max-w-xl text-xs leading-5 text-muted">
-        Unlock every PRO tab by growing any tree in the Lab's garden
-        past its Young stage — Seed → Seedling → Sapling → Young (Young
-        oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600,
-        redwood 1350).
-      </p>
+      {shipped ? (
+        <p className="max-w-xl text-xs leading-5 text-muted">
+          This tab is part of the PRO version.
+        </p>
+      ) : (
+        <>
+          <p className="max-w-xl text-xs leading-5 text-muted">
+            Unlock every PRO tab by growing any tree in the Lab's garden
+            past its Young stage — Seed → Seedling → Sapling → Young (Young
+            oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600,
+            redwood 1350).
+          </p>
 
-      <Button type="button" onClick={onOpenGarden}>
-        Open the Lab's garden
-      </Button>
+          <Button type="button" onClick={onOpenGarden}>
+            Open the Lab's garden
+          </Button>
+        </>
+      )}
     </div>
   );
 }

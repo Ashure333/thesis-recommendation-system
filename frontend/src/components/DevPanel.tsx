@@ -1,11 +1,11 @@
 /**
- * The developer control panel: every customisation in one place.
+ * The developer control panel: every customization in one place.
  *
  *   looks          the hidden cheats (skins and effects), found or not
  *   live scenery   the garden's scene behind the app, and how dim
  *   scenery        the garden's scene switches, particles included
  *   charms         the planted tree's charms, plus shortcuts to grow it
- *   tree colours   each tree's painted variant
+ *   tree colors   each tree's painted variant
  *   backup         copy and paste all of it as text
  *
  * It lives in Settings (the Developer tab), and a garden-sized version
@@ -92,7 +92,7 @@ function VariantRow({ species }: { species: string }) {
   return (
     <Row title={treeSpecies(species).label}>
       <select
-        aria-label={`${treeSpecies(species).label} colours`}
+        aria-label={`${treeSpecies(species).label} colors`}
         value={id}
         onChange={(event) => set(event.target.value)}
         className="rounded border-[3px] border-gray-900 bg-field px-2 py-1 font-mono text-[11px] text-ink"
@@ -136,7 +136,7 @@ export default function DevPanel({ garden = false }: { garden?: boolean }) {
         2,
       ),
     );
-    setNote("Copy this text to keep your customisations.");
+    setNote("Copy this text to keep your customizations.");
   }
 
   function importAll() {
@@ -154,7 +154,7 @@ export default function DevPanel({ garden = false }: { garden?: boolean }) {
       window.dispatchEvent(new Event("paperrec:tree-variant"));
       setNote("Imported.");
     } catch {
-      setNote("That text isn't a saved set of customisations.");
+      setNote("That text isn't a saved set of customizations.");
     }
   }
 
@@ -232,10 +232,10 @@ export default function DevPanel({ garden = false }: { garden?: boolean }) {
             ))}
           </select>
         </Row>
-        <Row title="Page colour over it" note="Higher is clearer text, lower shows more scenery. Never below 60%.">
+        <Row title="Page color over it" note="Higher is clearer text, lower shows more scenery. Never below 60%.">
           <input
             type="range"
-            aria-label="Page colour over the scenery"
+            aria-label="Page color over the scenery"
             min={60}
             max={95}
             value={Math.round(custom.live.dim * 100)}
@@ -347,7 +347,7 @@ export default function DevPanel({ garden = false }: { garden?: boolean }) {
       </Section>
 
       {!garden && (
-        <Section title="Tree colours">
+        <Section title="Tree colors">
           {TREE_SPECIES.map((species) => (
             <VariantRow key={species.id} species={species.id} />
           ))}
@@ -357,10 +357,10 @@ export default function DevPanel({ garden = false }: { garden?: boolean }) {
       {!garden && (
         <Section title="Backup">
           <p className="text-xs leading-5 text-muted">
-            Copy all of these customisations as text, or paste a saved set back in.
+            Copy all of these customizations as text, or paste a saved set back in.
           </p>
           <textarea
-            aria-label="Customisations as text"
+            aria-label="Customizations as text"
             value={backup}
             onChange={(event) => setBackup(event.target.value)}
             rows={5}

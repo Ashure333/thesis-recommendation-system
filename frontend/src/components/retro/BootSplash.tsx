@@ -9,11 +9,11 @@ import { BlockCursor } from "./PixelIcons";
 
    Calm by design — nothing on this screen strobes or jitters:
    - fixed arcade-black screen that matches index.html's pre-paint
-     colour exactly, in every theme (the themed grays invert in
+     color exactly, in every theme (the themed grays invert in
      dark mode, which used to flash black → cream on first run);
    - text waits for the pixel font, so it never swaps mid-boot;
    - the title's full line breaks are reserved up front, so typing
-     never re-centres or re-wraps it, and PRESS START has its space
+     never re-centers or re-wraps it, and PRESS START has its space
      before it appears (zero layout shift);
    - one CRT power-on, one glitch pulse when the title lands, then a
      soft fade-out on dismiss.

@@ -56,7 +56,7 @@ export default function LibraryHome() {
       <StaggerIn>
         <section className="rounded border-[3px] border-gray-900 bg-white p-6 sm:p-8">
           <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
-            {mode === "library" ? "Library mode" : "Researcher mode"}
+            {mode === "library" ? "Library mode" : mode === "presentation" ? "Re:Search" : "Researcher mode"}
           </p>
 
           <h1 className="font-pixelify mt-2 text-3xl font-bold leading-none text-ink">

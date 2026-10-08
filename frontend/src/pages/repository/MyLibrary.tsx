@@ -18,11 +18,13 @@ import PetFigure from "../../components/PetFigure";
 import { Button, EmptyState, PageHeader } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
 import { HUNT_ITEMS } from "../../data/hunt";
+import { useSiteMode } from "../../state/siteMode";
 import { useSun } from "../../state/sun";
 import MyLibraryPro from "./MyLibraryPro";
 
 export default function MyLibrary() {
   const { proUnlocked } = useSun();
+  const presenting = useSiteMode().mode === "presentation";
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +110,11 @@ export default function MyLibrary() {
               </span>
             ) : (
               <span
-                title="Plant any tree past its Young stage in the Lab's garden to unlock the PRO tabs (Young oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600, redwood 1350)."
+                title={
+                  presenting
+                    ? "Part of the PRO version"
+                    : "Plant any tree past its Young stage in the Lab's garden to unlock the PRO tabs (Young oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600, redwood 1350)."
+                }
                 className="font-pixelify inline-flex h-9 cursor-help items-center gap-1.5 rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-bold text-muted"
               >
                 <Lock className="h-3.5 w-3.5" /> PRO locked

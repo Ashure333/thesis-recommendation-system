@@ -1,7 +1,7 @@
 """Hosted-model plumbing of the research chat.
 
 Covers the Groq call itself (rate limits, model fallback, truncated
-reasoning answers), citation-style normalisation, and the removal of the
+reasoning answers), citation-style normalization, and the removal of the
 papers' own bibliography markers from the evidence handed to the model.
 No network: `requests.post` and `time.sleep` are patched.
 

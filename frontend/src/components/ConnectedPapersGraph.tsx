@@ -500,7 +500,7 @@ export default function ConnectedPapersGraph({
       }`
     : "";
 
-  // Faint blobs around the shared-topic clusters, each in its own colour
+  // Faint blobs around the shared-topic clusters, each in its own color
   // turned from the theme's accent (from the node positions after layout,
   // so they follow the real clustering).
   const zones = useMemo(() => {
@@ -547,7 +547,7 @@ export default function ConnectedPapersGraph({
         (zone): zone is NonNullable<typeof zone> => zone !== null,
       );
 
-    /* a colour for each cluster, turned from the theme's accent */
+    /* a color for each cluster, turned from the theme's accent */
     const palette = clusterColors(found.length, accentTriplet, canvasTriplet);
 
     return found.map((zone, index) => ({
@@ -1021,7 +1021,7 @@ export default function ConnectedPapersGraph({
           {/* ZOOM LAYER — click a node to scale/recenter here */}
           <g style={zoomStyle}>
           {/* CLUSTER ZONES — faint blobs around the shared-topic groups,
-              each in its own colour from the theme. Their names ride on
+              each in its own color from the theme. Their names ride on
               the leader lines in the margins (see CLUSTER GUIDES). */}
           {controlsOn &&
             zones.map((zone) => (

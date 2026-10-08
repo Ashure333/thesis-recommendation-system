@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNerdButtons } from "../../state/nerdButtons";
 import {
   comparePipelines,
   webComparePipelines,
@@ -180,13 +181,15 @@ export default function Lab() {
 
   /* Right-side Stats for Nerds pane: collapsible, and it traces the
      dial mix against a query you type here. */
-  const [statsOpen, setStatsOpen] = useState<boolean>(() => {
+  const { on: nerdOn } = useNerdButtons();
+  const [statsOpenRaw, setStatsOpen] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem("paperrec_lab_stats") === "1";
     } catch {
       return false;
     }
   });
+  const statsOpen = statsOpenRaw && nerdOn;
 
   useEffect(() => {
     try {
@@ -442,12 +445,14 @@ export default function Lab() {
           Garden
         </button>
 
+        {nerdOn && (
         <button
           type="button"
+          data-nerd=""
           aria-pressed={statsOpen}
           onClick={() => setStatsOpen((value) => !value)}
           title="Toggle the live Stats for Nerds panel (traces the dial mix)"
-          className={`ml-auto rounded border-[3px] border-gray-900 px-3 py-1.5 text-xs font-bold transition-colors pixel-ease ${
+          className={`nerd-glitch-in ml-auto rounded border-[3px] border-gray-900 px-3 py-1.5 text-xs font-bold transition-colors pixel-ease ${
             statsOpen
               ? "bg-accent text-onAccent"
               : "bg-surface text-ink hover:bg-accentSoft"
@@ -455,6 +460,7 @@ export default function Lab() {
         >
           Stats for Nerds {statsOpen ? "≫" : "≪"}
         </button>
+        )}
       </div>
 
       {tab === "recipe" && (

@@ -1,5 +1,5 @@
 /**
- * The player's UI customisations, shared live between the cheat console, the
+ * The player's UI customizations, shared live between the cheat console, the
  * developer panels and the app itself. The source of truth is local storage;
  * every change is written there and announced, and the theme provider
  * re-applies the document.

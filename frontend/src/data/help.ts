@@ -127,7 +127,6 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "shop",
       "sun",
       "fertilizer",
-      "fertiliser",
       "tokens",
       "currency",
       "packet",

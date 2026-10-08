@@ -317,7 +317,7 @@ export default function PaperViewerModal({
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
-          aria-labelledby="paper-viewer-title"
+          aria-labeledby="paper-viewer-title"
           tabIndex={-1}
           className="relative z-10 flex h-full w-full flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white text-gray-900 focus:outline-none"
         >

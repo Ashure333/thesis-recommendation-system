@@ -58,7 +58,7 @@ import { ArrowDown, BlockCursor, CloseX, Diamond, Star } from "./PixelIcons";
       EVERY tip is unlocked (the counter shows FOUND n/n).
    3. ASK (after the hunt): the pet becomes a help library —
       type a question and it answers from the full tip
-      catalogue (see src/data/help.ts).
+      catalog (see src/data/help.ts).
 
    The pet is also draggable: grab it and move it anywhere in the
    viewport (position persists in localStorage). The tooltip flips

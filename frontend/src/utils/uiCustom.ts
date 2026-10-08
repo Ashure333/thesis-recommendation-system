@@ -1,10 +1,10 @@
 /**
- * Customisations of the whole UI: looks (skins), effects, and the live
+ * Customizations of the whole UI: looks (skins), effects, and the live
  * background. They are the hidden cheats' rewards and the developer panel's
  * switches.
  *
- * A skin replaces the theme's colour tokens (canvas, surface, ink, accent,
- * the grey ramp ...) while it is on, and sets `data-skin` on the document so
+ * A skin replaces the theme's color tokens (canvas, surface, ink, accent,
+ * the gray ramp ...) while it is on, and sets `data-skin` on the document so
  * the style sheet can add its own touches (fonts, grain, grids). Effects are
  * plain data attributes. Nothing here changes layout or content.
  *
@@ -139,7 +139,7 @@ export interface LiveBackground {
   on: boolean;
   /** A garden scene id, or "garden" to follow the garden's own scene. */
   scene: string;
-  /** How much the page colour covers the scene, 0.6..0.95. */
+  /** How much the page color covers the scene, 0.6..0.95. */
   dim: number;
   /** Still picture instead of moving. */
   still: boolean;
@@ -208,7 +208,7 @@ export function writeUiCustom(next: UiCustom): void {
   window.dispatchEvent(new Event(UI_CUSTOM_EVENT));
 }
 
-/** The grey ramp the style sheet reads (gray-50 .. gray-950), canvas to ink. */
+/** The gray ramp the style sheet reads (gray-50 .. gray-950), canvas to ink. */
 export function grayRamp(skin: UiSkin): Record<string, string> {
   const from = t(skin.canvas);
   const to = t(skin.ink);
@@ -245,7 +245,7 @@ const SKIN_VARS = [
   "--tag-math",
 ];
 
-/** Put the customisations on the document. Call after the theme is applied. */
+/** Put the customizations on the document. Call after the theme is applied. */
 export function applyUiCustom(root: HTMLElement = document.documentElement): void {
   const custom = readUiCustom();
   const skin = SKINS.find((s) => s.id === custom.skin) ?? null;
@@ -264,7 +264,7 @@ export function applyUiCustom(root: HTMLElement = document.documentElement): voi
     set("--field", skin.field);
     set("--on-accent", skin.onAccent);
     set("--on-ink", skin.canvas);
-    /* the pipeline and subject colours follow the skin's own accent family */
+    /* the pipeline and subject colors follow the skin's own accent family */
     const accent = t(skin.accent);
     const ink = t(skin.ink);
 

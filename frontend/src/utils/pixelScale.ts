@@ -3,7 +3,7 @@
  *
  * Pixel art stays crisp only when every art pixel covers the same whole
  * number of DEVICE pixels. A fluid layout (width: 100%) gives scales like
- * 4.195, and nearest-neighbour then draws some art pixels 4 device pixels
+ * 4.195, and nearest-neighbor then draws some art pixels 4 device pixels
  * wide and others 5. So the garden picks the largest whole scale that fits
  * and sizes its stage to exactly that, measured in device pixels (a 2x
  * display at scale 11 is 5.5 css px per art pixel: still 11 device pixels).

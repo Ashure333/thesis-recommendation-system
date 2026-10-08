@@ -53,7 +53,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: "tip-master",
     name: "Tip Master",
-    description: "Discover every tip in the catalogue.",
+    description: "Discover every tip in the catalog.",
     check: (progress) => progress.seen >= TIPS.length,
   },
   {

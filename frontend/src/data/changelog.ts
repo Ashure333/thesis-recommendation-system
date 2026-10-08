@@ -23,6 +23,48 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "wiki-pages-screenshots",
+    date: "Oct 8",
+    title: "The Walkthrough and Engine become a wiki",
+    tag: "ENHANCED",
+    body: "Both manuals are now wikis of separate pages with a navigation rail, a contents box, search, previous/next links and floated, captioned screenshots. Every screenshot was retaken in Pro mode with the default theme and everything unlocked, and opens full screen.",
+    details: [
+      "Walkthrough pages live at /walkthrough/<page> (getting started, site modes, repository, recommending, upload, my library, arena, lab, garden, pixel pet, customizing, reference); Engine pages at /walkthrough-engine/<page> (the three signals, fusion and ranking, ranking the web, the graph, the Arena as a voting system, complexity, a worked example).",
+      "121 screenshots in a single catalog (walkthrough/shots.ts): one caption each, a shared full-screen viewer with fit / actual size and arrow-key stepping.",
+      "The Engine's flow diagrams scroll, open full screen, wrap their labels and size their boxes to the text, so nothing is truncated (also in Presentation mode, with its longer formal names).",
+    ],
+  },
+  {
+    id: "web-recommendations",
+    date: "Oct 8",
+    title: "Recommend from the web, and every algorithm click re-ranks",
+    tag: "NEW",
+    body: "The Web scope now ranks live OpenAlex, Crossref and arXiv hits with the algorithm you pick, each with its rank and score. Pressing another algorithm re-ranks the query on screen at once, in Recommend and in Web.",
+    details: [
+      "GET /api/recommendations/web fetches the hits, vectorizes them on the fly with the stored TF-IDF vectorizer and the S-BERT model, min-max normalizes over the candidate set and applies the chosen pipeline's weights (or the custom dials).",
+      "Fixed: after pressing another algorithm the old results stayed under the new algorithm's name, and a slow earlier response could overwrite a newer one. Results are now re-run on algorithm, dial, Top K and Diversify changes, labeled with the algorithm that produced them, and only the newest response is kept.",
+      "compare_web_results now shares its scoring with the new endpoint, and an empty hit list no longer errors.",
+    ],
+  },
+  {
+    id: "nerd-switch",
+    date: "Oct 8",
+    title: "The NERD switch",
+    tag: "NEW",
+    body: "A switch beside the theme button removes every Stats for Nerds control on every page. Switching it off shatters each control into pixels; switching it on glitches them back in.",
+  },
+  {
+    id: "presentation-mode",
+    date: "Oct 8",
+    title: "Presentation mode: the version that ships",
+    tag: "NEW",
+    body: "A third site mode hosts the product as delivered: no developer controls, formal pipeline names, Pro locked and only the study's own features (repository, upload, library, arena, engine, FAQ). Your own settings are set aside and restored when you leave.",
+    details: [
+      "Enter from Settings → Site mode or with ?mode=presentation; hold P + R + O and give the password to return to Researcher mode.",
+      "Entering moves every paperrec_* preference except sign-in into one backup key and restores it on exit, so nothing is deleted.",
+    ],
+  },
+  {
     id: "garden-charms-almanac",
     date: "Oct 8",
     title: "Garden charms, living creatures, and the wooden almanac",
@@ -39,10 +81,10 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "Oct 8",
     title: "Cheat console, hidden looks, and developer panels",
     tag: "NEW",
-    body: "Press ` anywhere to open a cheat console. Hidden words restyle the whole app (pocket green, wood, phosphor, blueprint, neon, parchment), add scanlines or pixel type, or put the garden's scene live behind the pages. Developer tabs in the shop and in Settings control every customisation.",
+    body: "Press ` anywhere to open a cheat console. Hidden words restyle the whole app (pocket green, wood, phosphor, blueprint, neon, parchment), add scanlines or pixel type, or put the garden's scene live behind the pages. Developer tabs in the shop and in Settings control every customization.",
     details: [
-      "The live background is dimmed behind the page colour (never below 60%) so text stays readable; the scene follows the garden or is chosen.",
-      "Settings → Developer lists every look, switch, charm and tree colour, with export and import of the whole set.",
+      "The live background is dimmed behind the page color (never below 60%) so text stays readable; the scene follows the garden or is chosen.",
+      "Settings → Developer lists every look, switch, charm and tree color, with export and import of the whole set.",
     ],
   },
   {
@@ -50,7 +92,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "Oct 8",
     title: "The tree: real leaves, real bark, and a leafy summit",
     tag: "ENHANCED",
-    body: "Leaves follow each species' real shape, bark its real texture, and branches fork like a binary tree. The climb now ends in a crown with clouds, vines, sylphs and sun shafts, and every tree has painted colour variants.",
+    body: "Leaves follow each species' real shape, bark its real texture, and branches fork like a binary tree. The climb now ends in a crown with clouds, vines, sylphs and sun shafts, and every tree has painted color variants.",
     details: [
       "Maple plates, oak furrows, birch peel and fissures, elm diamond ridges, redwood fibres; leaves are drawn once per size and stamped, so the summit still runs at 60 fps.",
       "The stage bar is laid out in whole pixels; the tree loads at its real progress instead of replaying, and moving between stages takes about a second.",
@@ -61,11 +103,11 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "Oct 8",
     title: "Similar-papers graph upgrades",
     tag: "ENHANCED",
-    body: "The similar-papers graph gained reference-manager controls: an edge-mode toggle, a minimum-strength slider with a live edge count, coloured cluster zones named on animated leader lines (toggleable), citation-sized and year-coloured nodes, and a selected-paper side panel.",
+    body: "The similar-papers graph gained reference-manager controls: an edge-mode toggle, a minimum-strength slider with a live edge count, colored cluster zones named on animated leader lines (toggleable), citation-sized and year-colored nodes, and a selected-paper side panel.",
     details: [
       "Backend: similar-graph nodes now carry citation_count (center and similar), so sizing is real data, not mockup-synthetic.",
       "Controls layer (optional on ConnectedPapersGraph): shared-topic edges are derived from the real common_topics groups (star-shaped hubs for large groups, dashed, not strength-filtered); the slider filters the real weighted edges.",
-      "Cluster colours turn from the theme's accent so they read in light and dark; the names sit in the margins, never overlapping, on animated lines that end in ringing dots.",
+      "Cluster colors turn from the theme's accent so they read in light and dark; the names sit in the margins, never overlapping, on animated lines that end in ringing dots.",
     ],
   },
   {
@@ -89,7 +131,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     details: [
       "Unlock: state/sun.tsx computes proUnlocked from every species' bed (Young: oak 1500, maple 1450, birch 1580, elm 1600, redwood 1350 packets).",
       "Library tab: search, filters (All / With PDF / Recent / Unsorted), grid or list, multi-select; drag a paper to the pet to delete it, with a pixel burst on removal.",
-      "Dashboard: KPIs, five-year bins, subject bars, document types, most-cited and newest. Graph: any saved paper, 3–25 neighbours.",
+      "Dashboard: KPIs, five-year bins, subject bars, document types, most-cited and newest. Graph: any saved paper, 3–25 neighbors.",
     ],
   },
   {
@@ -160,7 +202,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: "The boot screen no longer flickers: it is one steady arcade-black screen that powers on once, types its title without moving, and fades out when you press start.",
     details: [
       "Root cause of the flash: the boot screen used the themed grays, which invert in dark mode, so it painted cream while index.html pre-paints #030712 — every first run went black, then cream.",
-      "A second cause hit anyone with a saved theme: the pre-paint script in index.html threw a ReferenceError (an undefined `x` in the tag-colour code) that its empty catch swallowed, so the dark background.",
+      "A second cause hit anyone with a saved theme: the pre-paint script in index.html threw a ReferenceError (an undefined `x` in the tag-color code) that its empty catch swallowed, so the dark background.",
       "The whole screen strobed (a looping brightness dip every 2.4 s) and the title jittered every frame; both are gone.",
     ],
   },
@@ -260,7 +302,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "Oct 6",
     title: "Copy edited to Simplified Technical English",
     tag: "ENHANCED",
-    body: "The help library, FAQ, page descriptions, empty states, tips, and pet lines follow ASD-STE100: short sentences, active voice, no contractions. The per-form paper-disposal flavour text was cut to plain words.",
+    body: "The help library, FAQ, page descriptions, empty states, tips, and pet lines follow ASD-STE100: short sentences, active voice, no contractions. The per-form paper-disposal flavor text was cut to plain words.",
     details: [
       "FAQ answers and the pet help library were rewritten as short active sentences; help-entry keywords are unchanged so chat matching still works.",
       "Every contraction was removed from user-facing strings.",
@@ -290,7 +332,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     tag: "NEW",
     body: "Similar papers moved into a full-width Connections tab with Prior works, Derivative works and Contrast tabs. The web graph matches the local one, with clusters from citing links, shared references and co-citations, and click-to-zoom.",
     details: [
-      "Contrast: compare any ranked paper with the centre — metadata, shared keywords, abstracts, and the TF-IDF / S-BERT / metadata score breakdown.",
+      "Contrast: compare any ranked paper with the center — metadata, shared keywords, abstracts, and the TF-IDF / S-BERT / metadata score breakdown.",
       "Backend /api/papers/{id}/web-connections now returns edges derived from the OpenAlex reference lists.",
     ],
   },

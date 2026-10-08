@@ -3,7 +3,7 @@ import { PipelineWeight } from "../data/pipelineConfigs";
 /* Level-1 surface: field-tinted track (theme-adaptive), 3px ink
    outline, no slab. Segments are separated by the same 3px ink
    line, so the split reads from the outline language rather than
-   from colour alone. Segment fills (bg-tfidf / bg-sbert / bg-meta)
+   from color alone. Segment fills (bg-tfidf / bg-sbert / bg-meta)
    map to theme signal variables. */
 export default function WeightBar({ weights }: { weights: PipelineWeight[] }) {
   // A 0% segment would still draw its 3px divider, so skip it.

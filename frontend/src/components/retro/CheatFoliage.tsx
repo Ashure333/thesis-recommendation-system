@@ -62,7 +62,7 @@ interface Particle {
   stuck: { x: number; y: number } | null;
   alpha: number;
   /** A twinkling glint instead of a drifting leaf: no gravity, a
-      quick fade in/out, and a brighter blended colour. */
+      quick fade in/out, and a brighter blended color. */
   sparkle: boolean;
   /** Breathing phase so particles don't all pulse in lockstep. */
   pulsePhase: number;
@@ -147,7 +147,7 @@ export default function CheatFoliage() {
     let last = performance.now();
 
     /* Blend every armed cheat's palette/shapes together — stacking
-       cheats should look richer, not just replace one flavour with
+       cheats should look richer, not just replace one flavor with
        another. */
     const sets = active.map((id) => FOLIAGE_BY_CHEAT[id]).filter(Boolean) as {
       colors: string[];

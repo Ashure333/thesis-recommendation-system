@@ -13,6 +13,7 @@ import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 
 import { SiteModeProvider } from "./state/siteMode";
+import { isPresentationStored } from "./utils/presentation";
 
 // Every page after sign-in is its own chunk, so the login screen does not
 // download the Garden, KaTeX, the graphs and the changelog up front.
@@ -33,8 +34,8 @@ const Settings = lazy(() => import("./pages/Settings"));
 export default function App() {
   return (
     <>
-      <ScanlineOverlay />
-      <BootSplash />
+      {!isPresentationStored() && <ScanlineOverlay />}
+      {!isPresentationStored() && <BootSplash />}
       <BrowserRouter>
       <SiteModeProvider>
       <Routes>
@@ -111,7 +112,23 @@ export default function App() {
             }
           />
           <Route
+            path="/walkthrough/:page"
+            element={
+              <FeatureGate feature="walkthrough">
+                <Walkthrough />
+              </FeatureGate>
+            }
+          />
+          <Route
             path="/walkthrough-engine"
+            element={
+              <FeatureGate feature="engine">
+                <MathWalkthrough />
+              </FeatureGate>
+            }
+          />
+          <Route
+            path="/walkthrough-engine/:page"
             element={
               <FeatureGate feature="engine">
                 <MathWalkthrough />

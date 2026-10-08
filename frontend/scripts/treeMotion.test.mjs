@@ -121,10 +121,10 @@ test("the sap pulse is a short band that travels toward the trunk", () => {
 
     assert.ok(ts[ts.length - 1] - ts[0] < 0.4, "band should be short");
 
-    const centre = (ts[0] + ts[ts.length - 1]) / 2;
+    const center = (ts[0] + ts[ts.length - 1]) / 2;
 
-    if (previous >= 0 && centre > previous) moved += 1;
-    previous = centre;
+    if (previous >= 0 && center > previous) moved += 1;
+    previous = center;
   }
 
   assert.ok(moved >= 5, `pulse only advanced ${moved} times`);

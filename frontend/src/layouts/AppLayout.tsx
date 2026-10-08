@@ -19,6 +19,7 @@ import ScrollFollowPopup from "../components/retro/ScrollFollowPopup";
 import PixelPet from "../components/retro/PixelPet";
 import CheatFoliage from "../components/retro/CheatFoliage";
 import CheatConsole from "../components/CheatConsole";
+import DevUnlock from "../components/DevUnlock";
 import LiveBackground from "../components/LiveBackground";
 import { ArrowRight, BlockCursor, Lock } from "../components/retro/PixelIcons";
 import {
@@ -37,7 +38,7 @@ import {
 } from "lucide-react";
 import { useSiteMode } from "../state/siteMode";
 import { useLayoutPrefs } from "../state/layoutPrefs";
-import { useStatsDrawer } from "../state/statsDrawer";
+import { useNerdButtons } from "../state/nerdButtons";
 import StatsDrawer from "../components/StatsDrawer";
 
 
@@ -158,8 +159,9 @@ export default function AppLayout() {
   const contentRef = useRef<HTMLElement | null>(null);
 
   const { mode, stateFor } = useSiteMode();
+  const presenting = mode === "presentation";
   const { prefs: layoutPrefs } = useLayoutPrefs();
-  const { open: statsOpen, toggle: toggleStats } = useStatsDrawer();
+  const { on: nerdOn, setOn: setNerdOn } = useNerdButtons();
 
   // ----------------------------------------------------------
   // Live library count for the nav badge
@@ -277,7 +279,7 @@ export default function AppLayout() {
       id="app-shell"
       className="flex h-screen w-full flex-col overflow-hidden bg-canvas text-ink"
     >
-      <LiveBackground />
+      {!presenting && <LiveBackground />}
 
 
       {/* ======================================================
@@ -394,24 +396,40 @@ export default function AppLayout() {
 
         <div className="flex shrink-0 items-center gap-2.5">
 
-          {/* Universal Statistics toggle — the top-bar Σ switch */}
+          {/* Nerd buttons switch: on shows every Stats for Nerds control,
+              off shatters them away everywhere. */}
+          {!presenting && (
           <button
             type="button"
-            aria-pressed={statsOpen}
-            data-tips="stats-toggle"
-            onClick={toggleStats}
-            title="Statistics, computations, and process interpretations"
-            className={`inline-flex items-center gap-1.5 rounded border-[3px] border-gray-900 px-2.5 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] transition-colors pixel-ease ${
-              statsOpen
-                ? "bg-accent text-onAccent"
-                : "bg-white text-ink hover:bg-accentSoft"
-            }`}
+            role="switch"
+            aria-checked={nerdOn}
+            data-tips="nerd-switch"
+            onClick={() => setNerdOn(!nerdOn)}
+            title={
+              nerdOn
+                ? "Stats for Nerds buttons are showing. Click to remove them everywhere."
+                : "Stats for Nerds buttons are hidden. Click to bring them back."
+            }
+            className="inline-flex items-center gap-2 rounded border-[3px] border-gray-900 bg-white px-2.5 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink transition-colors pixel-ease hover:bg-accentSoft"
           >
             <Sigma className="h-3.5 w-3.5" />
-            STATS
+            NERD
+            <span
+              aria-hidden="true"
+              className={`relative h-4 w-8 rounded-sm border-[2px] border-gray-900 transition-colors pixel-ease ${
+                nerdOn ? "bg-accent" : "bg-canvas"
+              }`}
+            >
+              <span
+                className={`absolute top-[1px] h-2.5 w-2.5 border-[2px] border-gray-900 bg-white transition-all pixel-ease ${
+                  nerdOn ? "left-[15px]" : "left-[1px]"
+                }`}
+              />
+            </span>
           </button>
+          )}
 
-          <AccentPicker />
+          {!presenting && <AccentPicker />}
 
         </div>
 
@@ -422,7 +440,7 @@ export default function AppLayout() {
           ARCADE ATTRACT TICKER
           ====================================================== */}
 
-      <MarqueeTicker />
+      {!presenting && <MarqueeTicker />}
 
 
       {/* ======================================================
@@ -443,7 +461,7 @@ export default function AppLayout() {
           PAGE CONTENT
           ====================================================== */}
 
-      <PixelPet />
+      {!presenting && <PixelPet />}
 
       <main
         ref={contentRef}
@@ -460,9 +478,14 @@ export default function AppLayout() {
       </main>
 
       <ScrollFollowPopup key={`scroll:${location.pathname}`} target={contentRef} />
-      <CheatFoliage />
-      <CheatConsole />
-      <StatsDrawer />
+      {presenting && <DevUnlock />}
+      {!presenting && (
+        <>
+          <CheatFoliage />
+          <CheatConsole />
+          <StatsDrawer />
+        </>
+      )}
     </div>
   );
 

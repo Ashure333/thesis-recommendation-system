@@ -45,7 +45,7 @@ export const SITE_FEATURES: SiteFeatureMeta[] = [
     key: "repository",
     label: "Repository",
     path: "/repository",
-    blurb: "Browse, filter, and open catalogued papers.",
+    blurb: "Browse, filter, and open catalogd papers.",
     pro: false,
   },
   {
@@ -127,6 +127,22 @@ export function featureByKey(
  * Fallback map used before the public fetch lands (and if it fails).
  * Mirrors DEFAULT_LIBRARY_FEATURES on the backend.
  */
+/**
+ * Presentation mode ships the free version: the essentials only, and no
+ * switch to flip. Anything not listed is hidden.
+ */
+export const PRESENTATION_FEATURES: Record<string, SiteFeatureState> = {
+  search: "shown",
+  repository: "shown",
+  library: "shown",
+  faq: "shown",
+  // The study's own scope: import, the six pipelines compared in the Arena,
+  // and the math behind the ranking.
+  upload: "shown",
+  arena: "shown",
+  engine: "shown",
+};
+
 export const DEFAULT_LIBRARY_FEATURES: Record<string, SiteFeatureState> = {
   search: "shown",
   repository: "shown",

@@ -1,6 +1,6 @@
 /**
  * The tree's paint box, bottom right of the garden stage: a small button
- * that opens the species' colour variants as swatches. Picking one repaints
+ * that opens the species' color variants as swatches. Picking one repaints
  * the tree at once and is remembered for that species.
  */
 
@@ -77,7 +77,7 @@ export default function TreeVariantPicker({
       {open && (
         <div
           role="radiogroup"
-          aria-label="Tree colours"
+          aria-label="Tree colors"
           className="retro-shadow-light flex w-52 flex-col gap-1 rounded-md border-[3px] border-gray-900 bg-white p-1.5 shadow-[3px_3px_0_rgba(0,0,0,0.25)]"
         >
           <p className="px-1 pb-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-ink/80">
@@ -112,8 +112,8 @@ export default function TreeVariantPicker({
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        aria-label={`Tree colours: ${current.label}`}
-        title="Paint the tree in another colour scheme"
+        aria-label={`Tree colors: ${current.label}`}
+        title="Paint the tree in another color scheme"
         className="retro-shadow-light flex items-center gap-1.5 rounded-md border-[3px] border-gray-900 bg-white px-2 py-1 font-mono text-[11px] font-bold uppercase tracking-wide text-ink transition-colors pixel-ease hover:bg-accentSoft"
       >
         <Palette className="h-3.5 w-3.5" aria-hidden="true" />

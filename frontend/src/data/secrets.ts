@@ -31,7 +31,7 @@ export const SECRETS: Secret[] = [
     label: "Pocket Green",
     kind: "skin",
     skin: "gameboy",
-    hint: "A grey brick from 1989 that played in four shades of green.",
+    hint: "A gray brick from 1989 that played in four shades of green.",
     blurb: "The whole app on a handheld's four-shade green screen.",
   },
   {

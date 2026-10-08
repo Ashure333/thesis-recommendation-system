@@ -1,5 +1,5 @@
 /**
- * Unit tests for the cluster colours and the label layout.
+ * Unit tests for the cluster colors and the label layout.
  *
  *   npm run test:units
  */
@@ -19,7 +19,7 @@ const ACCENTS = [
   { r: 120, g: 120, b: 120 },
 ];
 
-test("every cluster colour stands out from the page, light or dark", () => {
+test("every cluster color stands out from the page, light or dark", () => {
   for (const accent of ACCENTS) {
     for (const canvas of [LIGHT, DARK]) {
       for (const n of [1, 2, 3, 5, 8]) {
@@ -56,7 +56,7 @@ test("the first cluster keeps the theme's accent hue", () => {
   assert.ok(Math.min(d, 360 - d) < 8);
 });
 
-test("even a grey theme gets coloured, separable clusters", () => {
+test("even a gray theme gets colored, separable clusters", () => {
   const colors = clusterColors(4, ACCENTS[3], LIGHT);
 
   assert.ok(colors.every((c) => rgbToHsl(c)[1] > 0.3));

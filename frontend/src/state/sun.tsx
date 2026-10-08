@@ -59,6 +59,7 @@ function readProOverride(): boolean {
   }
 }
 
+import { isPresentationStored } from "../utils/presentation";
 import {
   CHEAT_HEIGHTS,
   CHEAT_SETS,
@@ -485,11 +486,12 @@ export function SunProvider({ children }: { children: ReactNode }) {
   /* PRO unlock: any species' bed past its Young stage threshold —
      the temporary dev override forces it on for this run. */
   const proUnlocked =
-    proOverride ||
+    !isPresentationStored() &&
+    (proOverride ||
     Object.entries(state.gardenProgress).some(
       ([species, fert]) =>
         treeStageIndex(fert, species as TreeSpeciesId) >= 3,
-    );
+    ));
 
   const nextMilestone = CHEAT_HEIGHTS.map((heightFt, index) => ({
     height: heightFt,

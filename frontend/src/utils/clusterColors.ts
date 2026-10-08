@@ -1,10 +1,10 @@
 /**
- * Colours for the similar-papers clusters.
+ * Colors for the similar-papers clusters.
  *
  * The clusters need to be told apart at a glance, yet still belong to the
  * site's palette. So the first cluster takes the theme's own accent, and
- * the others turn round the colour wheel from it at equal steps, keeping
- * the accent's saturation (never too pale to see). Each colour's lightness
+ * the others turn round the color wheel from it at equal steps, keeping
+ * the accent's saturation (never too pale to see). Each color's lightness
  * is then moved until it stands out from the page background: dark enough
  * on a light canvas, light enough on a dark one.
  *
@@ -80,7 +80,7 @@ export function hslToRgb(h: number, s: number, l: number): Rgb {
 
 export const MIN_CLUSTER_CONTRAST = 3.2;
 
-/** `n` clearly different colours that belong to the theme and read on `canvas`. */
+/** `n` clearly different colors that belong to the theme and read on `canvas`. */
 export function clusterColors(n: number, accent: Rgb, canvas: Rgb): Rgb[] {
   const [h0, s0] = rgbToHsl(accent);
   const sat = Math.min(0.85, Math.max(0.5, s0));

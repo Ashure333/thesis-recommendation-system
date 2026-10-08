@@ -13,7 +13,7 @@
      Field blue = main input fill.
      Depth = sibling slab (bg-ink, translate 4px/4px), never a blur.
      Hairline only for incidental row separators.
-     No pills, no tracked all-caps labels, no state colours.
+     No pills, no tracked all-caps labels, no state colors.
 
      The full palette is theme-selectable: canvas, ink,
      hairline, field and the neutral ramp all shift per
@@ -162,7 +162,7 @@ textarea {
     letter-spacing: 0.03em;
   }
 
-  /* No state colours: state is carried by wording and outline style
+  /* No state colors: state is carried by wording and outline style
      (solid = blocking error, dashed = advisory). */
   .status-error { @apply rounded border-[3px] border-gray-900 bg-white px-3 py-2 text-sm font-medium text-ink; }
   .status-success { @apply rounded border-[3px] border-gray-900 bg-accent px-3 py-2 text-sm font-medium text-onAccent; }
@@ -232,6 +232,86 @@ textarea {
   }
 }
 
+/* --- Stats for Nerds entrance: the control glitches into being ---
+   Torn slices, an RGB split and a flicker, in hard steps, then it settles. */
+.nerd-glitch-in { animation: nerd-glitch-in 560ms steps(1, end) 1 both; }
+@keyframes nerd-glitch-in {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  10% {
+    opacity: 1;
+    clip-path: inset(0 0 62% 0);
+    transform: translate(-6px, 0);
+    filter: drop-shadow(3px 0 0 #ff2d55) drop-shadow(-3px 0 0 #19e3ff);
+  }
+  22% {
+    clip-path: inset(38% 0 20% 0);
+    transform: translate(7px, 0);
+    filter: drop-shadow(-3px 0 0 #ff2d55) drop-shadow(3px 0 0 #19e3ff);
+  }
+  34% {
+    opacity: 0.25;
+    clip-path: inset(0 0 0 0);
+    transform: translate(-3px, 1px);
+    filter: none;
+  }
+  46% {
+    opacity: 1;
+    clip-path: inset(70% 0 0 0);
+    transform: translate(5px, -1px);
+    filter: drop-shadow(2px 0 0 #ff2d55) drop-shadow(-2px 0 0 #19e3ff);
+  }
+  60% {
+    clip-path: inset(10% 0 45% 0);
+    transform: translate(-4px, 0);
+    filter: drop-shadow(-2px 0 0 #ff2d55) drop-shadow(2px 0 0 #19e3ff);
+  }
+  74% {
+    opacity: 0.6;
+    clip-path: inset(0 0 0 0);
+    transform: translate(2px, 0);
+    filter: drop-shadow(1px 0 0 #19e3ff);
+  }
+  88% {
+    opacity: 1;
+    transform: translate(-1px, 0);
+    filter: none;
+  }
+  100% {
+    opacity: 1;
+    clip-path: none;
+    transform: none;
+    filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nerd-glitch-in { animation: none; }
+}
+
+/* --- Pixel shatter: pieces of a removed control tumble away in chunky steps --- */
+.nerd-shard {
+  animation: nerd-shard 760ms steps(9, end) var(--delay, 0ms) both;
+  will-change: transform, opacity;
+}
+@keyframes nerd-shard {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx, 0), var(--dy, 0)) rotate(var(--rot, 0deg));
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nerd-shard { animation: none; opacity: 0; }
+}
+
 /* --- 8-bit jiggle on hover (logo marks) --- */
 .retro-wiggle:hover { animation: retro-wiggle 0.35s steps(4) infinite; }
 @keyframes retro-wiggle {
@@ -261,7 +341,7 @@ textarea {
 /* --- first-run boot screen ---
    Theme-independent on purpose: the themed grays invert in dark mode,
    which made the screen cream while index.html pre-paints #030712 (a
-   black -> cream flash on every first run). Same colour in both now. */
+   black -> cream flash on every first run). Same color in both now. */
 .boot-screen { background: #030712; }
 .boot-scanlines {
   pointer-events: none;
@@ -709,7 +789,7 @@ textarea {
 
 /* ============================================================
    WOOD — the garden's carved menu.
-   Fixed colours on purpose: wood looks like wood in light and dark
+   Fixed colors on purpose: wood looks like wood in light and dark
    mode alike. Text on dark wood is cream (about 8:1), on light wood
    dark brown (about 5:1).
    ============================================================ */
@@ -919,7 +999,7 @@ textarea {
 /* ============================================================
    UI SKINS, EFFECTS AND THE LIVE BACKGROUND
    (the hidden cheats; see data/secrets.ts and utils/uiCustom.ts)
-   The skins mostly work by replacing the colour tokens; what follows adds
+   The skins mostly work by replacing the color tokens; what follows adds
    their own touches. Everything keeps text legible: effects are faint, and
    the live background is dimmed behind a scrim.
    ============================================================ */

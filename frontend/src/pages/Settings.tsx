@@ -148,6 +148,7 @@ export default function Settings() {
             [
               ["library", "LIBRARY", "Visitor view"],
               ["researcher", "RESEARCHER", "Full pro tool"],
+              ["presentation", "PRESENTATION", "Shipped, free version"],
             ] as const
           ).map(([id, label, hint]) => {
             const active = mode === id;
@@ -396,7 +397,7 @@ export default function Settings() {
       <p className="text-xs text-muted">
         Current mode:{" "}
         <span className="font-bold text-ink">
-          {mode === "library" ? "Library" : "Researcher"}
+          {mode === "library" ? "Library" : mode === "presentation" ? "Presentation" : "Researcher"}
         </span>{" "}
         — switch it in the Site mode section above.
       </p>

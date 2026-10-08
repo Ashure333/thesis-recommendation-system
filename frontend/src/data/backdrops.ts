@@ -1129,15 +1129,15 @@ export function renderFrame(
      already live in each scene; the higher a band of the picture
      sits, the thicker the haze on it, so the canopy above the
      field fades into drifting cloud while the ground keeps its
-     colour. The saturation wash runs one band higher — above the
+     color. The saturation wash runs one band higher — above the
      giant stage everything the canopy has left below drains to
-     grey. The haze is alive: two sheets drift at different rates
+     gray. The haze is alive: two sheets drift at different rates
      and heave gently, leaves fall through it, and birds cross the
      hazy sky. */
   /* Both keyed off ASCENT_START too, so the haze builds in step
      with the elevation shift above instead of arriving a stage
      later: cf reaches full density about 70% of the way up the
-     climb, wash (the grey-out) finishes exactly at the summit. */
+     climb, wash (the gray-out) finishes exactly at the summit. */
   const cf = ease(clamp((parallax - ASCENT_START) / ((1 - ASCENT_START) * 0.7), 0, 1));
   const wash = ease(
     clamp((parallax - (ASCENT_START + (1 - ASCENT_START) * 0.4)) / ((1 - ASCENT_START) * 0.6), 0, 1),
@@ -1171,9 +1171,9 @@ export function renderFrame(
     for (let y = 0; y < H; y += 1)
       for (let x = 0; x < W; x += 1) {
         const base = get(x, y);
-        /* The wash: above the giant stage the scene drains to grey. */
-        const grey = (base[0] + base[1] + base[2]) / 3;
-        const washed = mix(base, [grey, grey, grey], 0.55 * wash);
+        /* The wash: above the giant stage the scene drains to gray. */
+        const gray = (base[0] + base[1] + base[2]) / 3;
+        const washed = mix(base, [gray, gray, gray], 0.55 * wash);
         /* The haze is proportional to the tree's height: the higher
            the canopy climbs, the denser the blanket — same density
            across the frame, breathing gently as it drifts. */
@@ -1195,7 +1195,7 @@ export function renderFrame(
   }
 
   /* Leaves fall through the hazy air, at two depths, in the active
-     species' own colours and silhouette. Most just fall straight
+     species' own colors and silhouette. Most just fall straight
      through; a few catch on the haze instead, drift to a hang, sway
      there a while, then fade and restart — "sometimes gather in
      the frame" rather than only ever raining past. */

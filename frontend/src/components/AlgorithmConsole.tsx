@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { Cpu } from "lucide-react";
 
 import {
+  pipelineName,
   pipelineConfigs,
   customPipelineConfig,
   adjustDialAllocation,
@@ -24,6 +25,9 @@ import WeightBar from "./WeightBar";
 interface AlgorithmConsoleProps {
   /** True while the Recommend scope is active (Top-K + Diversify). */
   recommendMode: boolean;
+  /** True while the Web scope is active: the console opens, and each
+   *  algorithm re-ranks the web hits. */
+  webMode?: boolean;
   topK: number;
   onTopKChange: (value: number) => void;
   diversify: boolean;
@@ -137,6 +141,7 @@ function DialPopover({
 
 export default function AlgorithmConsole({
   recommendMode,
+  webMode = false,
   topK,
   onTopKChange,
   diversify,
@@ -146,11 +151,11 @@ export default function AlgorithmConsole({
   const [dialsOpen, setDialsOpen] = useState(false);
   /* The full console opens by itself while ranking recommendations, and
      otherwise rests as a one-line summary so it does not take a row. */
-  const [open, setOpen] = useState(recommendMode);
+  const [open, setOpen] = useState(recommendMode || webMode);
 
   useEffect(() => {
-    if (recommendMode) setOpen(true);
-  }, [recommendMode]);
+    if (recommendMode || webMode) setOpen(true);
+  }, [recommendMode, webMode]);
 
   const activeConfig =
     pipelineId === "custom"
@@ -160,14 +165,14 @@ export default function AlgorithmConsole({
 
   if (!open) {
     return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded border-[3px] border-gray-900 bg-white px-3 py-2">
+      <div data-algorithm-console="summary" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded border-[3px] border-gray-900 bg-white px-3 py-2">
         <p className="flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
           <Cpu className="h-3.5 w-3.5" />
           Algorithm
         </p>
         <div className="flex items-center gap-1.5">
           <WeightBar weights={activeConfig.weights} />
-          <span className="font-mono text-xs font-bold text-ink">{activeConfig.codename}</span>
+          <span className="whitespace-nowrap font-mono text-xs font-bold text-ink">{pipelineName(activeConfig)}</span>
         </div>
         <button
           type="button"
@@ -182,7 +187,7 @@ export default function AlgorithmConsole({
   }
 
   return (
-    <div className="relative rounded border-[3px] border-gray-900 bg-white p-3">
+    <div data-algorithm-console="open" className="relative rounded border-[3px] border-gray-900 bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <p className="flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
@@ -203,14 +208,14 @@ export default function AlgorithmConsole({
                     setPipelineId(config.id);
                     setDialsOpen(false);
                   }}
-                  title={`${config.label} — ${config.codename}`}
+                  title={config.label}
                   className={`rounded border-[2px] px-2 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors pixel-ease ${
                     active
                       ? "border-gray-900 bg-accent text-onAccent shadow-[inset_0_-2px_0_rgba(0,0,0,0.3)]"
                       : "border-gray-900 bg-surface text-muted hover:text-ink"
                   }`}
                 >
-                  {config.codename}
+                  {pipelineName(config)}
                 </button>
               );
             })}
@@ -236,7 +241,7 @@ export default function AlgorithmConsole({
           <div className="flex items-center gap-1.5">
             <WeightBar weights={activeConfig.weights} />
             <span className="font-mono text-xs font-bold text-ink">
-              {activeConfig.codename}
+              {pipelineName(activeConfig)}
             </span>
           </div>
 

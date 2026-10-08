@@ -43,7 +43,7 @@ export interface CharmEnv {
   hit: (key: string, x: number, y: number, w: number, h: number) => void;
   /** The creature the pointer is over, if any. */
   hover: string | null;
-  /** The species' colours. */
+  /** The species' colors. */
   foliage: number[][];
   bark: number[][];
   moss: number[][];

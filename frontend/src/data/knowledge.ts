@@ -48,7 +48,7 @@ export type TreeSpeciesId =
 export interface TreeSpecies {
   id: TreeSpeciesId;
   label: string;
-  /** Trunk colour (inline fill). */
+  /** Trunk color (inline fill). */
   trunk: string;
   /** Foliage ramp: highlight, mid, shade (pixel-art three-tone). */
   leafLight: string;
@@ -306,7 +306,7 @@ export const SPECIES_INFO: Record<
       "Sequoia sempervirens — the tallest living thing ever " +
       "measured, standing in fog belts along the Pacific coast.",
     research:
-      "Boughs almost a kilometre up, ringed like time itself. Its " +
+      "Boughs almost a kilometer up, ringed like time itself. Its " +
       "bark, thick and fibrous, shrugs off fire and beetle alike.",
   },
 };

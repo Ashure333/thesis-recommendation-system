@@ -206,13 +206,13 @@ def _shortest_paths(
 
         visited.add(node_id)
 
-        for neighbour, cost in adjacency.get(node_id, []):
+        for neighbor, cost in adjacency.get(node_id, []):
             candidate = distance + cost
 
-            if candidate < distances.get(neighbour, float("inf")) - 1e-9:
-                distances[neighbour] = candidate
-                previous[neighbour] = node_id
-                heapq.heappush(queue, (candidate, neighbour))
+            if candidate < distances.get(neighbor, float("inf")) - 1e-9:
+                distances[neighbor] = candidate
+                previous[neighbor] = node_id
+                heapq.heappush(queue, (candidate, neighbor))
 
     paths: dict[int, list[int]] = {start_id: [start_id]}
 
@@ -298,7 +298,7 @@ def build_connected_graph(
         weights = get_pipeline_weights(pipeline)
 
     # --------------------------------------------------------
-    # Citation neighbourhood, loaded exactly once for the whole
+    # Citation neighborhood, loaded exactly once for the whole
     # node set: one query backs both the pair weights and the
     # common_references / common_citers groups. Never per pair.
     # --------------------------------------------------------
