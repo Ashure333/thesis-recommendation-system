@@ -558,7 +558,7 @@ export default function Evaluation() {
   ] as const;
 
   return (
-    <PageShell>
+    <PageShell className="!gap-3 !py-5">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-key")!} />
       <PageHeader
         eyebrow="Arena"
@@ -566,7 +566,7 @@ export default function Evaluation() {
         description="Run all six pipelines on one query. Compare the consensus ranking, the per-pipeline ranks, and the pairwise agreement."
       />
 
-      <div className="mt-6">
+      <div>
         <PageTabs
           label="Arena view"
           active={pageTab}
@@ -581,7 +581,7 @@ export default function Evaluation() {
       </div>
 
       {pageTab === "stats" ? (
-        <section className="mt-4">
+        <section>
           <StatsForNerds
             inputs={{
               mode: "keyword",
@@ -602,10 +602,10 @@ export default function Evaluation() {
       <section
         aria-label="Battle cabinet"
         data-arena-cabinet=""
-        className="mb-6 overflow-hidden rounded-lg border-[3px] border-gray-900 bg-gray-900 text-onInk shadow-[6px_6px_0_rgba(0,0,0,0.25)]"
+        className="overflow-hidden rounded-lg border-[3px] border-gray-900 bg-gray-900 text-onInk shadow-[6px_6px_0_rgba(0,0,0,0.25)]"
       >
         {/* the marquee */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b-[3px] border-gray-900 bg-accent px-4 py-2 text-onAccent">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-accent px-3 py-1.5 text-onAccent">
           <p className="flex items-center gap-2 font-pixelify text-lg font-bold uppercase leading-none tracking-[0.2em]">
             <Star className="h-4 w-4" aria-hidden="true" />
             Pipeline battle
@@ -625,11 +625,11 @@ export default function Evaluation() {
           </p>
         </div>
 
-        <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid gap-2 p-2.5 lg:grid-cols-[minmax(0,1fr)_300px]">
           {/* THE SCREEN */}
-          <div className="rounded border-[3px] border-black/60 bg-gray-950 p-4 shadow-[inset_0_0_0_2px_rgba(255,255,255,0.08),inset_0_0_36px_rgba(0,0,0,0.55)]">
+          <div className="rounded border-[3px] border-black/60 bg-gray-950 p-3 shadow-[inset_0_0_0_2px_rgba(255,255,255,0.08),inset_0_0_36px_rgba(0,0,0,0.55)]">
             {/* mode select */}
-            <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-onInk/70">
                 Select field
               </span>
@@ -679,7 +679,7 @@ export default function Evaluation() {
               />
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
                 Depth
                 <select
@@ -698,7 +698,7 @@ export default function Evaluation() {
                 type="button"
                 onClick={runBattle}
                 disabled={loading || !queryText.trim()}
-                className={`ml-auto rounded border-[3px] border-black/60 bg-accent px-6 py-2 font-pixelify text-base font-bold uppercase tracking-[0.2em] text-onAccent shadow-[0_4px_0_rgba(0,0,0,0.45)] transition-all pixel-ease hover:brightness-110 active:translate-y-[3px] active:shadow-[0_1px_0_rgba(0,0,0,0.45)] disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`ml-auto rounded border-[3px] border-black/60 bg-accent px-5 py-1.5 font-pixelify text-base font-bold uppercase tracking-[0.2em] text-onAccent shadow-[0_4px_0_rgba(0,0,0,0.45)] transition-all pixel-ease hover:brightness-110 active:translate-y-[3px] active:shadow-[0_1px_0_rgba(0,0,0,0.45)] disabled:cursor-not-allowed disabled:opacity-50 ${
                   !loading && queryText.trim() ? "animate-blink" : ""
                 }`}
               >
@@ -707,8 +707,8 @@ export default function Evaluation() {
             </div>
 
             {webMode && (
-              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-onInk/80">
-                <div className="flex items-center gap-3">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-onInk/80">
+                <div className="flex items-center gap-2">
                   <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/70">
                     Sources
                   </span>
@@ -757,7 +757,7 @@ export default function Evaluation() {
             )}
 
             {/* what the screen says: the attract text, the rounds, or the result line */}
-            <div className="mt-4 border-t-2 border-dashed border-onInk/25 pt-3">
+            <div className="mt-2 border-t-2 border-dashed border-onInk/25 pt-2">
               {loading ? (
                 <div>
                   <p className="flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-onInk">
@@ -798,7 +798,7 @@ export default function Evaluation() {
               <Trophy className="h-4 w-4" aria-hidden="true" />
               {isPresentationStored() ? "Win tally" : "High scores"}
             </p>
-            <ol className="mt-3 space-y-1.5">
+            <ol className="mt-2 space-y-1.5">
               {tally.map((entry, index) => {
                 const share = totalRuns > 0 ? entry.wins / totalRuns : 0;
 
@@ -821,7 +821,7 @@ export default function Evaluation() {
                 );
               })}
             </ol>
-            <p className="mt-auto border-t border-onInk/20 pt-3 font-mono text-[10px] font-bold uppercase leading-4 tracking-[0.15em] text-onInk/75">
+            <p className="mt-auto border-t border-onInk/20 pt-2 font-mono text-[10px] font-bold uppercase leading-4 tracking-[0.15em] text-onInk/75">
               {totalRuns} {totalRuns === 1 ? "battle" : "battles"} fought
               {currentStreak > 1
                 ? ` · streak ×${currentStreak} for ${displayName(leader.id)}`
@@ -836,7 +836,7 @@ export default function Evaluation() {
           ====================================================== */}
 
       {error && (
-        <div className="status-error mb-5">{error}</div>
+        <div className="status-error">{error}</div>
       )}
 
       {/* ======================================================
@@ -844,7 +844,7 @@ export default function Evaluation() {
           ====================================================== */}
 
       {!loading && battle && (
-        <div className="space-y-6">
+        <div className="space-y-3">
           {/* ------------------------------------------------
               RESULT TABS — one panel per result type, the first
               one is the summary, the last the recorded history
@@ -892,15 +892,15 @@ export default function Evaluation() {
             </div>
           </div>
 
-          <div key={resultsTab} className="animate-step-in space-y-6">
+          <div key={resultsTab} className="animate-step-in space-y-3">
 
           {/* ------------------------------------------------
               WINNER BANNER
               ------------------------------------------------ */}
 
           {resultsTab === "overview" && battle?.winner && (
-            <section className="rounded border-[3px] border-gray-900 bg-gray-900 p-5 text-onInk">
-              <div className="flex flex-wrap items-center justify-between gap-4">
+            <section className="rounded border-[3px] border-gray-900 bg-gray-900 p-3 text-onInk">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="animate-blink flex items-center gap-2 font-mono text-xs font-bold tracking-[0.3em] text-accent">
                     <Star className="h-3.5 w-3.5" />
@@ -947,7 +947,7 @@ export default function Evaluation() {
 
           {resultsTab === "scores" && battle && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
-            <div className="border-b border-gray-200 px-5 py-4">
+            <div className="border-b border-gray-200 px-3 py-2">
               <p className="text-sm font-bold text-ink">
                 Score distribution
               </p>
@@ -981,7 +981,7 @@ export default function Evaluation() {
 
               if (maxRanks === 0) {
                 return (
-                  <p className="px-5 py-6 text-sm leading-6 text-muted">
+                  <p className="px-2 py-1.5 text-sm leading-6 text-muted">
                     No scores to chart. The repository returned
                     no results for this query.
                   </p>
@@ -993,12 +993,12 @@ export default function Evaluation() {
                   <table className="w-full min-w-[680px]">
                     <thead>
                       <tr className="border-b-[3px] border-gray-900">
-                        <th className="px-5 py-3 text-left text-xs uppercase tracking-wide text-muted">
+                        <th className="px-3 py-1.5 text-left text-xs uppercase tracking-wide text-muted">
                           Rank
                         </th>
 
                         {BATTLE_IDS.map((id) => (
-                          <th key={id} className="px-2 py-3 text-center">
+                          <th key={id} className="px-2 py-1.5 text-center">
                             <div className="flex flex-col items-center gap-1">
                               <PipelineChip pipelineId={id} />
                               {id === battle.winner?.pipeline_id && (
@@ -1022,7 +1022,7 @@ export default function Evaluation() {
                           key={rank}
                           className="border-b border-gray-200 last:border-b-0"
                         >
-                          <td className="whitespace-nowrap px-5 py-2.5 font-mono text-sm font-bold text-ink">
+                          <td className="whitespace-nowrap px-3 py-1.5 font-mono text-sm font-bold text-ink">
                             #{rank}
                           </td>
 
@@ -1036,7 +1036,7 @@ export default function Evaluation() {
                               return (
                                 <td
                                   key={id}
-                                  className="px-2 py-2.5 text-center font-mono text-xs text-muted"
+                                  className="px-2 py-1.5 text-center font-mono text-xs text-muted"
                                 >
                                   —
                                 </td>
@@ -1047,7 +1047,7 @@ export default function Evaluation() {
                               id === battle.winner?.pipeline_id;
 
                             return (
-                              <td key={id} className="px-2 py-2.5">
+                              <td key={id} className="px-2 py-1.5">
                                 <div className="flex items-center gap-2">
                                   <div
                                     className={`h-4 flex-1 overflow-hidden rounded border-[2px] border-gray-900 bg-field ${
@@ -1092,7 +1092,7 @@ export default function Evaluation() {
           <div>
 
           <section className="rounded border-[3px] border-gray-900 bg-white">
-            <div className="border-b border-gray-200 px-5 py-4">
+            <div className="border-b border-gray-200 px-3 py-2">
               <p className="text-sm font-bold text-ink">
                 Consensus ranking
               </p>
@@ -1105,7 +1105,7 @@ export default function Evaluation() {
             <div className="divide-y divide-gray-200">
               {gridPapers.slice(0, 5).map((entry, index) => (
                 <StaggerIn key={entry.paper_id} index={index}>
-                  <div className="flex items-center gap-4 px-5 py-4">
+                  <div className="flex items-center gap-2 px-3 py-2">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-[3px] border-gray-900 bg-surface font-mono text-xs font-bold text-ink">
                       {index + 1}
                     </span>
@@ -1146,7 +1146,7 @@ export default function Evaluation() {
           {resultsTab === "pairwise" && battle && (
           <div>
               <section className="rounded border-[3px] border-gray-900 bg-white">
-                <div className="border-b border-gray-200 px-5 py-4">
+                <div className="border-b border-gray-200 px-3 py-2">
                   <p className="text-sm font-bold text-ink">
                     Pairwise agreement
                   </p>
@@ -1157,7 +1157,7 @@ export default function Evaluation() {
                   </p>
                 </div>
 
-                <div className="grid gap-2 px-5 py-4 sm:grid-cols-2">
+                <div className="grid gap-2 px-3 py-2 sm:grid-cols-2">
                   {pagedPairs.map((pair, index) => {
                     const countA =
                       battle.pipelines.find((p) => p.id === pair.a)
@@ -1175,14 +1175,14 @@ export default function Evaluation() {
                       key={`${pair.a}-${pair.b}`}
                       index={pairPageStart + index}
                     >
-                      <div className="rounded border-[2px] border-gray-900 bg-canvas p-3">
+                      <div className="rounded border-[2px] border-gray-900 bg-canvas p-2">
                         <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                           <PipelineChip pipelineId={pair.a} />
                           <span className="font-mono text-xs text-muted">vs</span>
                           <PipelineChip pipelineId={pair.b} />
                         </div>
 
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-ink">
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs text-ink">
                           <span>
                             overlap{" "}
                             <span className="font-bold">
@@ -1220,7 +1220,7 @@ export default function Evaluation() {
 
           {resultsTab === "grid" && battle && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
-            <div className="border-b border-gray-200 px-5 py-4">
+            <div className="border-b border-gray-200 px-3 py-2">
               <p className="font-pixelify text-sm font-bold text-ink">
                 Battle grid
               </p>
@@ -1234,13 +1234,13 @@ export default function Evaluation() {
               <table className="w-full min-w-[760px] text-left text-xs">
                 <thead>
                   <tr className="border-b-[3px] border-gray-900">
-                    <th className="px-4 py-3 text-xs uppercase tracking-wide text-muted">
+                    <th className="px-3 py-1.5 text-xs uppercase tracking-wide text-muted">
                       Paper
                     </th>
                     {BATTLE_IDS.map((id) => (
                       <th
                         key={id}
-                        className="whitespace-nowrap px-2 py-3 text-right"
+                        className="whitespace-nowrap px-2 py-1.5 text-right"
                       >
                         <PipelineChip pipelineId={id} />
                       </th>
@@ -1256,7 +1256,7 @@ export default function Evaluation() {
                       index={gridPageStart + index}
                       className="border-b border-gray-200 last:border-b-0"
                     >
-                      <td className="max-w-[260px] px-4 py-3">
+                      <td className="max-w-[260px] px-3 py-1.5">
                           <p className="truncate font-medium text-ink">
                             {entry.title ?? `Paper #${entry.paper_id}`}
                           </p>
@@ -1273,7 +1273,7 @@ export default function Evaluation() {
                           return (
                             <td
                               key={id}
-                              className="whitespace-nowrap px-2 py-3 text-right"
+                              className="whitespace-nowrap px-2 py-1.5 text-right"
                             >
                               {rank === null ? (
                                 <span className="inline-block min-w-[52px] text-muted">—</span>
@@ -1313,7 +1313,7 @@ export default function Evaluation() {
 
           {resultsTab === "scores" && battle && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
-            <div className="border-b border-gray-200 px-5 py-4">
+            <div className="border-b border-gray-200 px-3 py-2">
               <p className="text-sm font-bold text-ink">
                 Score distribution
               </p>
@@ -1323,7 +1323,7 @@ export default function Evaluation() {
               </p>
             </div>
 
-            <div className="space-y-4 px-5 py-4">
+            <div className="space-y-2 px-3 py-2">
               {(() => {
                 const allScores = battle.pipelines.flatMap(
                   (pipeline) =>
@@ -1350,7 +1350,7 @@ export default function Evaluation() {
 
                   return (
                     <div key={id}>
-                      <div className="mb-1 flex items-center justify-between gap-3">
+                      <div className="mb-1 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <PipelineChip pipelineId={id} />
                           {id === battle.winner?.pipeline_id && (
@@ -1369,7 +1369,7 @@ export default function Evaluation() {
                         {pipeline.results.slice(0, 5).map((result) => (
                           <div
                             key={result.paper_id}
-                            className="flex items-center gap-3"
+                            className="flex items-center gap-2"
                           >
                             <span className="w-7 shrink-0 text-right font-mono text-xs text-muted">
                               #{pipeline.results.indexOf(result) + 1}
@@ -1418,7 +1418,7 @@ export default function Evaluation() {
 
           {resultsTab === "cite" && battle && citations && (
             <section className="rounded border-[3px] border-gray-900 bg-white">
-              <div className="border-b border-gray-200 px-5 py-4">
+              <div className="border-b border-gray-200 px-3 py-2">
                 <p className="font-pixelify text-sm font-bold text-ink">
                   Result interpretation
                 </p>
@@ -1429,11 +1429,11 @@ export default function Evaluation() {
                 </p>
               </div>
 
-              <div className="space-y-4 px-5 py-4">
+              <div className="space-y-2 px-3 py-2">
                 {citations.map((entry) => (
                   <div
                     key={entry.id}
-                    className="rounded border-[2px] border-gray-900 bg-canvas p-3"
+                    className="rounded border-[2px] border-gray-900 bg-canvas p-2"
                   >
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
@@ -1472,9 +1472,9 @@ export default function Evaluation() {
       <section
         aria-label="Battle log"
         data-arena-log=""
-        className="mt-6 overflow-hidden rounded-lg border-[3px] border-gray-900 bg-white shadow-[4px_4px_0_rgba(0,0,0,0.2)]"
+        className="overflow-hidden rounded-lg border-[3px] border-gray-900 bg-white shadow-[4px_4px_0_rgba(0,0,0,0.2)]"
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-gray-900 px-4 py-2 text-onInk">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-gray-900 px-3 py-1.5 text-onInk">
           <p className="flex items-center gap-2 font-pixelify text-sm font-bold uppercase tracking-[0.2em]">
             <History className="h-4 w-4 text-accent" aria-hidden="true" />
             Battle log
@@ -1485,7 +1485,7 @@ export default function Evaluation() {
         </div>
 
         {history.length === 0 ? (
-          <div className="px-4 py-10 text-center">
+          <div className="px-3 py-5 text-center">
             <p className="animate-blink font-pixelify text-lg font-bold uppercase tracking-[0.2em] text-ink">
               No battles yet
             </p>
@@ -1497,11 +1497,11 @@ export default function Evaluation() {
               <table className="w-full min-w-[560px] text-left text-xs [&_th]:align-middle [&_td]:align-middle">
                 <thead>
                   <tr className="border-b-[3px] border-gray-900 bg-canvas">
-                    <th className="w-12 px-4 py-2.5 text-right uppercase tracking-wide text-muted">#</th>
-                    <th className="px-3 py-2.5 uppercase tracking-wide text-muted">Time</th>
-                    <th className="px-3 py-2.5 uppercase tracking-wide text-muted">Query</th>
-                    <th className="px-3 py-2.5 text-left uppercase tracking-wide text-muted">Winner</th>
-                    <th className="px-4 py-2.5 text-right uppercase tracking-wide text-muted">Score</th>
+                    <th className="w-12 px-3 py-1.5 text-right uppercase tracking-wide text-muted">#</th>
+                    <th className="px-2 py-1.5 uppercase tracking-wide text-muted">Time</th>
+                    <th className="px-2 py-1.5 uppercase tracking-wide text-muted">Query</th>
+                    <th className="px-2 py-1.5 text-left uppercase tracking-wide text-muted">Winner</th>
+                    <th className="px-3 py-1.5 text-right uppercase tracking-wide text-muted">Score</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1515,10 +1515,10 @@ export default function Evaluation() {
                         index={index}
                         className={`border-b border-gray-200 last:border-b-0 ${fresh ? "shadow-[inset_4px_0_0_rgb(var(--accent))]" : ""}`}
                       >
-                        <td className="px-4 py-3 text-right font-mono text-muted">
+                        <td className="px-3 py-1.5 text-right font-mono text-muted">
                           {historyTotal - ((historyPage - 1) * HISTORY_PAGE_SIZE + index)}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3 font-mono text-muted">
+                        <td className="whitespace-nowrap px-2 py-1.5 font-mono text-muted">
                           {formatRunTime(run.created_at)}
                           {fresh && (
                             <span className="animate-blink ml-2 rounded bg-accent px-1 py-0.5 text-[9px] font-bold tracking-[0.15em] text-onAccent">
@@ -1526,17 +1526,17 @@ export default function Evaluation() {
                             </span>
                           )}
                         </td>
-                        <td className="max-w-[280px] px-3 py-3">
+                        <td className="max-w-[280px] px-2 py-1.5">
                           <p className="truncate font-medium text-ink">
                             {run.query ?? `Seed paper #${run.seed_paper_id}`}
                           </p>
                         </td>
-                        <td className="px-3 py-3 text-left">
+                        <td className="px-2 py-1.5 text-left">
                           <div className="w-full">
                             <PipelineChip pipelineId={run.winner_pipeline_id} grow />
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-bold text-ink">
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono font-bold text-ink">
                           {run.winner_value != null
                             ? run.winner_metric === "independence_weighted_consensus"
                               ? `${(run.winner_value * 100).toFixed(0)}%`
@@ -1550,7 +1550,7 @@ export default function Evaluation() {
               </table>
             </div>
 
-            <div className="border-t border-gray-200 px-4 py-3">
+            <div className="border-t border-gray-200 px-3 py-1.5">
               <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
                 Winner score spread (this page)
               </p>
