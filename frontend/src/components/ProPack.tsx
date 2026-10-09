@@ -11,7 +11,6 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Check, Loader2, Lock, ShoppingBag } from "lucide-react";
 
 import { useSun } from "../state/sun";
-import { useSiteMode } from "../state/siteMode";
 import { treeSpecies } from "../data/knowledge";
 import {
   PRO_PACK_BENEFITS,
@@ -165,16 +164,13 @@ function ProPackDialog({
 }
 
 /** Entry point: a "Buy Pro" button that opens the offer, or a
- *  "PRO owned" chip once bought. Hidden in Presentation mode. */
+ *  "PRO owned" chip once bought. Shown in every site mode. */
 export default function ProPackButton({
   variant = "chip",
 }: {
   variant?: "chip" | "button";
 }) {
   const { proPurchased } = useSun();
-  const presenting = useSiteMode().mode === "presentation";
-  if (presenting) return null;
-
   if (proPurchased) {
     return (
       <span className="font-pixelify inline-flex h-9 items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accent px-3 text-sm font-bold text-onAccent">

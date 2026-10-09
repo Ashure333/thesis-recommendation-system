@@ -500,13 +500,13 @@ export function SunProvider({ children }: { children: ReactNode }) {
   /* PRO unlock: any species' bed past its Young stage threshold —
      the temporary dev override forces it on for this run. */
   const proUnlocked =
-    !isPresentationStored() &&
-    (proOverride ||
     state.proPurchased ||
-    Object.entries(state.gardenProgress).some(
-      ([species, fert]) =>
-        treeStageIndex(fert, species as TreeSpeciesId) >= 3,
-    ));
+    (!isPresentationStored() &&
+      (proOverride ||
+        Object.entries(state.gardenProgress).some(
+          ([species, fert]) =>
+            treeStageIndex(fert, species as TreeSpeciesId) >= 3,
+        )));
 
   const nextMilestone = CHEAT_HEIGHTS.map((heightFt, index) => ({
     height: heightFt,
