@@ -53,6 +53,8 @@ import SunGlyph from "./SunGlyph";
 import TokenGlyph from "./TokenGlyph";
 import RetroDialog from "./RetroDialog";
 import ThemeShop from "./ThemeShop";
+import ProPackButton from "../ProPack";
+import { PRO_PACK_PRICE_LABEL, PRO_PACK_QUEST_NOTE } from "../../utils/proPack";
 import { DEFAULT_BACKDROP_THEME, type BackdropThemeId } from "../../data/backdrops";
 
 export type ShopTabId = "shop" | "skins" | "themes" | "earn" | "wallet";
@@ -78,6 +80,8 @@ const TREE_SPECIES_CARDS: {
   { id: "birch", label: "Birch" },
   { id: "elm", label: "Elm" },
   { id: "redwood", label: "Redwood" },
+  { id: "beanstalk", label: "Beanstalk" },
+  { id: "rosevine", label: "Rose supervine" },
 ];
 
 const SPECIES_KEY = "paperrec_knowledge_species";
@@ -85,7 +89,7 @@ const SPECIES_KEY = "paperrec_knowledge_species";
 function readSpecies(): TreeSpeciesId {
   try {
     const raw = window.localStorage.getItem(SPECIES_KEY);
-    if (raw && ["crimson", "oak", "birch", "elm", "redwood"].includes(raw)) {
+    if (raw && TREE_SPECIES_CARDS.some((entry) => entry.id === raw)) {
       return raw as TreeSpeciesId;
     }
   } catch {
@@ -567,6 +571,17 @@ export default function SunShop({
                 </ShopCard>
               );
             })}
+          </div>
+
+          <div className="mt-3">
+            <ShopCard
+              layout="side"
+              preview={<Sparkles className="h-8 w-8" aria-hidden="true" />}
+              title={`Pro Pack \u2013 ${PRO_PACK_PRICE_LABEL}`}
+              blurb={`Demo checkout, nothing is charged. Unlocks My Library PRO plus 1,000 fertilizer, 1,000 tree tokens and 1 seed pack. ${PRO_PACK_QUEST_NOTE}`}
+            >
+              <ProPackButton variant="button" />
+            </ShopCard>
           </div>
 
           <p className="mt-2 text-right font-mono text-[9px] font-bold uppercase tracking-wider text-muted">

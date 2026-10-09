@@ -20,6 +20,7 @@ import PixelPet from "../components/retro/PixelPet";
 import CheatFoliage from "../components/retro/CheatFoliage";
 import CheatConsole from "../components/CheatConsole";
 import DevUnlock from "../components/DevUnlock";
+import { ProPackHost } from "../components/ProPack";
 import LiveBackground from "../components/LiveBackground";
 import { ArrowRight, BlockCursor, Lock } from "../components/retro/PixelIcons";
 import {
@@ -143,7 +144,7 @@ const navItems = [
 
 
 const NAV_LINK =
-  "font-pixelify flex shrink-0 items-center gap-1.5 rounded border-[3px] px-2.5 py-1.5 lg:px-3 " +
+  "font-pixelify flex shrink-0 items-center gap-1.5 rounded border-[3px] px-2 py-1.5 md:px-2.5 lg:px-3 " +
   "text-sm font-semibold text-ink pixel-ease " +
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 " +
   "focus-visible:outline-gray-900";
@@ -287,13 +288,13 @@ export default function AppLayout() {
           3px ink outline · cream bar · accent = active fill
           ====================================================== */}
 
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5 sm:px-6">
+      <header className="flex shrink-0 items-center flex-wrap justify-between gap-2 border-b-[3px] md:flex-nowrap md:gap-4 border-gray-900 bg-canvas px-4 py-2.5 sm:px-6">
 
         {/* ----------------------------------------------------
             LEFT SIDE
             ---------------------------------------------------- */}
 
-        <div className="flex min-w-0 items-center gap-3 lg:gap-8">
+        <div className="contents md:flex md:min-w-0 md:items-center md:gap-3 lg:gap-8">
 
 
           {/* Logo — the animated slime mark + glitching pixel title */}
@@ -315,7 +316,7 @@ export default function AppLayout() {
 
           {/* Navigation */}
 
-          <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
+          <nav className="order-last flex min-w-0 basis-full items-center justify-between gap-1 overflow-x-auto md:order-none md:basis-auto md:justify-start">
 
             {navItems.map((item) => {
               const state = stateFor(item.feature);
@@ -335,8 +336,9 @@ export default function AppLayout() {
                 title={
                   locked
                     ? "Available in Researcher mode."
-                    : undefined
+                    : item.label
                 }
+                aria-label={item.label}
                 className={({ isActive }) =>
                   [
                     NAV_LINK,
@@ -353,17 +355,30 @@ export default function AppLayout() {
                   <>
                     {locked ? (
                       <Lock className="h-3.5 w-3.5 shrink-0" />
-                    ) : isActive ? (
-                      <ArrowRight className="animate-blink h-2.5 w-2.5 shrink-0" />
-                    ) : item.icon ? (
-                      <item.icon
-                        className="h-3.5 w-3.5 shrink-0 text-muted"
-                        aria-hidden="true"
-                      />
-                    ) : null}
+                    ) : (
+                      <>
+                        {isActive && (
+                          <ArrowRight className="animate-blink hidden h-2.5 w-2.5 shrink-0 md:block" />
+                        )}
+                        {item.icon && (
+                          <item.icon
+                            className={`h-4 w-4 shrink-0 md:h-3.5 md:w-3.5 ${
+                              isActive ? "md:hidden" : "text-muted"
+                            }`}
+                            aria-hidden="true"
+                          />
+                        )}
+                      </>
+                    )}
 
                     {layoutPrefs.navLabels ? (
-                      item.label
+                      <span
+                        className={
+                          isActive ? "hidden md:inline" : "hidden xl:inline"
+                        }
+                      >
+                        {item.label}
+                      </span>
                     ) : (
                       <span className="sr-only">{item.label}</span>
                     )}
@@ -394,7 +409,7 @@ export default function AppLayout() {
             RIGHT SIDE — pipeline + theme color
             ---------------------------------------------------- */}
 
-        <div className="flex shrink-0 items-center gap-2.5">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
 
           {/* Nerd buttons switch: on shows every Stats for Nerds control,
               off shatters them away everywhere. */}
@@ -410,10 +425,11 @@ export default function AppLayout() {
                 ? "Stats for Nerds buttons are showing. Click to remove them everywhere."
                 : "Stats for Nerds buttons are hidden. Click to bring them back."
             }
-            className="inline-flex items-center gap-2 rounded border-[3px] border-gray-900 bg-white px-2.5 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink transition-colors pixel-ease hover:bg-accentSoft"
+            className="inline-flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-white px-2 py-1.5 sm:gap-2 sm:px-2.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink transition-colors pixel-ease hover:bg-accentSoft"
           >
             <Sigma className="h-3.5 w-3.5" />
-            NERD
+            <span className="hidden sm:inline">NERD</span>
+            <span className="sr-only sm:hidden">Nerd buttons</span>
             <span
               aria-hidden="true"
               className={`relative h-4 w-8 rounded-sm border-[2px] border-gray-900 transition-colors pixel-ease ${
@@ -479,6 +495,7 @@ export default function AppLayout() {
 
       <ScrollFollowPopup key={`scroll:${location.pathname}`} target={contentRef} />
       {presenting && <DevUnlock />}
+      <ProPackHost />
       {!presenting && (
         <>
           <CheatFoliage />

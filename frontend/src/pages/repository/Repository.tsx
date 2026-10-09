@@ -3,17 +3,19 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   Database,
   Globe,
+  Maximize2,
   SlidersHorizontal,
   Search as SearchIcon,
+  Sigma,
   Table,
 } from "lucide-react";
+import ResponsiveLabel from "../../components/ResponsiveLabel";
 import {
   listPapers,
   saveToLibrary,
   removeFromLibrary,
   deletePaper,
   deletePaperPdf,
-  getPaperPdfUrl,
   getLibrary,
   rebuildRecommendationIndex,
   searchWeb,
@@ -26,7 +28,6 @@ import {
   WebSearchResult,
 } from "../../api";
 import PaperViewerModal from "../../components/PaperViewerModal";
-import FindPdfPanel from "../../components/FindPdfPanel";
 import MathText from "../../components/MathText";
 import PetFigure from "../../components/PetFigure";
 import LayoutOptions from "../../components/LayoutOptions";
@@ -35,6 +36,15 @@ import Pagination from "../../components/retro/Pagination";
 import PaneHandle, { usePaneWidth } from "../../components/ResizeHandle";
 import Highlight from "../../components/Highlight";
 import ConnectionsPane from "../../components/ConnectionsPane";
+import ConnectionsWorkbench from "../../components/ConnectionsWorkbench";
+import InspectorPopup, {
+  type InspectorTab,
+} from "../../components/InspectorPopup";
+import {
+  PaperDetailsBody,
+  PaperNotesBody,
+  PaperPdfBody,
+} from "../../components/InspectorBodies";
 import LiteratureMenu from "../../components/LiteratureMenu";
 import RepoStatsPane from "../../components/RepoStatsPane";
 import AlgorithmConsole from "../../components/AlgorithmConsole";
@@ -59,6 +69,7 @@ import { useCatalog } from "../../hooks/useCatalog";
 import { useLayoutPrefs } from "../../state/layoutPrefs";
 import { useNerdButtons } from "../../state/nerdButtons";
 import { useSiteMode } from "../../state/siteMode";
+import { useSun } from "../../state/sun";
 import { useLongPressFeed } from "../../utils/longPress";
 import { useStatsDrawer } from "../../state/statsDrawer";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
@@ -68,7 +79,6 @@ function categoryOf(paper: Paper) {
   return { subject: parts?.[0] ?? "", category: parts?.[1] ?? "" };
 }
 
-const SIGNAL_FIELDS = ["title", "abstract", "keywords", "publication_year"] as const;
 
 /* Resizable pane bounds (persisted per browser). */
 const REPO_LEFT_KEY = "paperrec_repo_pane_left";
@@ -92,6 +102,9 @@ export default function Repository() {
   const catalog = useCatalog();
   const { prefs } = useLayoutPrefs();
   const presenting = useSiteMode().mode === "presentation";
+  /* The advanced similar-papers layer (zones, edge-strength, topic
+     edges, year gradient) unlocks with Pro; basic gets the plain graph. */
+  const { proUnlocked } = useSun();
 
   /* Resizable pane widths (persisted per browser). */
 
@@ -192,9 +205,9 @@ export default function Repository() {
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
-  const [detailTab, setDetailTab] = useState<
-    "details" | "notes" | "pdf" | "similar"
-  >("details");
+  const [detailTab, setDetailTab] = useState<InspectorTab>("details");
+  // Shared tabbed inspector pop-up (same tab bodies as the inline pane).
+  const [popupOpen, setPopupOpen] = useState(false);
 
   // Right-side Stats for Nerds pane (live while you search).
   const { on: nerdOn } = useNerdButtons();
@@ -1058,6 +1071,73 @@ export default function Repository() {
   const selected = selectedPaper;
   const selectedSaved = selected ? savedIds.has(selected.id) : false;
 
+  /** One implementation of each inspector tab body, rendered inline
+   *  (compact) in the right pane and full-size in the pop-up. */
+  function renderInspectorTab(tab: InspectorTab, inPopup: boolean) {
+    if (!selected) return null;
+    const customW = pipelineId === "custom" ? customWeights : undefined;
+    if (tab === "similar") {
+      return inPopup ? (
+        <ConnectionsWorkbench
+          paperId={selected.id}
+          pipeline={pipelineId}
+          pipelineLabel={pipelineName(activePipelineConfig)}
+          weights={customW}
+          controls={proUnlocked}
+        />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ConnectionsPane
+            paperId={selected.id}
+            pipeline={pipelineId}
+            pipelineLabel={pipelineName(activePipelineConfig)}
+            weights={customW}
+            controls={proUnlocked}
+            onExpand={() => {
+              setDetailTab("similar");
+              setPopupOpen(true);
+            }}
+          />
+        </div>
+      );
+    }
+    if (tab === "notes") {
+      return (
+        <PaperNotesBody
+          paperId={selected.id}
+          value={notes[selected.id] ?? ""}
+          onChange={saveNotes}
+        />
+      );
+    }
+    if (tab === "pdf") {
+      return (
+        <PaperPdfBody
+          paper={selected}
+          onPreview={openPdfPreview}
+          onDeletePdf={() => handleDeletePdf(selected)}
+          onAttached={(updated) => {
+            setPapers((prev) =>
+              prev.map((p) => (p.id === updated.id ? updated : p)),
+            );
+            setSelectedPaper(updated);
+          }}
+        />
+      );
+    }
+    return (
+      <PaperDetailsBody
+        paper={selected}
+        isSelectingSeed={isSelectingSeed}
+        saved={selectedSaved}
+        onUseSeed={() => handleSelectSeed(selected.id)}
+        onSave={() => handleSave(selected.id)}
+        onView={() => openPdfPreview(null)}
+        onDelete={() => handleDelete(selected.id, selected.title)}
+      />
+    );
+  }
+
   return (
     <div className="mx-auto w-full max-w-[1560px]">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-orb")!} />
@@ -1088,13 +1168,14 @@ export default function Repository() {
               aria-pressed={statsOpen}
               onClick={toggleStats}
               title="Toggle the live Stats for Nerds pane on the right"
+              aria-label="Stats for Nerds"
               className={`nerd-glitch-in inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 px-3 text-sm font-semibold transition-colors ${
                 statsOpen
                   ? "bg-accent text-onAccent"
                   : "bg-white text-ink hover:bg-accentSoft"
               }`}
             >
-              Stats for Nerds
+              <ResponsiveLabel icon={Sigma}>Stats for Nerds</ResponsiveLabel>
             </button>
             )}
             <LayoutOptions />
@@ -1821,16 +1902,16 @@ export default function Repository() {
                   />
                 </div>
               ) : (
-                <table className="w-full min-w-[720px] text-left text-xs">
+                <table className={`w-full text-left text-xs ${compactList ? "" : "min-w-[720px]"}`}>
                   <thead>
                     <tr className="font-pixelify border-b-[3px] border-gray-900 text-xs uppercase tracking-wide text-muted">
                       <th className="w-10 px-3 py-2.5 text-right">#</th>
                       <th className="w-12 px-1 py-2.5 text-center" aria-label="PDF" />
                       <th className="w-12 px-1 py-2.5 text-center" aria-label="Favorite" />
                       <th className="px-2 py-2.5">Title</th>
-                      <th className="px-2 py-2.5">Authors</th>
-                      <th className="px-2 py-2.5 text-right">Year</th>
-                      <th className="px-2 py-2.5 text-right">Type</th>
+                      <th className={`px-2 py-2.5 ${compactList ? "hidden" : ""}`}>Authors</th>
+                      <th className={`px-2 py-2.5 text-right ${compactList ? "hidden" : ""}`}>Year</th>
+                      <th className={`px-2 py-2.5 text-right ${compactList ? "hidden" : ""}`}>Type</th>
                       <th className="px-2 py-2.5 text-right">Score</th>
                     </tr>
                   </thead>
@@ -1884,7 +1965,7 @@ export default function Repository() {
                               <Star className="h-4 w-4" />
                             </button>
                           </td>
-                          <td className="max-w-[280px] px-2 py-2.5">
+                          <td className={`px-2 py-2.5 ${compactList ? "w-full max-w-0" : "max-w-[280px]"}`}>
                             <EditableCell
                               paperId={paper.id}
                               field="title"
@@ -1895,7 +1976,7 @@ export default function Repository() {
                               renderClassName="block font-pixelify font-bold text-ink"
                             />
                           </td>
-                          <td className="max-w-[180px] px-2 py-2.5">
+                          <td className={`max-w-[180px] px-2 py-2.5 ${compactList ? "hidden" : ""}`}>
                             <EditableCell
                               paperId={paper.id}
                               field="author"
@@ -1905,7 +1986,7 @@ export default function Repository() {
                               renderClassName="font-pixelify text-muted"
                             />
                           </td>
-                          <td className="px-2 py-2.5 text-right">
+                          <td className={`px-2 py-2.5 text-right ${compactList ? "hidden" : ""}`}>
                             <EditableCell
                               paperId={paper.id}
                               field="publication_year"
@@ -1916,7 +1997,7 @@ export default function Repository() {
                               renderClassName="font-pixelify text-ink"
                             />
                           </td>
-                          <td className="px-2 py-2.5 text-right">
+                          <td className={`px-2 py-2.5 text-right ${compactList ? "hidden" : ""}`}>
                             <EditableCell
                               paperId={paper.id}
                               field="document_type"
@@ -1927,7 +2008,7 @@ export default function Repository() {
                             />
                           </td>
                           <td className="px-2 py-2.5 text-right">
-                            <div className="ml-auto flex w-24 flex-col items-end">
+                            <div className={`ml-auto flex flex-col items-end ${compactList ? "w-14" : "w-24"}`}>
                               <span className="font-mono font-bold text-ink">
                                 {Number(result.score).toFixed(4)}
                               </span>
@@ -2136,7 +2217,7 @@ export default function Repository() {
                           </button>
                         </td>
                         {compactList ? (
-                        <td className="min-w-0 px-2 py-2.5">
+                        <td className="w-full min-w-0 max-w-0 px-2 py-2.5">
                           <EditableCell
                             paperId={paper.id}
                             field="title"
@@ -2381,7 +2462,7 @@ export default function Repository() {
             className="flex h-9 w-full items-center justify-center gap-2 bg-canvas font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted transition-colors pixel-ease hover:bg-accentSoft hover:text-ink lg:h-full lg:min-h-[240px] lg:text-lg"
           >
             <span aria-hidden="true">«</span>
-            <span className="lg:hidden">Inspector</span>
+            <span className="hidden sm:inline lg:hidden">Inspector</span>
           </button>
         </aside>
       ) : (
@@ -2581,257 +2662,19 @@ export default function Repository() {
                           : "Similar"}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setPopupOpen(true)}
+                  title="Open in pop-up"
+                  className="shrink-0 rounded border-[3px] border-gray-900 bg-surface px-2 py-1.5 text-ink transition-colors pixel-ease hover:bg-accent hover:text-onAccent"
+                >
+                  <ResponsiveLabel icon={Maximize2} collapseBelow="xl">
+                    Pop-up
+                  </ResponsiveLabel>
+                </button>
               </div>
 
-              {detailTab === "similar" ? (
-                /* ----------------------------------------------
-                   SIMILAR TAB — connection graph / contrast for the
-                   selected paper (local repository or live web).
-                   ---------------------------------------------- */
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <ConnectionsPane
-                    paperId={selected.id}
-                    pipeline={pipelineId}
-                    pipelineLabel={pipelineName(activePipelineConfig)}
-                    weights={
-                      pipelineId === "custom"
-                        ? customWeights
-                        : undefined
-                    }
-                    controls
-                    onExpand={() =>
-                      navigate("/recommendations", {
-                        state: {
-                          graphPaperId: selected.id,
-                          searchTab: "connections",
-                        },
-                      })
-                    }
-                  />
-                </div>
-              ) : detailTab === "notes" ? (
-                /* ----------------------------------------------
-                   NOTES TAB
-                   ---------------------------------------------- */
-                <div className="flex min-h-0 flex-1 flex-col p-5">
-                  <p className="mb-2 text-xs font-bold text-muted">
-                    Notes on this paper
-                  </p>
-                  <textarea
-                    value={notes[selected.id] ?? ""}
-                    onChange={(e) => saveNotes(selected.id, e.target.value)}
-                    placeholder="Write annotations, quotes, or reading notes here…"
-                    className="ui-input min-h-40 flex-1 resize-y font-mono text-xs leading-5"
-                  />
-                  <p className="mt-2 text-xs text-muted">
-                    Saved automatically in this browser.
-                  </p>
-                </div>
-              ) : detailTab === "pdf" ? (
-                /* ----------------------------------------------
-                   PDF TAB — preview, fetch, delete
-                   ---------------------------------------------- */
-                <div className="min-h-0 flex-1 overflow-y-auto p-5">
-                  {hasPdf(selected) ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => openPdfPreview(null)}
-                        title="Preview in the pop-up viewer"
-                        className="block w-full overflow-hidden rounded border-[2px] border-gray-900 bg-canvas transition-colors pixel-ease hover:border-gray-600"
-                      >
-                        <iframe
-                          src={getPaperPdfUrl(selected.id)}
-                          title={selected.title || "Paper PDF"}
-                          className="pointer-events-none h-72 w-full border-0"
-                        />
-                      </button>
-
-                      <p className="mt-3 break-all font-mono text-xs text-muted">
-                        <span className="font-bold text-ink">File:</span>{" "}
-                        {selected.stored_path}
-                      </p>
-
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          onClick={() => openPdfPreview(null)}
-                        >
-                          Preview in viewer
-                        </Button>
-
-                        <a
-                          href={getPaperPdfUrl(selected.id)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
-                        >
-                          Open full PDF ↗
-                        </a>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeletePdf(selected)}
-                          className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
-                        >
-                          Delete PDF
-                        </button>
-                      </div>
-
-                      <p className="mt-3 text-xs leading-5 text-muted">
-                        Deleting the PDF keeps the bibliographic record. The PDF
-                        you can fetch a different open-access copy here
-                        afterwards.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="mb-3 text-xs leading-5 text-muted">
-                        No PDF attached to this paper yet. Search the
-                        open-access sources below, or delete and
-                        replace an existing copy.
-                      </p>
-
-                      <FindPdfPanel
-                        key={selected.id}
-                        paper={selected}
-                        onPreview={(url) => openPdfPreview(url)}
-                        onAttached={(updated) => {
-                          setPapers((prev) =>
-                            prev.map((p) =>
-                              p.id === updated.id ? updated : p,
-                            ),
-                          );
-                          setSelectedPaper(updated);
-                        }}
-                      />
-                    </>
-                  )}
-                </div>
-              ) : (
-              <div className="p-5">
-              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                {(() => {
-                  const { subject: s, category: c } = categoryOf(selected);
-                  return (
-                    <>
-                      {s && (
-                        <span className="rounded border-[2px] border-gray-900 bg-gray-900 px-1.5 py-0.5 text-xs font-bold text-white">
-                          {s}
-                        </span>
-                      )}
-                      {c && <span className="text-muted">{c}</span>}
-                      <span className="text-muted">·</span>
-                      <span className="text-muted">{selected.publication_year ?? "—"}</span>
-                      <span className="text-muted">·</span>
-                      <span className="text-muted">{selected.document_type ?? "Document"}</span>
-                    </>
-                  );
-                })()}
-              </div>
-
-              <h2 className="text-base font-bold leading-6 text-ink">
-                {selected.title || "Untitled paper"}
-              </h2>
-              <p className="mt-1 text-xs text-muted">
-                {selected.author ?? "Unknown author"}
-                {selected.citation_count != null ? ` · ${selected.citation_count} cited` : ""}
-              </p>
-
-              {selected.abstract && (
-                <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-muted">
-                  {selected.abstract}
-                </p>
-              )}
-
-              {/* Recommendation signal dots */}
-              <div className="mt-4 rounded border-[2px] border-gray-900 bg-canvas p-3">
-                <p className="mb-2 text-xs font-bold text-ink">
-                  Recommendation signals
-                </p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {SIGNAL_FIELDS.map((field) => {
-                    const filled =
-                      selected[field] != null && selected[field] !== "";
-                    return (
-                      <span key={field} className="flex items-center gap-1.5 text-xs text-muted">
-                        <span
-                          className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border-[2px] ${
-                            filled ? "border-gray-900 bg-ink" : "border-gray-900 bg-white"
-                          }`}
-                        >
-                          {filled && <Check className="h-2 w-2 text-onInk" />}
-                        </span>
-                        {field === "publication_year" ? "Year" : field[0].toUpperCase() + field.slice(1)}
-                      </span>
-                    );
-                  })}
-                </div>
-                <p className="mt-2 text-xs text-muted">
-                  {selected.is_valid_for_recommendation
-                    ? "Valid for recommendation."
-                    : `Missing: ${selected.missing_fields ?? "some fields"}.`}
-                </p>
-              </div>
-
-              {selected.doi && (
-                <p className="mt-3 break-all text-xs text-muted">
-                  <span className="font-bold text-ink">DOI:</span> {selected.doi}
-                </p>
-              )}
-
-              {selected.keywords && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {selected.keywords.split(",").map((k) => k.trim()).filter(Boolean).slice(0, 6).map((k) => (
-                    <span key={k} className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-xs text-ink">
-                      {k}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <p className="mt-3 break-all font-mono text-xs text-muted">
-                <span className="font-bold text-ink">File:</span> {selected.stored_path || "No file"}
-              </p>
-
-              {/* Actions */}
-              <div className="mt-5 flex flex-wrap gap-2 border-t-[3px] border-gray-900 pt-4">
-                {isSelectingSeed ? (
-                  <Button
-                    variant="primary"
-                    type="button"
-                    disabled={!selected.is_valid_for_recommendation}
-                    onClick={() => handleSelectSeed(selected.id)}
-                  >
-                    Use as seed
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      variant="secondary"
-                      type="button"
-                      onClick={() => handleSave(selected.id)}
-                      disabled={selectedSaved}
-                    >
-                      {selectedSaved ? "Saved" : "Save paper"}
-                    </Button>
-
-                    <Button variant="quiet" type="button" onClick={() => openPdfPreview(null)}>
-                      View
-                    </Button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(selected.id, selected.title)}
-                      className="inline-flex h-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-semibold text-ink hover:bg-accent hover:text-onAccent transition-colors"
-                    >
-                      Delete
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-              )}
+              {renderInspectorTab(detailTab, false)}
             </div>
           )}
         </aside>
@@ -2891,10 +2734,27 @@ export default function Repository() {
         />
       )}
 
+      <InspectorPopup
+        open={popupOpen && !!selected}
+        title={selected?.title || "Paper"}
+        tab={detailTab}
+        onTabChange={setDetailTab}
+        onClose={() => setPopupOpen(false)}
+        renderTab={(tab) => renderInspectorTab(tab, true)}
+        onOpenSearch={() => {
+          if (!selected) return;
+          setPopupOpen(false);
+          navigate("/recommendations", {
+            state: { graphPaperId: selected.id, searchTab: "connections" },
+          });
+        }}
+      />
+
       <RetroDialog
         open={confirm !== null}
         title={confirm?.title ?? ""}
         size="md"
+        elevated
         confirmLabel="Delete"
         cancelLabel="Cancel"
         onCancel={() => setConfirm(null)}

@@ -15,6 +15,8 @@ import RetroDialog from "../../components/retro/RetroDialog";
 import StatsForNerds from "../../components/StatsForNerds";
 import { PageHeader } from "../../components/ui";
 import { ArrowRight } from "../../components/retro/PixelIcons";
+import ResponsiveLabel, { labelProps } from "../../components/ResponsiveLabel";
+import { FlaskConical, Sigma, Sprout } from "lucide-react";
 
 /* ============================================================
    LAB — the recipe workshop.
@@ -423,26 +425,28 @@ export default function Lab() {
           role="tab"
           aria-selected={tab === "recipe"}
           onClick={() => setTab("recipe")}
-          className={`rounded-l border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
+          {...labelProps("Re:Search Laboratory")}
+          className={`flex items-center justify-center rounded-l border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
             tab === "recipe"
               ? "bg-accent text-onAccent"
               : "bg-surface text-ink hover:bg-accentSoft"
           }`}
         >
-          Re:Search Laboratory
+          <ResponsiveLabel icon={FlaskConical}>Re:Search Laboratory</ResponsiveLabel>
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={tab === "garden"}
           onClick={() => setTab("garden")}
-          className={`-ml-[3px] rounded-r border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
+          {...labelProps("Garden")}
+          className={`-ml-[3px] flex items-center justify-center rounded-r border-[3px] border-gray-900 px-3 py-1.5 text-sm font-semibold transition pixel-ease ${
             tab === "garden"
               ? "bg-accent text-onAccent"
               : "bg-surface text-ink hover:bg-accentSoft"
           }`}
         >
-          Garden
+          <ResponsiveLabel icon={Sprout}>Garden</ResponsiveLabel>
         </button>
 
         {nerdOn && (
@@ -452,13 +456,15 @@ export default function Lab() {
           aria-pressed={statsOpen}
           onClick={() => setStatsOpen((value) => !value)}
           title="Toggle the live Stats for Nerds panel (traces the dial mix)"
-          className={`nerd-glitch-in ml-auto rounded border-[3px] border-gray-900 px-3 py-1.5 text-xs font-bold transition-colors pixel-ease ${
+          aria-label="Stats for Nerds"
+          className={`nerd-glitch-in ml-auto flex items-center gap-1 rounded border-[3px] border-gray-900 px-3 py-1.5 text-xs font-bold transition-colors pixel-ease ${
             statsOpen
               ? "bg-accent text-onAccent"
               : "bg-surface text-ink hover:bg-accentSoft"
           }`}
         >
-          Stats for Nerds {statsOpen ? "≫" : "≪"}
+          <ResponsiveLabel icon={Sigma}>Stats for Nerds</ResponsiveLabel>
+          <span aria-hidden="true">{statsOpen ? "≫" : "≪"}</span>
         </button>
         )}
       </div>
@@ -953,7 +959,7 @@ export default function Lab() {
                 The Garden
               </p>
               <p className="mt-1 max-w-xl text-xs leading-5 text-muted">
-                The tree carries its own wooden menu: Shop opens the sun
+                The tree carries its own carved menu (six frames to choose from): Shop opens the sun
                 shop, the skins and the themes, and the Almanac holds
                 its charms (parts of the garden it unlocks as it grows),
                 the scenery switches and how to earn sun. Three thousand

@@ -45,7 +45,7 @@ export const SITE_FEATURES: SiteFeatureMeta[] = [
     key: "repository",
     label: "Repository",
     path: "/repository",
-    blurb: "Browse, filter, and open catalogd papers.",
+    blurb: "Browse, filter, and open cataloged papers.",
     pro: false,
   },
   {

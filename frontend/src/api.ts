@@ -410,6 +410,24 @@ export function fetchScholarCitation(
   }).then(handle<ScholarCitation>);
 }
 
+export interface LinkContent {
+  format: "bib" | "enw" | "ris" | "doi";
+  text: string;
+  url: string;
+}
+
+/**
+ * Fetch any dropped http(s) link server-side. Citation text comes
+ * back as bib/ris/enw; a page with only a DOI comes back as "doi".
+ */
+export function fetchLinkContent(url: string): Promise<LinkContent> {
+  return fetch(`${API_URL}/api/papers/fetch-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  }).then(handle<LinkContent>);
+}
+
 export interface MetadataImportInput {
   title: string;
   author?: string | null;

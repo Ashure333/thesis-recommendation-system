@@ -12,9 +12,13 @@ export interface Shot {
   id: string;
   title: string;
   caption: string;
+  /** File extension under /public/walkthrough; "png" unless set (animated shots use "gif"). */
+  ext?: string;
 }
 
 const S = (id: string, title: string, caption: string): Shot => ({ id, title, caption });
+/** An animated shot: a looping GIF captured from the running app. */
+const G = (id: string, title: string, caption: string): Shot => ({ id, title, caption, ext: "gif" });
 
 export const SHOTS: Shot[] = [
   /* ---------------------------------------------------------- start */
@@ -108,9 +112,9 @@ export const SHOTS: Shot[] = [
   S("lab-stats-for-nerds", "Lab: Stats for Nerds", "The computation trace of the recipe on your query."),
 
   /* --------------------------------------------------------- garden */
-  S("lab-garden", "The Garden", "The Tree of Knowledge: a wooden menu above a pixel meadow and the tree."),
+  S("lab-garden", "The Garden", "The Tree of Knowledge: a carved menu above a pixel meadow and the tree."),
   S("garden-card", "The tree card", "Menu, canvas and the action bar of the garden card at 1,000 ft."),
-  S("garden-menu", "The wooden menu", "Tree (species), Feed (growth and fertilizer), Almanac (charms, scene, earn) and Shop."),
+  S("garden-menu", "The carved menu", "Seed bank (species cards), Feed (growth and fertilizer), Almanac (charms, scene, earn) and Shop."),
   S("garden-stage-seed", "Stage 1: Seed", "A winged seed on the meadow."),
   S("garden-stage-seedling", "Stage 2: Seedling", "The first shoot and its first leaves; the status line reads Sprout."),
   S("garden-stage-sapling", "Stage 3: Sapling", "A slender trunk and a small round crown."),
@@ -122,6 +126,8 @@ export const SHOTS: Shot[] = [
   S("garden-species-birch", "Silver Birch", "Pale peeling bark and small, pointed leaves."),
   S("garden-species-elm", "American Elm", "Lopsided leaves and a netted, ridged bark."),
   S("garden-species-redwood", "Giant Redwood", "Needle sprays and a tall, fibrous, red-brown trunk."),
+  S("garden-species-beanstalk", "Jack's Beanstalk", "A slim, swaying stalk of broad heart-shaped leaves that climbs into a bank of cloud."),
+  S("garden-species-rosevine", "Rose Supervine", "A thorny rose shrub grown into a vine: cream thorns on dark canes and crimson and pink blooms."),
   S("garden-almanac-charms", "Almanac: Charms", "Five charms per tree, unlocked by height, each with its own cheat word."),
   S("garden-almanac-armed", "Almanac: all charms on", "Flip a peg to arm a charm; its tag lights up amber."),
   S("garden-almanac-scene", "Almanac: Scene", "Free switches for the garden's ordinary scenery, grouped, with a particles section that is off by default."),
@@ -133,6 +139,12 @@ export const SHOTS: Shot[] = [
   S("garden-dev", "Developer tab", "Test wallet, the Pro override and the hidden looks list."),
   S("garden-tree-info", "Tree info", "The species dossier and the facts the tree has taught you so far."),
   S("garden-ask", "Asking the tree", "Each question returns a fact you have already unlocked; ask too often and the tree grumbles."),
+  G("garden-growth", "Growth, animated", "A looping capture of the stage chips: the seed sprouts and the tree climbs through every stage to the ancient crown while the camera follows it up the trunk."),
+  G("garden-growth-birch", "Silver Birch growing", "The birch's white peeling bark and toothed leaves, from seed to the top of the climb."),
+  G("garden-growth-elm", "American Elm growing", "The elm's netted trunk and golden crown as it climbs through the stages."),
+  G("garden-growth-redwood", "Giant Redwood growing", "A narrow conifer on a red fibrous trunk that opens into sprays of needles at the top."),
+  G("garden-growth-beanstalk", "Jack's Beanstalk growing", "A slim twisting stalk that climbs into the clouds and ends at the giant's castle."),
+  G("garden-growth-rosevine", "Rose Supervine growing", "A rose shrub thickening into a thorny vine, ending at the briar rose castle."),
 
   /* ------------------------------------------------------------ pet */
   S("pet-idle", "The pixel pet", "The resident companion sits at the bottom right and speaks in two voices."),
@@ -163,10 +175,27 @@ export const SHOTS: Shot[] = [
   S("changelog", "Changelog", "Release notes, newest first, as a timeline."),
   S("changelog-grid", "Changelog: grid", "The same notes as cards."),
   S("faq", "FAQ", "Short answers to the common questions."),
+
+  /* --------------------------------------------------------- mobile (390 x 844, 2x) */
+  S("mobile-boot", "Phone: boot screen", "The arcade boot screen at phone width; the title wraps onto four lines."),
+  S("mobile-login", "Phone: sign in", "The sign-in card fills the width."),
+  S("mobile-home", "Phone: home", "Icon-only top bar, the search box and the announcements stack in one column."),
+  S("mobile-nav", "Phone: icon-only top bar", "Labels are hidden and shown as tooltips; the bar scrolls sideways (top: start, bottom: scrolled to the end for Settings and Changelog)."),
+  S("mobile-repository", "Phone: repository", "The paper table folds into two-line rows with a Sort control."),
+  S("mobile-repository-inspector", "Phone: inspector", "Selecting a row opens the inspector below the list, with Details, Notes, PDF and Similar tabs."),
+  S("mobile-recommend", "Phone: recommend", "Ranked results keep the title and the score bar; authors, year and type are dropped."),
+  S("mobile-library", "Phone: My Library", "The Pro library with its tabs, ask box, filters and saved papers."),
+  S("mobile-upload", "Phone: upload", "The drop zone and the identifier box stacked."),
+  S("mobile-upload-link-drop", "Phone: link drop", "Dragging a citation link over the drop zone shows DROP HERE and offers to import the link."),
+  S("mobile-lab", "Phone: lab", "The recipe bench's dials and formula."),
+  S("mobile-garden", "Phone: garden", "The carved menu stacks above the tree stage; the Tree info card starts folded."),
+  S("mobile-garden-fullscreen", "Phone: the tree, full screen", "The full-screen button gives the stage the whole screen, with Menu and Exit at the top."),
+  S("mobile-arena", "Phone: arena", "The cabinet at phone width: field, query, depth and Press start."),
+  S("mobile-settings", "Phone: settings", "Preferences with the site mode picker."),
 ];
 
 const BY_ID = new Map(SHOTS.map((shot) => [shot.id, shot]));
 
 export const shotById = (id: string): Shot | undefined => BY_ID.get(id);
 
-export const shotUrl = (id: string): string => `/walkthrough/${id}.png`;
+export const shotUrl = (id: string): string => `/walkthrough/${id}.${BY_ID.get(id)?.ext ?? "png"}`;

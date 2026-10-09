@@ -22,6 +22,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -60,6 +61,8 @@ function readProOverride(): boolean {
 }
 
 import { isPresentationStored } from "../utils/presentation";
+import { applyProPack } from "../utils/proPack";
+import { addOwnedSkin, readOwnedSkins } from "./skins";
 import {
   CHEAT_HEIGHTS,
   CHEAT_SETS,
@@ -67,6 +70,7 @@ import {
   PROGRESS_LINES,
   SPECIES_STAGE_FERT,
   SPECIES_STAGE_LINES,
+  TREE_SPECIES,
   treeHeightByFertilizer,
   treeStageIndex,
   type TreeSpeciesId,
@@ -153,19 +157,22 @@ interface SunState {
       is announced once, ever, no matter how many times the tree
       re-crosses the milestone. */
   announcedCheats: string[];
+  /** The simulated Pro Pack was "bought" (granted once, ever). */
+  proPurchased: boolean;
+}
+
+/** Every species starts with an empty bed. */
+function emptyProgress(): Record<TreeSpeciesId, number> {
+  return Object.fromEntries(
+    TREE_SPECIES.map((entry) => [entry.id, 0]),
+  ) as Record<TreeSpeciesId, number>;
 }
 
 const EMPTY_STATE: SunState = {
   balance: 0,
   spent: 0,
   species: DEFAULT_SPECIES,
-  gardenProgress: {
-    crimson: 0,
-    oak: 0,
-    birch: 0,
-    elm: 0,
-    redwood: 0,
-  },
+  gardenProgress: emptyProgress(),
   fertilizer: 0,
   tokens: 0,
   fertilizerHold: 0,
@@ -182,6 +189,7 @@ const EMPTY_STATE: SunState = {
   cheats: [],
   activeCheats: [],
   announcedCheats: [],
+  proPurchased: false,
 };
 
 function today(): string {
@@ -201,19 +209,16 @@ function readState(): SunState {
 
     const species = (
       parsed.species &&
-      ["crimson", "oak", "birch", "elm", "redwood"].includes(parsed.species)
+      TREE_SPECIES.some((entry) => entry.id === parsed.species)
     )
       ? (parsed.species as TreeSpeciesId)
       : DEFAULT_SPECIES;
 
     const fertilizer = Number(parsed.fertilizer) || 0;
-    const gardenProgress = {
-      crimson: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["crimson"]) || 0,
-      oak: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["oak"]) || 0,
-      birch: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["birch"]) || 0,
-      elm: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["elm"]) || 0,
-      redwood: Number((parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress?.["redwood"]) || 0,
-    } as Record<TreeSpeciesId, number>;
+    const savedBeds = (parsed as { gardenProgress?: Record<string, unknown> }).gardenProgress;
+    const gardenProgress = Object.fromEntries(
+      TREE_SPECIES.map((entry) => [entry.id, Number(savedBeds?.[entry.id]) || 0]),
+    ) as Record<TreeSpeciesId, number>;
 
     /* Legacy saves: lift the old single count into the planted tree. */
     if (
@@ -245,6 +250,7 @@ function readState(): SunState {
       cheats: strings(parsed.cheats),
       activeCheats: strings(parsed.activeCheats),
       announcedCheats: strings(parsed.announcedCheats),
+      proPurchased: parsed.proPurchased === true,
     };
   } catch {
     return EMPTY_STATE;
@@ -410,6 +416,14 @@ interface SunContextValue {
   /** TEMPORARY dev override that forces proUnlocked on. */
   proOverride: boolean;
   setProOverride: (value: boolean) => void;
+  /** The simulated Pro Pack was bought (no real payment exists). */
+  proPurchased: boolean;
+  /** Grant the Pro Pack bundle once. Idempotent: a second call
+   *  grants nothing. The secret quests are untouched. */
+  purchasePro: () => {
+    granted: boolean;
+    seedSpecies: TreeSpeciesId | null;
+  };
   /** Next height milestone, or undefined when everything blooms. */
   nextMilestone: CheatMilestone | undefined;
   cheats: string[];
@@ -488,6 +502,7 @@ export function SunProvider({ children }: { children: ReactNode }) {
   const proUnlocked =
     !isPresentationStored() &&
     (proOverride ||
+    state.proPurchased ||
     Object.entries(state.gardenProgress).some(
       ([species, fert]) =>
         treeStageIndex(fert, species as TreeSpeciesId) >= 3,
@@ -498,6 +513,51 @@ export function SunProvider({ children }: { children: ReactNode }) {
     word: set[index]?.word ?? "",
     effect: set[index]?.effect ?? "",
   })).find((milestone) => height < milestone.height);
+
+  /* SIMULATED purchase: the bundle (fertilizer hold, tree tokens, one
+     seed pack = a new tree skin) is credited exactly once. The ref
+     closes the window before React re-renders. */
+  const proBuying = useRef(false);
+
+  function purchasePro(): {
+    granted: boolean;
+    seedSpecies: TreeSpeciesId | null;
+  } {
+    if (state.proPurchased || proBuying.current) {
+      return { granted: false, seedSpecies: null };
+    }
+    proBuying.current = true;
+
+    const grant = applyProPack(
+      {
+        tokens: state.tokens,
+        fertilizerHold: state.fertilizerHold,
+        proPurchased: false,
+      },
+      readOwnedSkins(),
+      TREE_SPECIES.map((entry) => entry.id),
+    );
+    const seedSpecies = grant.seedSpecies as TreeSpeciesId | null;
+
+    if (seedSpecies) addOwnedSkin(seedSpecies);
+
+    setState((current) => {
+      if (current.proPurchased) return current;
+      const rolled = rollDay(current);
+      const next = applyProPack(
+        {
+          tokens: rolled.tokens,
+          fertilizerHold: rolled.fertilizerHold,
+          proPurchased: false,
+        },
+        [],
+        [],
+      ).wallet;
+      return { ...rolled, ...next };
+    });
+
+    return { granted: true, seedSpecies };
+  }
 
   function grantTokens(
     amount: number,
@@ -584,13 +644,7 @@ export function SunProvider({ children }: { children: ReactNode }) {
       ...current,
       fertilizer: 0,
       spent: 0,
-      gardenProgress: {
-        crimson: 0,
-        oak: 0,
-        birch: 0,
-        elm: 0,
-        redwood: 0,
-      },
+      gardenProgress: emptyProgress(),
     }));
   }
 
@@ -876,6 +930,8 @@ export function SunProvider({ children }: { children: ReactNode }) {
         proUnlocked,
         proOverride,
         setProOverride,
+        proPurchased: state.proPurchased,
+        purchasePro,
         nextMilestone,
         cheatSet: currentCheatSet(),
         cheats: state.cheats,

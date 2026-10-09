@@ -113,7 +113,8 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
     ],
     body:
       "The Tree of Knowledge is the Garden in the Lab. Plant the " +
-      "starter Oak; Maple, Birch, Elm, and Redwood are skins from " +
+      "starter Oak; Maple, Birch, Elm, Redwood, the Beanstalk, and the " +
+      "Rose Supervine are skins from " +
       "the tree-card menus. The tree grows by feeding: every " +
       "fertilizer packet nudges it along a 10,000-step march with " +
       "seven evenly divided stages — Seed, Seedling, Sapling, Young " +
@@ -136,6 +137,9 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "daisies",
       "dance",
       "pinata",
+      "pro",
+      "purchase",
+      "buy",
     ],
     body:
       "The Sun Shop lives in the tree card's menus in the Garden. It " +
@@ -150,7 +154,10 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "treasure or achievement, +2 for five tips. The Tree skins " +
       "menu sells species skins for growth tokens (+3 a day, +1 per " +
       "battle, +1 per five tree asks, +1 per treasure and " +
-      "achievement).",
+      "achievement). A Pro Pack card ($4.99, a SIMULATED demo " +
+      "checkout: nothing is charged) unlocks My Library PRO and adds " +
+      "1,000 fertilizer, 1,000 tree tokens and one seed pack. The " +
+      "secret quests, Pet and Garden, are still yours to finish.",
   },
   {
     title: "RANKED SEARCH",

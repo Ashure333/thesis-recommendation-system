@@ -17,7 +17,8 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutGrid, List, Lock, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutGrid, List, Lock, Trash2 } from "lucide-react";
+import ResponsiveLabel from "../../components/ResponsiveLabel";
 
 import {
   getRepositoryStats,
@@ -42,6 +43,8 @@ import { emitPetChat } from "../../utils/petChat";
 import { contextTerm } from "../../utils/petMarkov";
 import { readSettings } from "../../utils/preferences";
 import { useSiteMode } from "../../state/siteMode";
+import ProPackButton from "../../components/ProPack";
+import { PRO_PACK_QUEST_NOTE } from "../../utils/proPack";
 
 /* The pills shown before the conversation has anything to follow up on;
    after each answer they are replaced by model-written follow-ups. */
@@ -968,22 +971,26 @@ export default function MyLibraryPro({
             <div className="flex items-center gap-2">
               <Button
                 type="button"
+                aria-label="Previous page"
+                title="Previous page"
                 variant="secondary"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
-                ‹ Prev
+                <ResponsiveLabel icon={ChevronLeft}>Prev</ResponsiveLabel>
               </Button>
               <span className="font-mono text-xs text-muted">
                 {page} / {pageCount}
               </span>
               <Button
                 type="button"
+                aria-label="Next page"
+                title="Next page"
                 variant="secondary"
                 disabled={page >= pageCount}
                 onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
               >
-                Next ›
+                <ResponsiveLabel icon={ChevronRight}>Next</ResponsiveLabel>
               </Button>
 
               <label className="ml-2 flex items-center gap-1.5 text-xs text-muted">
@@ -1881,12 +1888,18 @@ function LockedTab({
             Unlock every PRO tab by growing any tree in the Lab's garden
             past its Young stage — Seed → Seedling → Sapling → Young (Young
             oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600,
-            redwood 1350).
+            redwood 1350, beanstalk 1300, rose supervine 1480).
           </p>
 
-          <Button type="button" onClick={onOpenGarden}>
-            Open the Lab's garden
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" onClick={onOpenGarden}>
+              Open the Lab's garden
+            </Button>
+            <ProPackButton variant="button" />
+          </div>
+          <p className="max-w-xl text-xs leading-5 text-muted">
+            Or skip the wait with the demo Pro Pack. {PRO_PACK_QUEST_NOTE}
+          </p>
         </>
       )}
     </div>

@@ -23,6 +23,33 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "pro-pack-demo",
+    date: "Oct 9",
+    title: "A simulated Pro Pack: unlock Pro with a demo checkout",
+    tag: "NEW",
+    body: "A new Pro Pack ($4.99, one time) unlocks My Library's PRO tabs and adds 1,000 fertilizer, 1,000 tree tokens and one free seed pack. The checkout is a demo: nothing is charged and the purchase is only remembered in this browser. The secret quests, Pet and Garden, are not skipped by buying; they are still yours to finish.",
+    details: [
+      "State: state/sun.tsx persists proPurchased (older saves read as false) and purchasePro(), which credits the bundle once (idempotent, guarded by the flag and a ref); proUnlocked is now the dev override OR proPurchased OR the Young-stage condition, still off in Presentation mode.",
+      "Bundle: utils/proPack.ts holds the price constant, the benefits and the pure applyProPack / pickSeedPackSpecies helpers (tested in scripts/proPack.test.mjs). Fertilizer lands in the hold, tokens in the wallet, and the seed pack adds the first tree skin you do not own yet to the seed bank.",
+      "UI: components/ProPack.tsx is a RetroDialog (offer, short fake processing, receipt) behind a Buy Pro button on the PRO locked badge, each locked My Library tab and a Pro Pack card in the Sun Shop; after buying it reads PRO owned.",
+    ],
+  },
+  {
+    id: "garden-new-trees",
+    date: "Oct 8",
+    title: "Garden: a Beanstalk and a Rose Supervine, and creatures that follow the tree",
+    tag: "NEW",
+    body: "Two new trees to plant: Jack's Beanstalk, a slim swaying stalk that climbs into the clouds to the giant's castle, and the Rose Supervine, a thorny rose shrub grown into a vine, with the sleeper's castle behind its summit: grey brick, a rose window, an arched door ajar on her bed, and briars that climb the towers. The squirrel and the other trunk creatures now follow the tree as it grows and shrinks, and the squirrel faces the tree.",
+    details: [
+      "Species: beanstalk (80 tokens) and rosevine (100 tokens) join the five older trees in data/knowledge.ts (stage ferts, dossier, idle lines, stage lines, charms) and in the Sun Shop, the shop's skin cards, the tree card, the variants (Golden Harvest, Moonvine, Magic Bean; Blue Rose, White Rose, Golden Rose) and the grumpy lines.",
+      "Drawing: two new leaf designs in utils/leafShapes.ts (bean: a heart-shaped leaflet; rose: a scalloped bloom, with a second sprig design for the green leaves), bark styles twist (wound strands) and thorns (cream thorns pointing down), thorns on the limbs and the ascent branches, a stalk that sways a couple of pixels, banks of cloud up the beanstalk and the giant's cloud castle behind its summit (paler stone, a huge door, a golden harp in its window, tendrils and heart leaves), fireflies and winding sparks in place of sylphs on the climb, and the briar rose castle (utils/castleSprite.ts, after a 128 x 128 study) whose canes keep creeping up the towers.",
+      "Charms: beanstalk has pods, beans, hen (the tale's golden-egg layer), gleam and harp; rosevine has petals, brambles, butterfly, blush and rapier. The hen and the butterfly are clickable; so is the sleeper's door.",
+      "Creatures: gardenCharms.ts keeps per-creature memory (env.memo) and works out the stretch of bare trunk on screen each frame (bandOf), so the squirrel, woodpecker, slug, sap bucket, owl hollow, bark ribbons and the oriole's fallback nest climb up and down with the tree, the camera and the stage preview. The squirrel runs on the ground, climbs, sits and chatters, and faces the trunk.",
+      "Menu: the garden's species chips are now trading cards (rarity pips, an art window with the tree, a name banner, a footer) in a scrolling seed bank; the menu has a title row with the stage line and six frame themes (wood, slate stone, parchment, midnight, meadow, blossom) chosen from a Frame menu (so more can be added), the seed bank scrolls sideways and the Dev switch stands apart; the choice is remembered per browser and shared by the pop-up dialogs through CSS variables in index.css.",
+      "Birds: the three crown birds now perch on real leaves, scale with the crown and fly in and out as it fills or shrinks (they used to sit in the air above a young tree).",
+    ],
+  },
+  {
     id: "upload-fixes",
     date: "Oct 8",
     title: "Upload: RIS and EndNote save, nothing is filed by default, several papers at once",

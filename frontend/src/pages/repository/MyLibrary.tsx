@@ -21,9 +21,10 @@ import { HUNT_ITEMS } from "../../data/hunt";
 import { useSiteMode } from "../../state/siteMode";
 import { useSun } from "../../state/sun";
 import MyLibraryPro from "./MyLibraryPro";
+import ProPackButton from "../../components/ProPack";
 
 export default function MyLibrary() {
-  const { proUnlocked } = useSun();
+  const { proUnlocked, proPurchased } = useSun();
   const presenting = useSiteMode().mode === "presentation";
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,7 +105,9 @@ export default function MyLibrary() {
               Browse Repository
             </Button>
 
-            {proUnlocked ? (
+            {proPurchased ? (
+              <ProPackButton />
+            ) : proUnlocked ? (
               <span className="font-pixelify inline-flex h-9 items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accent px-3 text-sm font-bold text-onAccent">
                 PRO
               </span>
@@ -113,13 +116,14 @@ export default function MyLibrary() {
                 title={
                   presenting
                     ? "Part of the PRO version"
-                    : "Plant any tree past its Young stage in the Lab's garden to unlock the PRO tabs (Young oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600, redwood 1350)."
+                    : "Plant any tree past its Young stage in the Lab's garden to unlock the PRO tabs (Young oak 1500 fertilizer, Young maple 1450, birch 1580, elm 1600, redwood 1350, beanstalk 1300, rose supervine 1480)."
                 }
                 className="font-pixelify inline-flex h-9 cursor-help items-center gap-1.5 rounded border-[3px] border-gray-900 bg-white px-3 text-sm font-bold text-muted"
               >
                 <Lock className="h-3.5 w-3.5" /> PRO locked
               </span>
             )}
+            {!proUnlocked && <ProPackButton />}
           </div>
         }
       />

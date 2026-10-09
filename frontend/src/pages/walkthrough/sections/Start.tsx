@@ -66,6 +66,40 @@ export function GettingStarted() {
             hide the tab labels and leave an icon-only bar; the labels stay as tooltips.
           </WikiNote>
         </WikiSub>
+
+        <WikiSub id="mobile" title="On a phone">
+          <P>
+            The whole app works at phone width (shown here at 390 × 844). The top bar drops its
+            tab labels and keeps icons only; the bar scrolls sideways for the last tabs
+            (Settings, Changelog). Pages stack into one column: the Repository table folds into
+            two-line rows (and the ranked results keep just title and score), the inspector opens
+            below the list, and the Arena and Lab panels fill the width. The Garden's stage is a
+            short 16:9 strip on a phone, so its Tree info card starts folded; the full-screen
+            button gives the tree the whole screen. Dragging a citation link onto the Upload box
+            shows the same <Chip>DROP HERE</Chip> prompt.
+          </P>
+          <WikiGallery
+            title="Mobile view"
+            cols={4}
+            ids={[
+              "mobile-boot",
+              "mobile-login",
+              "mobile-home",
+              "mobile-nav",
+              "mobile-repository",
+              "mobile-repository-inspector",
+              "mobile-recommend",
+              "mobile-library",
+              "mobile-upload",
+              "mobile-upload-link-drop",
+              "mobile-lab",
+              "mobile-garden",
+              "mobile-garden-fullscreen",
+              "mobile-arena",
+              "mobile-settings",
+            ]}
+          />
+        </WikiSub>
       </WikiSection>
   );
 }

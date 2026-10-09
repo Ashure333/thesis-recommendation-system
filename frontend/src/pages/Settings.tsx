@@ -142,7 +142,7 @@ export default function Settings() {
         <div
           role="radiogroup"
           aria-label="Site mode"
-          className="mt-4 flex w-fit rounded border-[3px] border-gray-900 bg-white p-0.5"
+          className="mt-4 flex w-full max-w-full flex-col rounded border-[3px] sm:w-fit sm:flex-row border-gray-900 bg-white p-0.5"
         >
           {(
             [

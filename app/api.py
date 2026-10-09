@@ -1889,18 +1889,44 @@ def import_paper_from_url(
     return paper
 
 
+class LinkFetchRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/papers/fetch-link")
+def fetch_dropped_link(payload: LinkFetchRequest):
+    """Fetch any dropped http(s) link server-side and return citation text.
+
+    Returns ``{"format": bib|ris|enw|doi, "text", "url"}``. Nothing is
+    persisted; the Upload page feeds it to the normal preview flow.
+    """
+
+    from app.services.link_fetch import LinkFetchError, fetch_link
+
+    try:
+        return fetch_link(payload.url)
+    except LinkFetchError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail)
+
+
 @app.post("/api/papers/scholar-fetch")
-def fetch_scholar_export_url(url: str):
+def fetch_scholar_export_url(
+    payload: LinkFetchRequest | None = None,
+    url: str | None = None,
+):
     """Fetch a Google Scholar export link and return its text.
 
     The upload drop zone uses this endpoint for the review flow:
     nothing is persisted here. The frontend builds a file from
     ``{"format", "text"}`` and runs it through the normal
     preview -> review -> save path, exactly like the Chrome
-    extension path.
+    extension path. The URL comes in the JSON body (the frontend)
+    or, for older callers, the query string.
     """
 
-    url = url.strip()
+    from app.services.link_fetch import clean_url
+
+    url = clean_url((payload.url if payload else None) or url or "")
 
     export_format, content = _fetch_scholar_export(url)
 

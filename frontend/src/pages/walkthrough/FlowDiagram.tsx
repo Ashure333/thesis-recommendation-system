@@ -12,6 +12,8 @@
  */
 
 import { useId } from "react";
+import { Maximize2 } from "lucide-react";
+import ResponsiveLabel from "../../components/ResponsiveLabel";
 import { useLightbox } from "./lightbox";
 
 export interface FlowNode {
@@ -375,9 +377,11 @@ export default function FlowDiagram({
           onClick={(event) =>
             open([{ title: title ?? "Diagram", node: diagram, nodeWidth: fullWidth }], 0, event.currentTarget)
           }
-          className="rounded border-2 border-gray-900 bg-white px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-wide text-ink transition-colors pixel-ease hover:bg-accentSoft"
+          aria-label="Full screen"
+          title="Full screen"
+          className="inline-flex items-center rounded border-2 border-gray-900 bg-white px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-wide text-ink transition-colors pixel-ease hover:bg-accentSoft"
         >
-          ⤢ Full screen
+          <ResponsiveLabel icon={Maximize2} iconClassName="h-3.5 w-3.5 shrink-0">⤢ Full screen</ResponsiveLabel>
         </button>
       </div>
 

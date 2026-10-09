@@ -5,12 +5,14 @@ import {
   type DragEvent,
 } from "react";
 
+import { useBlocker } from "react-router-dom";
+import { extractDroppedUrl } from "../../utils/droppedLink";
 import {
   uploadPaper,
   previewPaperFile,
   previewIdentifier,
   importPaperFromMetadata,
-  fetchScholarCitation,
+  fetchLinkContent,
   notifyRecommendationIndexStale,
   type Paper,
   type ReviewedFields,
@@ -417,7 +419,10 @@ export default function Upload() {
 
     if (
       types.includes("text/uri-list") ||
-      types.includes("text/plain")
+      types.includes("text/x-moz-url") ||
+      types.includes("URL") ||
+      types.includes("text/plain") ||
+      types.includes("text/html")
     ) {
       return "link";
     }
@@ -1244,49 +1249,8 @@ export default function Upload() {
   function getDroppedURL(
     dataTransfer: DataTransfer
   ): string | null {
-    const uriList = dataTransfer.getData(
-      "text/uri-list"
-    );
-
-    const plainText = dataTransfer.getData(
-      "text/plain"
-    );
-
-    const sources = [
-      uriList,
-      plainText,
-    ];
-
-    for (const source of sources) {
-      if (!source) {
-        continue;
-      }
-
-      const lines = source
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(
-          (line) =>
-            line.length > 0 &&
-            !line.startsWith("#")
-        );
-
-      for (const line of lines) {
-        if (/^https?:\/\//i.test(line)) {
-          return line;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function isScholarImportUrl(url: string): boolean {
-    return (
-      /^https?:\/\/(?:scholar\.googleusercontent\.com|scholar\.google\.com)\//i.test(
-        url
-      ) &&
-      /\/scholar\.(?:bib|enw|ris)(?:\?|$)/i.test(url)
+    return extractDroppedUrl((type) =>
+      dataTransfer.getData(type)
     );
   }
 
@@ -1295,7 +1259,7 @@ export default function Upload() {
    * server-side (the browser cannot call scholar.google.com) and
    * routed through the same preview -> review -> save flow.
    */
-  async function importScholarLink(url: string) {
+  async function importDroppedLink(url: string) {
     if (busy()) {
       return;
     }
@@ -1305,7 +1269,18 @@ export default function Upload() {
     setJustSaved(false);
 
     try {
-      const citation = await fetchScholarCitation(url);
+      const citation = await fetchLinkContent(url);
+
+      if (citation.format === "doi") {
+        const result = await previewIdentifier(citation.text);
+
+        setManualEntries([]);
+        setCurrentIndex(0);
+        setSelectedFile(null);
+        populatePaper(result);
+        setIdentifierImport(true);
+        return;
+      }
 
       const file = new File(
         [
@@ -1313,7 +1288,7 @@ export default function Upload() {
             type: "text/plain",
           }),
         ],
-        `google-scholar.${citation.format}`,
+        `dropped-link.${citation.format}`,
         { type: "text/plain" }
       );
 
@@ -1327,7 +1302,7 @@ export default function Upload() {
       setError(
         e instanceof Error
           ? e.message
-          : "Failed to import the Google Scholar link."
+          : "Failed to import the dropped link."
       );
     } finally {
       setUploading(false);
@@ -1349,14 +1324,7 @@ export default function Upload() {
      * without it.
      */
     if (url) {
-      if (isScholarImportUrl(url)) {
-        void importScholarLink(url);
-      } else {
-        setError(
-          "Please drag a Google Scholar BibTeX, EndNote, or RefMan export link, not the paper's normal URL."
-        );
-      }
-
+      void importDroppedLink(url);
       return;
     }
 
@@ -1444,6 +1412,14 @@ export default function Upload() {
 
     return () => window.removeEventListener("beforeunload", warn);
   }, [unsavedWork]);
+
+  /* In-app navigation (nav links, back, navigate()) gets a themed prompt. */
+  const leaveBlocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      unsavedWork &&
+      (currentLocation.pathname !== nextLocation.pathname ||
+        currentLocation.search !== nextLocation.search),
+  );
 
   /*
    * Arrow-key navigation between parsed entries.
@@ -1780,6 +1756,22 @@ export default function Upload() {
       </div>
       </div>
       )}
+
+      {/* Unsaved-work prompt for in-app navigation */}
+      <RetroDialog
+        open={leaveBlocker.state === "blocked"}
+        title="Leave this page?"
+        size="sm"
+        confirmLabel="Leave"
+        cancelLabel="Stay"
+        onConfirm={() => leaveBlocker.proceed?.()}
+        onCancel={() => leaveBlocker.reset?.()}
+      >
+        <p className="font-bold">You have unsaved entries.</p>
+        <p className="mt-1 text-muted">
+          Leaving now discards them. Stay to save them first.
+        </p>
+      </RetroDialog>
 
       {/* Manual BibTeX pop-up */}
       <RetroDialog
