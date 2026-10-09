@@ -189,10 +189,49 @@ export interface ResearchChatHistoryItem {
   content: string;
 }
 
+/** How one claim in an answer stands against the sources it cites. */
+export type ClaimVerdict =
+  | "supported"
+  | "partial"
+  | "unsupported"
+  | "contradicted"
+  | "uncited"
+  | "invalid_citation"
+  | "unverifiable";
+
+export interface ClaimCheck {
+  id: number;
+  text: string;
+  /** Source numbers cited by the claim, as in the answer's [n] markers. */
+  cites: number[];
+  verdict: ClaimVerdict;
+  confidence: number;
+  evidence: { source: number; quote: string; verified: boolean } | null;
+  notes: string[];
+}
+
+export interface FactCheckReport {
+  method: "lexical" | "semantic" | "model";
+  claims: ClaimCheck[];
+  summary: {
+    total: number;
+    supported: number;
+    partial: number;
+    unsupported: number;
+    contradicted: number;
+    uncited: number;
+    invalid_citation: number;
+    unverifiable: number;
+    support_rate: number | null;
+  };
+}
+
 export interface ResearchChatResponse {
   answer: string;
   sources: ResearchChatSource[];
   used_fallback: boolean;
+  /** Claim-by-claim check against the cited sources; null if none. */
+  fact_check?: FactCheckReport | null;
 }
 
 /** Ask the research assistant; retrieval is grounded in the
@@ -208,6 +247,8 @@ export function researchChat(params: {
    *  reference list follow it. Omitted = bracket numbers. */
   citationStyle?: CitationStyle;
   includeDoi?: boolean;
+  /** Check each claim against the sources it cites (default on). */
+  factCheck?: boolean;
 }): Promise<ResearchChatResponse> {
   return fetch(`${API_URL}/api/research-chat`, {
     method: "POST",
@@ -223,6 +264,7 @@ export function researchChat(params: {
       history: params.history ?? [],
       citation_style: params.citationStyle ?? null,
       include_doi: params.includeDoi ?? true,
+      fact_check: params.factCheck ?? true,
     }),
   }).then(handle<ResearchChatResponse>);
 }
@@ -1564,8 +1606,22 @@ export interface TournamentPair {
   p_value: number;
   p_adjusted: number;
   significant: boolean;
+  /** Unpaired Cliff's delta (kept so older runs stay comparable). */
   cliffs_delta: number;
+  /** P(first beats second on a query) - P(second beats first): the paired
+   *  version, which the size label is read from. Absent on older runs. */
+  paired_delta?: number;
   cohens_dz: number | null;
+  /** "wilcoxon" (scores) or "mcnemar" (0/1 metrics such as hit rate). */
+  test?: "wilcoxon" | "mcnemar";
+  /** The effect size the labels are based on: Cliff's delta or Cohen's h. */
+  effect_kind?: "delta" | "h";
+  effect_size?: number;
+  effect_label?: "negligible" | "very small" | "small" | "medium" | "large";
+  cohens_h?: number;
+  /** McNemar: queries where only the first / only the second pipeline hit. */
+  a_only?: number;
+  b_only?: number;
 }
 
 export interface TournamentVerdict {
@@ -1584,8 +1640,13 @@ export interface TournamentVerdict {
     n_queries: number;
     mean_ranks: Record<string, number>;
   } | null;
+  /** True for 0/1 metrics: McNemar's exact test and Cohen's h are used. */
+  binary?: boolean;
+  pairwise_test?: string;
   pairwise: TournamentPair[];
   required_n: number | null;
+  /** Smallest gap between the top two this many queries can detect. */
+  detectable_gap?: number | null;
   min_effect?: number;
   seed?: number;
   resamples?: number;
@@ -1618,7 +1679,9 @@ export interface TournamentRunSummary {
   n_queries: number;
   dropped_queries: number;
   pipelines: string[];
-  outcome: TournamentOutcome;
+  outcome: TournamentOutcome | "pending";
+  /** running / interrupted / error while unfinished, else done. */
+  status?: TournamentJobState;
   winner_pipeline_id: string | null;
   corpus_size: number | null;
   corpus_version: string | null;
@@ -1842,4 +1905,99 @@ export function startSync(force = false): Promise<SyncJob> {
 
 export function getSyncStatus(): Promise<SyncJob> {
   return fetch(`${API_URL}/api/papers/sync/status`).then(handle<SyncJob>);
+}
+
+// ============================================================
+// DURABLE TOURNAMENTS
+//
+// A tournament takes minutes, so it runs as a job on the server and is
+// saved query by query. The client starts it, polls its status, and can
+// disconnect (sleep, reload, closed tab) and re-attach: nothing about
+// the run depends on the browser.
+// ============================================================
+
+export type TournamentJobState = "running" | "interrupted" | "error" | "done";
+
+export interface TournamentRunStatus {
+  run_id: number;
+  status: TournamentJobState;
+  label: string | null;
+  pipelines: string[];
+  primary_metric: TournamentMetric;
+  top_k: number;
+  /** Queries finished (scored or dropped) and chosen for this run. */
+  done: number;
+  total: number;
+  dropped: number;
+  /** Time actually spent scoring (a sleep is not counted). */
+  busy_seconds: number;
+  seconds_per_query: number | null;
+  eta_seconds: number | null;
+  /** The query being scored right now. */
+  current: { title: string; position: number } | null;
+  /** Mean of the primary metric per pipeline so far (provisional). */
+  partial_means: Record<string, number>;
+  outcome: TournamentOutcome | "pending" | null;
+  winner_pipeline_id: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export function startTournament(
+  params: TournamentParams = {},
+): Promise<TournamentRunStatus> {
+  return fetch(`${API_URL}/api/evaluation/tournament/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pipelines: params.pipelines,
+      top_k: params.topK ?? 10,
+      n_queries: params.nQueries ?? 60,
+      min_refs: params.minRefs ?? 3,
+      primary_metric: params.primaryMetric ?? "ndcg",
+      seed: params.seed ?? 0,
+      label: params.label || undefined,
+    }),
+  }).then(handle<TournamentRunStatus>);
+}
+
+export function getTournamentStatus(id: number): Promise<TournamentRunStatus> {
+  return fetch(`${API_URL}/api/evaluation/tournament/${id}/status`).then(
+    handle<TournamentRunStatus>,
+  );
+}
+
+/** The newest unfinished run, so a reloaded page can re-attach to it. */
+export function getActiveTournament(): Promise<{
+  run: TournamentRunStatus | null;
+}> {
+  return fetch(`${API_URL}/api/evaluation/tournament/active`).then(
+    handle<{ run: TournamentRunStatus | null }>,
+  );
+}
+
+export function resumeTournament(id: number): Promise<TournamentRunStatus> {
+  return fetch(`${API_URL}/api/evaluation/tournament/${id}/resume`, {
+    method: "POST",
+  }).then(handle<TournamentRunStatus>);
+}
+
+export function stopTournament(id: number): Promise<{ stopping: boolean }> {
+  return fetch(`${API_URL}/api/evaluation/tournament/${id}/stop`, {
+    method: "POST",
+  }).then(handle<{ stopping: boolean }>);
+}
+
+export function discardTournament(id: number): Promise<{ status: string }> {
+  return fetch(`${API_URL}/api/evaluation/tournament/${id}`, {
+    method: "DELETE",
+  }).then(handle<{ status: string }>);
+}
+
+
+/** Recompute a finished run's statistics from its stored scores. */
+export function reanalyzeTournament(id: number): Promise<TournamentResult> {
+  return fetch(`${API_URL}/api/evaluation/tournament/${id}/reanalyze`, {
+    method: "POST",
+  }).then(handle<TournamentResult>);
 }

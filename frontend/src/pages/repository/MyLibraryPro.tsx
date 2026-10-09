@@ -14,7 +14,6 @@ import {
   useRef,
   useState,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, LayoutGrid, List, Lock, Trash2 } from "lucide-react";
@@ -25,13 +24,16 @@ import {
   removeFromLibrary,
   researchChat,
   researchChatSuggestions,
+  type FactCheckReport,
   type LibraryEntry,
   type Paper,
   type ResearchChatResponse,
   type ResearchChatScope,
   type ResearchChatSource,
 } from "../../api";
+import ChatMarkdown from "../../components/ChatMarkdown";
 import ConnectedPapersGraph from "../../components/ConnectedPapersGraph";
+import FactCheckPanel from "../../components/FactCheckPanel";
 import MathText from "../../components/MathText";
 import PetFigure from "../../components/PetFigure";
 import Highlight from "../../components/Highlight";
@@ -185,6 +187,8 @@ export default function MyLibraryPro({
     scope?: ResearchChatScope;
     /** Follow-up questions for the pills, written after this answer. */
     suggestions?: string[];
+    /** Each claim checked against the sources it cites. */
+    factCheck?: FactCheckReport | null;
   };
 
   type ChatConversation = {
@@ -196,6 +200,7 @@ export default function MyLibraryPro({
 
   const CHAT_HISTORY_KEY = "paperrec_library_chat_hist";
   const CHAT_SIDEBAR_KEY = "paperrec_library_chat_sidebar";
+  const CHAT_FACTCHECK_KEY = "paperrec_library_chat_factcheck";
   const CHAT_HISTORY_LIMIT = 20;
 
   const [conversations, setConversations] = useState<ChatConversation[]>(
@@ -213,6 +218,15 @@ export default function MyLibraryPro({
   const [chatText, setChatText] = useState("");
   const [chatScope, setChatScope] = useState<ResearchChatScope>("library");
   const [chatBusy, setChatBusy] = useState(false);
+  /* Check every answer's claims against the sources it cites (on by
+     default; it costs one extra model call per answer). */
+  const [factCheckOn, setFactCheckOn] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(CHAT_FACTCHECK_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
   const [suggestBusy, setSuggestBusy] = useState(false);
   const suggestSeq = useRef(0);
   const [chatSidebarOpen, setChatSidebarOpen] = useState<boolean>(() => {
@@ -233,6 +247,29 @@ export default function MyLibraryPro({
       // best-effort
     }
   }, [conversations]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        CHAT_FACTCHECK_KEY,
+        factCheckOn ? "1" : "0",
+      );
+    } catch {
+      // best-effort
+    }
+  }, [factCheckOn]);
+
+  /* Jump to (and briefly flash) source n of one answer. */
+  function goToSource(anchor: string, n: number) {
+    const element = document.getElementById(`${anchor}-${n}`);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.classList.add("ring-4", "ring-accent");
+    window.setTimeout(
+      () => element.classList.remove("ring-4", "ring-accent"),
+      1400,
+    );
+  }
 
   useEffect(() => {
     try {
@@ -420,6 +457,7 @@ export default function MyLibraryPro({
             ? papers.map((paper) => paper.id)
             : undefined,
         history,
+        factCheck: factCheckOn,
       });
 
       setConversations((prev) =>
@@ -436,6 +474,7 @@ export default function MyLibraryPro({
                     sources: data.sources,
                     usedFallback: data.used_fallback,
                     scope: chatScope,
+                    factCheck: data.fact_check ?? null,
                   },
                 ],
               }
@@ -1478,6 +1517,18 @@ export default function MyLibraryPro({
                       {label}
                     </button>
                   ))}
+                  <label
+                    className="ml-1 inline-flex cursor-pointer items-center gap-1.5 text-xs font-bold text-muted"
+                    title="After each answer, check every claim against the sources it cites"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={factCheckOn}
+                      onChange={(event) => setFactCheckOn(event.target.checked)}
+                      className="h-3.5 w-3.5 accent-gray-900"
+                    />
+                    Fact-check answers
+                  </label>
                 </div>
                 <Button
                   type="button"
@@ -1513,14 +1564,14 @@ export default function MyLibraryPro({
                       message.role === "user" ? (
                         <div
                           key={index}
-                          className="self-end max-w-[min(640px,92%)] rounded-xl rounded-br-sm border-[3px] border-gray-900 bg-accent px-4 py-3 text-sm leading-6 text-onAccent"
+                          className="self-end max-w-[min(640px,92%)] whitespace-pre-wrap rounded-xl rounded-br-sm border-[3px] border-gray-900 bg-accent px-4 py-3 text-sm leading-6 text-onAccent [overflow-wrap:anywhere]"
                         >
                           {message.content}
                         </div>
                       ) : (
                         <div
                           key={index}
-                          className="flex max-w-full flex-col gap-3"
+                          className="flex min-w-0 max-w-full flex-col gap-3"
                         >
                           {message.scope && (
                             <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
@@ -1531,14 +1582,29 @@ export default function MyLibraryPro({
                             </p>
                           )}
 
-<div className="self-start max-w-[min(720px,100%)] rounded-xl rounded-bl-sm border-[3px] border-gray-900 bg-white px-4 py-3 text-sm leading-6 text-ink">
-                          <ChatAnswer
-                            content={message.content.replace(
-                              /【(\d+)】/g,
-                              "[$1]",
-                            )}
-                          />
-                        </div>
+<div className="min-w-0 self-start max-w-[min(720px,100%)] rounded-xl rounded-bl-sm border-[3px] border-gray-900 bg-white px-4 py-3 text-sm leading-6 text-ink">
+                            <ChatMarkdown
+                              content={message.content}
+                              onCite={(n) =>
+                                goToSource(
+                                  `src-${activeConversation?.id}-${index}`,
+                                  n,
+                                )
+                              }
+                            />
+                          </div>
+
+                          {message.factCheck && (
+                            <FactCheckPanel
+                              report={message.factCheck}
+                              onCite={(n) =>
+                                goToSource(
+                                  `src-${activeConversation?.id}-${index}`,
+                                  n,
+                                )
+                              }
+                            />
+                          )}
 
                           {message.usedFallback && (
                             <p className="text-xs text-muted">
@@ -1559,6 +1625,7 @@ export default function MyLibraryPro({
                                   (source, sourceIndex) => (
                                     <ChatSourceRow
                                       key={sourceIndex}
+                                      anchorId={`src-${activeConversation?.id}-${index}-${sourceIndex + 1}`}
                                       source={source}
                                       index={sourceIndex + 1}
                                       papers={papers}
@@ -1668,104 +1735,17 @@ export default function MyLibraryPro({
 
 /* ------------------------------------------------------------ */
 
-/** Render one line's inline markdown: **bold**, *italic*, `code`.
- *  Anything else passes through verbatim. */
-function renderInline(text: string): ReactNode[] {
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
-
-  return parts.map((part, index) => {
-    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
-      return (
-        <strong key={index} className="font-bold">
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
-
-    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-      return (
-        <code
-          key={index}
-          className="rounded border-[1px] border-gray-900 bg-canvas px-1 font-mono text-[0.9em]"
-        >
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-
-    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
-      return (
-        <em key={index} className="italic">
-          {part.slice(1, -1)}
-        </em>
-      );
-    }
-
-    return part;
-  });
-}
-
-/** Render the assistant's markdown-ish answer as structured blocks:
- *  headings -> bold lines, "-"/"*" bullets -> lists, blank lines ->
- *  paragraphs. */
-function ChatAnswer({ content }: { content: string }) {
-  const lines = content.split("\n");
-  const blocks: ReactNode[] = [];
-  let list: ReactNode[] = [];
-
-  const flushList = () => {
-    if (list.length > 0) {
-      blocks.push(
-        <ul key={`list-${blocks.length}`} className="ml-4 list-disc space-y-1">
-          {list}
-        </ul>,
-      );
-      list = [];
-    }
-  };
-
-  lines.forEach((line, index) => {
-    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
-    const heading = line.match(/^(#{1,3})\s+(.*)$/);
-
-    if (bullet) {
-      list.push(<li key={index}>{renderInline(bullet[1])}</li>);
-      return;
-    }
-
-    flushList();
-
-    if (heading) {
-      blocks.push(
-        <p key={`h-${index}`} className="font-bold">
-          {renderInline(heading[2])}
-        </p>,
-      );
-      return;
-    }
-
-    if (line.trim() === "") {
-      return;
-    }
-
-    blocks.push(
-      <p key={`p-${index}`}>{renderInline(line)}</p>,
-    );
-  });
-
-  flushList();
-
-  return <div className="space-y-1.5">{blocks}</div>;
-}
-
 /* ------------------------------------------------------------ */
 
 function ChatSourceRow({
+  anchorId,
   source,
   index,
   papers,
   viewer,
 }: {
+  /** DOM id the answer's [n] markers and the fact-check scroll to. */
+  anchorId: string;
   source: ResearchChatSource;
   index: number;
   papers: Paper[];
@@ -1783,7 +1763,10 @@ function ChatSourceRow({
   );
 
   return (
-    <div className="flex flex-col gap-1.5 border-t border-gray-200 px-3 py-2.5 text-xs first:border-t-0">
+    <div
+      id={anchorId}
+      className="flex scroll-mt-4 flex-col gap-1.5 border-t border-gray-200 px-3 py-2.5 text-xs transition-shadow first:border-t-0"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border-[2px] border-gray-900 bg-white font-mono text-[10px] font-bold text-ink">
           {index}
@@ -1815,8 +1798,8 @@ function ChatSourceRow({
       </p>
 
       {source.abstract && (
-        <p className="line-clamp-3 leading-5 text-muted">
-          {source.abstract}
+        <p className="line-clamp-3 leading-5 text-muted [overflow-wrap:anywhere]">
+          <MathText text={source.abstract} />
         </p>
       )}
 
