@@ -21,6 +21,7 @@ import CheatFoliage from "../components/retro/CheatFoliage";
 import CheatConsole from "../components/CheatConsole";
 import DevUnlock from "../components/DevUnlock";
 import { ProPackHost } from "../components/ProPack";
+import { useSun } from "../state/sun";
 import LiveBackground from "../components/LiveBackground";
 import { ArrowRight, BlockCursor, Lock } from "../components/retro/PixelIcons";
 import {
@@ -161,6 +162,7 @@ export default function AppLayout() {
 
   const { mode, stateFor } = useSiteMode();
   const presenting = mode === "presentation";
+  const { proPurchased } = useSun();
   const { prefs: layoutPrefs } = useLayoutPrefs();
   const { on: nerdOn, setOn: setNerdOn } = useNerdButtons();
 
@@ -310,6 +312,15 @@ export default function AppLayout() {
               RE:SEARCH
               <BlockCursor className="animate-blink ml-1 inline-block h-[0.9em] w-[0.55em] text-accent" />
             </p>
+
+            {proPurchased && (
+              <span
+                title="Pro Pack owned"
+                className="font-pixelify rounded border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 text-[11px] font-bold leading-none tracking-wide text-onAccent"
+              >
+                PRO
+              </span>
+            )}
 
           </Link>
 
