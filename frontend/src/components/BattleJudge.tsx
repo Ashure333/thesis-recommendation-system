@@ -195,9 +195,11 @@ export default function BattleJudge({ battle, name, onJudged }: Props) {
   useEffect(() => {
     let live = true;
 
-    getJudgedBattles()
-      .then((value) => live && setBoard(value))
-      .catch(() => undefined);
+    if (battle.battle_id != null) {
+      getJudgedBattles()
+        .then((value) => live && setBoard(value))
+        .catch(() => undefined);
+    }
 
     return () => {
       live = false;
@@ -205,12 +207,25 @@ export default function BattleJudge({ battle, name, onJudged }: Props) {
   }, [judgement]);
 
   async function submit() {
-    if (battle.battle_id == null) return;
     setBusy(true);
     setError("");
 
     try {
-      setJudgement(await judgeBattle({ battleId: battle.battle_id, relevant: [...ticked] }));
+      // A recorded battle is judged from its stored lists; an unrecorded one
+      // (the Lab's) from the lists on screen, and is not added to the board.
+      setJudgement(
+        await judgeBattle(
+          battle.battle_id != null
+            ? { battleId: battle.battle_id, relevant: [...ticked] }
+            : {
+                lists: Object.fromEntries(
+                  battle.pipelines.map((p) => [p.id, p.results.map((r) => r.paper_id)]),
+                ),
+                topK: battle.top_k,
+                relevant: [...ticked],
+              },
+        ),
+      );
       onJudged?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save the judgement.");
@@ -231,7 +246,8 @@ export default function BattleJudge({ battle, name, onJudged }: Props) {
   }
 
   const byReferences = judgement?.basis === "references";
-  const canJudge = battle.battle_id != null && !battle.seed_paper_id;
+  const canJudge = !battle.seed_paper_id && battle.pipelines.length > 0;
+  const recorded = battle.battle_id != null;
 
   return (
     <div className="space-y-3">
@@ -303,7 +319,13 @@ export default function BattleJudge({ battle, name, onJudged }: Props) {
         )}
       </section>
 
-      <Board board={board} name={name} />
+      {recorded ? (
+        <Board board={board} name={name} />
+      ) : (
+        <p className="text-xs leading-5 text-muted">
+          This battle was not recorded, so its judgement is shown here but not added to the judged board.
+        </p>
+      )}
     </div>
   );
 }

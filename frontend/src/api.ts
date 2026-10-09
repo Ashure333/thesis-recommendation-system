@@ -2280,3 +2280,111 @@ export function getSeriesSummary(label: string): Promise<SeriesSummary> {
     handle<SeriesSummary>,
   );
 }
+
+// ============================================================
+// RECIPE SWEEP — the Lab's blend explorer.
+
+export interface SweepWeights {
+  tfidf: number;
+  sbert: number;
+  metadata: number;
+}
+
+export interface SweepCell {
+  weights: SweepWeights;
+  mean: number;
+}
+
+export interface SweepComparison {
+  preset: string;
+  preset_mean: number;
+  mean_diff: number;
+  lo: number;
+  hi: number;
+  clear: boolean;
+  worse: boolean;
+}
+
+export interface SweepHeldout {
+  n_select: number;
+  n_confirm: number;
+  chosen: SweepWeights;
+  chosen_select_mean: number;
+  chosen_confirm: { mean: number; lo: number; hi: number; n: number };
+  comparisons: SweepComparison[];
+  strongest_preset: string;
+  outcome: "better" | "worse" | "no_difference";
+}
+
+export interface SweepResult {
+  k: number;
+  step: number;
+  n_queries: number;
+  skipped: number;
+  metric: string;
+  grid: SweepCell[];
+  top: SweepCell[];
+  preset_means?: Record<string, number>;
+  heldout: SweepHeldout | null;
+  reason?: string | null;
+}
+
+export type SweepEvent =
+  | { event: "start"; n_queries: number; grid_size: number }
+  | { event: "progress"; done: number; total: number }
+  | { event: "done"; result: SweepResult }
+  | { event: "error"; detail: string };
+
+export async function runRecipeSweep(
+  params: { nQueries: number; k: number; step: number; minRefs: number; seed: number },
+  onEvent: (event: SweepEvent) => void,
+  signal?: AbortSignal,
+): Promise<SweepResult> {
+  const res = await fetch(`${API_URL}/api/evaluation/recipe-sweep`, {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      n_queries: params.nQueries,
+      k: params.k,
+      step: params.step,
+      min_refs: params.minRefs,
+      seed: params.seed,
+    }),
+  });
+
+  if (!res.ok || !res.body) {
+    return handle<SweepResult>(res);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let final: SweepResult | null = null;
+
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as SweepEvent;
+
+    if (event.event === "error") throw new Error(event.detail);
+    if (event.event === "done") final = event.result;
+    onEvent(event);
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+
+    buffer = lines.pop() ?? "";
+    lines.forEach(consume);
+  }
+
+  consume(buffer);
+
+  if (!final) throw new Error("The sweep ended before it finished.");
+
+  return final;
+}

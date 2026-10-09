@@ -35,6 +35,7 @@ import {
 } from "../../components/retro/PixelIcons";
 import HuntItem from "../../components/retro/HuntItem";
 import { HUNT_ITEMS } from "../../data/hunt";
+import "./upload.css";
 
 const signalFields = [
   "title",
@@ -1505,14 +1506,55 @@ export default function Upload() {
     "Publication Year": !!year,
   };
 
+  // Receiving-dock stage rail, derived from existing state only.
+  const dockStage = justSaved || isPersistedPaper || saving || approvingAll
+    ? 3
+    : paper
+      ? 2
+      : manualEntries.length > 0 || uploading
+        ? 1
+        : 0;
+  const dockSteps = [
+    ["Drop", "Files or ids"],
+    ["Check", "Parse entries"],
+    ["Enrich", "Edit fields"],
+    ["Confirm", "Save record"],
+  ];
+
+  const stampFor = (
+    entry: ManualEntry,
+    index: number,
+  ): { label: string; tone: "ok" | "warn" | "idle" | "plain" } => {
+    if (entry.status === "approved") return { label: "Received", tone: "ok" };
+    if (entry.status === "error") return { label: "Rejected", tone: "warn" };
+    if (entry.preview?.duplicate_of) return { label: "Duplicate", tone: "warn" };
+    if (!entry.preview) {
+      return {
+        label: previewingIndex === index ? "Checking" : "Waiting",
+        tone: "idle",
+      };
+    }
+    if (!entry.preview.doi) return { label: "Needs DOI", tone: "plain" };
+    return { label: "Pending", tone: "plain" };
+  };
+
   return (
-    <div
-      className={
-        paper
-          ? "mx-auto w-full max-w-[1200px]"
-          : "mx-auto max-w-2xl"
-      }
-    >
+    <div className="upl-dock mx-auto w-full max-w-[920px]">
+      <div className="upl-railwrap">
+        <ol className="upl-rail" aria-label="Upload steps">
+          {dockSteps.map(([name, hint], i) => (
+            <li
+              key={name}
+              data-state={i < dockStage ? "done" : i === dockStage ? "now" : "todo"}
+              aria-current={i === dockStage ? "step" : undefined}
+            >
+              {i + 1}. {name}
+              <small>{hint}</small>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="min-w-0">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-cartridge")!} />
       <h1 className="font-pixelify mb-1 text-3xl font-bold leading-none text-ink">
         Upload Paper
@@ -1592,7 +1634,7 @@ export default function Upload() {
           setDragHover(null);
           handleDrop(e);
         }}
-        className="relative mb-6 flex cursor-pointer flex-col items-center justify-center rounded border-[3px] border-dashed border-gray-900 bg-canvas px-6 py-10 text-center hover:bg-accentSoft"
+        className="upl-drop relative mb-6 flex cursor-pointer flex-col items-center justify-center px-6 py-10 text-center hover:bg-accentSoft"
         data-tips="upload-dropzone"
       >
         <p className="text-sm text-ink">
@@ -1648,9 +1690,9 @@ export default function Upload() {
       </div>
 
       {/* Add by identifier (DOI / arXiv / link) */}
-      <div className="mb-6 rounded border-[3px] border-gray-900 bg-white p-4">
+      <div className="upl-sheet upl-sheet--plain mb-6">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 font-mono text-xs font-bold tracking-[0.15em] text-onAccent">
+          <span className="upl-stamp rounded-none border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 font-mono text-xs font-bold tracking-[0.15em] text-onAccent">
             DOI / ARXIV
           </span>
           <p className="text-sm font-bold text-ink">
@@ -1694,9 +1736,9 @@ export default function Upload() {
       </div>
 
       {/* Reference-manager BibTeX export workflow */}
-      <div className="animate-step-in mb-6 rounded border-[3px] border-gray-900 bg-white p-4">
+      <div className="upl-sheet animate-step-in mb-6">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 font-mono text-xs font-bold tracking-[0.15em] text-onAccent">
+          <span className="upl-stamp rounded-none border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 font-mono text-xs font-bold tracking-[0.15em] text-onAccent">
             BIBTEX EXPORT
           </span>
           <p className="text-sm font-bold text-ink">
@@ -1813,7 +1855,7 @@ export default function Upload() {
 
       {/* Parsed entries navigator */}
       {manualEntries.length > 0 && (
-        <div className="animate-step-in mb-6 rounded border-[3px] border-gray-900 bg-white p-4">
+        <div className="upl-sheet animate-step-in mb-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-bold text-ink">
               Parsed entries
@@ -1878,38 +1920,41 @@ export default function Upload() {
             </button>
           </div>
 
-          {/* entry chips */}
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {manualEntries.map((entry, index) => (
-              <button
-                key={index}
-                type="button"
-                onClick={() => goTo(index)}
-                aria-label={`Entry ${index + 1}: ${entry.label ?? entry.key}`}
-                title={
-                  entry.preview?.duplicate_of
-                    ? `Already in the repository (#${entry.preview.duplicate_of.id})`
-                    : entry.label ?? entry.key
-                }
-                className={`flex h-7 min-w-7 items-center justify-center rounded border-[2px] border-gray-900 px-1.5 font-mono text-xs font-bold transition-colors pixel-ease ${
-                  index === currentIndex
-                    ? "bg-accent text-onAccent"
-                    : entry.status === "approved"
-                      ? "bg-accentSoft text-ink"
-                      : entry.status === "error"
-                        ? "bg-white text-ink"
-                        : "bg-white text-muted"
-                }`}
-              >
-                {index + 1}
-                {entry.status === "approved" ? (
-                  <Check className="h-3 w-3" />
-                ) : entry.status === "error" || entry.preview?.duplicate_of ? (
-                  "!"
-                ) : null}
-              </button>
-            ))}
-          </div>
+          {/* manifest: one row per entry, stamped by status */}
+          <ul className="upl-manifest" aria-label="Entry manifest">
+            {manualEntries.map((entry, index) => {
+              const stamp = stampFor(entry, index);
+              return (
+                <li key={index}>
+                  <button
+                    type="button"
+                    onClick={() => goTo(index)}
+                    aria-label={`Entry ${index + 1}: ${entry.label ?? entry.key}`}
+                    aria-current={index === currentIndex ? "true" : undefined}
+                    title={
+                      entry.preview?.duplicate_of
+                        ? `Already in the repository (#${entry.preview.duplicate_of.id})`
+                        : entry.label ?? entry.key
+                    }
+                    className="upl-row"
+                  >
+                    <span className="upl-no">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="min-w-0">
+                      <span className="upl-name block">
+                        {entry.preview?.title || entry.label || `@${entry.key}`}
+                      </span>
+                      <span className="upl-sub">
+                        {entry.label ?? `@${entry.key}`}
+                      </span>
+                    </span>
+                    <span className="upl-stamp" data-tone={stamp.tone}>
+                      {stamp.label}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
           {approvingAll && approveAllProgress && (
             <p className="mt-3 font-mono text-xs text-muted">
@@ -1930,8 +1975,8 @@ export default function Upload() {
           ==================================================== */}
 
       {paper && (
-        <div className="grid gap-6 lg:grid-cols-5">
-          <div className="min-w-0 lg:col-span-3">
+        <div className="grid gap-6">
+          <div className="min-w-0">
             {(paper as PaperPreview).duplicate_of &&
               !justSaved &&
               !isPersistedPaper && (
@@ -1942,7 +1987,43 @@ export default function Upload() {
                   be rejected unless you change the title or the DOI.
                 </p>
               )}
-            <div className="rounded border-[3px] border-gray-900 bg-white p-4">
+            {manualEntries.length === 0 && (
+              <ul className="upl-manifest mb-4" aria-label="Manifest">
+                <li className="upl-row upl-row--static">
+                  <span className="upl-no">01</span>
+                  <span className="min-w-0">
+                    <span className="upl-name block">
+                      {title || selectedFile?.name || "Untitled record"}
+                    </span>
+                    <span className="upl-sub">
+                      {selectedFile?.name ?? "Added by identifier"}
+                    </span>
+                  </span>
+                  <span
+                    className="upl-stamp"
+                    data-tone={
+                      justSaved || isPersistedPaper
+                        ? "ok"
+                        : (paper as PaperPreview).duplicate_of
+                          ? "warn"
+                          : doi.trim()
+                            ? "plain"
+                            : "plain"
+                    }
+                  >
+                    {justSaved || isPersistedPaper
+                      ? "Received"
+                      : (paper as PaperPreview).duplicate_of
+                        ? "Duplicate"
+                        : doi.trim()
+                          ? "Pending"
+                          : "Needs DOI"}
+                  </span>
+                </li>
+              </ul>
+            )}
+            <div className="upl-sheet">
+              <span className="upl-tab">Form 2 / Record details</span>
               <div className="space-y-4">
             <div>
               <label
@@ -2193,9 +2274,9 @@ export default function Upload() {
             </div>
           </div>
 
-          <aside className="min-w-0 lg:col-span-2">
-            <div className="space-y-4 lg:sticky lg:top-4">
-          <div className="rounded border-[3px] border-gray-900 bg-white p-4">
+          <aside className="min-w-0">
+            <div className="space-y-4">
+          <div className="upl-sheet upl-sheet--plain">
             <p className="mb-3 text-sm font-medium text-ink">
               Recommendation Signal Validation
             </p>
@@ -2246,7 +2327,7 @@ export default function Upload() {
           )}
 
           {isPersistedPaper && !isPdf && (
-            <div className="rounded border-[3px] border-gray-900 bg-white p-4">
+            <div className="upl-sheet upl-sheet--plain">
               <p className="text-sm font-medium text-ink">
                 No PDF attached
               </p>
@@ -2506,6 +2587,7 @@ export default function Upload() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

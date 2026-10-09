@@ -255,7 +255,7 @@ export default function FlowDiagram({
           markerHeight="6"
           orient="auto-start-reverse"
         >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#1b2430" />
+          <path d="M 0 0 L 10 5 L 0 10 z" style={{ fill: "rgb(var(--ink))" }} />
         </marker>
       </defs>
 
@@ -274,7 +274,7 @@ export default function FlowDiagram({
             y1={start.y}
             x2={tipX}
             y2={tipY}
-            stroke="#1b2430"
+            style={{ stroke: "rgb(var(--ink))" }}
             strokeWidth={2}
             strokeDasharray={edge.dashed ? "5 4" : undefined}
             markerEnd={`url(#${markerId})`}
@@ -282,7 +282,7 @@ export default function FlowDiagram({
         );
       })}
 
-      {laid.map((node) => {
+      {laid.map((node, nodeIndex) => {
         const cx = node.x + node.w / 2;
         const cy = node.y + node.h / 2;
         const blockH =
@@ -299,8 +299,10 @@ export default function FlowDiagram({
               width={node.w}
               height={node.h}
               rx={6}
-              fill={node.accent ? "#1f5f8b" : "#ffffff"}
-              stroke="#1b2430"
+              style={{
+                fill: node.accent ? "rgb(var(--accent))" : "rgb(var(--surface))",
+                stroke: "rgb(var(--ink))",
+              }}
               strokeWidth={2}
             />
 
@@ -309,7 +311,7 @@ export default function FlowDiagram({
               dominantBaseline="central"
               fontSize={LABEL_SIZE}
               fontWeight={700}
-              fill={node.accent ? "#ffffff" : "#1b2430"}
+              style={{ fill: node.accent ? "rgb(var(--on-accent))" : "rgb(var(--ink))" }}
             >
               {node.labelLines.map((line, index) => (
                 <tspan key={index} x={cx} y={top + LABEL_LH * (index + 0.5)}>
@@ -323,7 +325,7 @@ export default function FlowDiagram({
                 textAnchor="middle"
                 dominantBaseline="central"
                 fontSize={SUB_SIZE}
-                fill={node.accent ? "#e6eef5" : "#5b6776"}
+                style={{ fill: node.accent ? "rgb(var(--on-accent))" : "rgb(var(--muted))" }}
               >
                 {node.subLines.map((line, index) => (
                   <tspan key={index} x={cx} y={subTop + SUB_LH * (index + 0.5)}>
@@ -332,6 +334,26 @@ export default function FlowDiagram({
                 ))}
               </text>
             )}
+            <g aria-hidden="true">
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={11}
+                style={{ fill: "rgb(var(--surface))", stroke: "rgb(var(--accent))" }}
+                strokeWidth={2}
+              />
+              <text
+                x={node.x}
+                y={node.y}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={11}
+                fontWeight={800}
+                style={{ fill: "rgb(var(--accent))" }}
+              >
+                {nodeIndex + 1}
+              </text>
+            </g>
           </g>
         );
       })}
@@ -344,8 +366,7 @@ export default function FlowDiagram({
             width={pill.w}
             height={pill.h}
             rx={4}
-            fill="#ffffff"
-            stroke="#1b2430"
+            style={{ fill: "rgb(var(--surface))", stroke: "rgb(var(--ink))" }}
             strokeWidth={1.25}
           />
           <text
@@ -355,7 +376,7 @@ export default function FlowDiagram({
             dominantBaseline="central"
             fontSize={EDGE_LABEL_SIZE}
             fontWeight={700}
-            fill="#5b6776"
+            style={{ fill: "rgb(var(--muted))" }}
           >
             {pill.text}
           </text>
@@ -367,7 +388,7 @@ export default function FlowDiagram({
   const fullWidth = Math.max(vbW * 1.4, 1400);
 
   return (
-    <figure className="clear-both relative rounded border-[2px] border-gray-900 bg-white">
+    <figure data-eng-diagram="" className="clear-both relative rounded border-[2px] border-gray-900 bg-white">
       <div className="flex items-center justify-between gap-3 border-b-[2px] border-gray-900 bg-surface px-3 py-1.5">
         <figcaption className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
           {title ?? "Diagram"}
@@ -395,6 +416,17 @@ export default function FlowDiagram({
       >
         <div style={{ minWidth: Math.round(vbW * 0.75) }}>{diagram}</div>
       </div>
+      <ol aria-label="Callouts" className="eng-legend">
+        {laid.map((node, nodeIndex) => (
+          <li key={node.id}>
+            <span className="eng-pin">{nodeIndex + 1}</span>
+            <span>
+              <strong>{node.label}</strong>
+              {node.sub ? <em>{node.sub}</em> : null}
+            </span>
+          </li>
+        ))}
+      </ol>
       {element}
     </figure>
   );

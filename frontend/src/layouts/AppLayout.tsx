@@ -22,6 +22,7 @@ import CheatConsole from "../components/CheatConsole";
 import DevUnlock from "../components/DevUnlock";
 import { ProPackHost } from "../components/ProPack";
 import { useSun } from "../state/sun";
+import { applyStoredGardenFrame } from "../utils/gardenFrame";
 import LiveBackground from "../components/LiveBackground";
 import { ArrowRight, BlockCursor, Lock } from "../components/retro/PixelIcons";
 import {
@@ -171,6 +172,11 @@ export default function AppLayout() {
   // ----------------------------------------------------------
 
   const [libraryCount, setLibraryCount] = useState(0);
+
+  // The saved garden frame colours the cheat console and dialogs on every page.
+  useEffect(() => {
+    applyStoredGardenFrame();
+  }, []);
 
   useEffect(() => {
     getLibrary()

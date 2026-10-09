@@ -13,6 +13,7 @@
    bubble is a stored trivia from data/trivia.ts.
    ============================================================ */
 
+import { GARDEN_FRAME_KEY, applyGardenFrame } from "../../utils/gardenFrame";
 import {
   useCallback,
   useEffect,
@@ -204,7 +205,7 @@ function writeAskCount(count: number) {
    and written on <html> while the garden is on screen, so the dialogs
    (which live outside the card) wear the same frame. */
 
-const FRAME_KEY = "paperrec_garden_frame";
+const FRAME_KEY = GARDEN_FRAME_KEY;
 
 const FRAMES: { id: string; label: string; a: string; b: string }[] = [
   { id: "wood", label: "Carved wood", a: "#5b3a1e", b: "#f0b848" },
@@ -576,14 +577,9 @@ export default function TreeOfKnowledge({
   };
 
   useEffect(() => {
-    const root = document.documentElement;
-
-    if (frame === "wood") delete root.dataset.gardenTheme;
-    else root.dataset.gardenTheme = frame;
-
-    return () => {
-      delete root.dataset.gardenTheme;
-    };
+    // Stays on <html> after the garden closes: the cheat console and
+    // dialogs elsewhere in the app wear the same frame.
+    applyGardenFrame(frame);
   }, [frame]);
 
   /* The tree card's own menu: the shop, skins, and wallet panes. */

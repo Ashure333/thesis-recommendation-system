@@ -5,12 +5,18 @@
  * menu's "Copy as → Formatted citation", and the copy-behavior
  * toggles shape the BibTeX / DOI output. Preferences are stored in
  * this browser (utils/preferences.ts).
+ *
+ * Layout identity: "control panel" — a sticky section list on the
+ * left, switchboard rows (label + hint, control, status lamp, reset)
+ * on the right. Styles live in settings.css (`set-*`).
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import DevPanel from "../components/DevPanel";
+import "./settings.css";
 
 import { useSiteMode } from "../state/siteMode";
 import { useLayoutPrefs } from "../state/layoutPrefs";
@@ -33,6 +39,97 @@ function readScope(): "local" | "web" {
   }
 }
 
+type Lamp = "on" | "off" | "changed";
+
+function SetRow({
+  title,
+  note,
+  lamp,
+  value,
+  onReset,
+  atDefault,
+  stack,
+  children,
+}: {
+  title: string;
+  note?: string;
+  lamp: Lamp;
+  value?: string;
+  onReset?: () => void;
+  atDefault?: boolean;
+  stack?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`set-row${stack ? " set-row-stack" : ""}`}>
+      <span className="set-lamp" data-state={lamp} aria-hidden="true" />
+      <div className="set-label">
+        <p className="set-label-t">{title}</p>
+        {note && <p className="set-label-n">{note}</p>}
+      </div>
+      <div className="set-ctl">
+        {value && <span className="set-val">{value}</span>}
+        {children}
+        {onReset && (
+          <button
+            type="button"
+            className="set-reset"
+            disabled={atDefault}
+            onClick={onReset}
+            aria-label={`Reset ${title} to default`}
+          >
+            Reset
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SetPanel({
+  id,
+  title,
+  count,
+  children,
+}: {
+  id: string;
+  title: string;
+  count?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      data-settings-section={id}
+      id={`set-${id}`}
+      data-set-section={title}
+      className="set-panel"
+    >
+      <div className="set-panel-head">
+        <h2 className="font-pixelify text-lg font-bold text-ink">{title}</h2>
+        {count && <span className="set-panel-count">{count}</span>}
+      </div>
+      <div className="set-panel-body">{children}</div>
+      <div className="set-panel-foot" />
+      <div className="set-screws" />
+    </section>
+  );
+}
+
+const PREF_SECTIONS: [string, string][] = [
+  ["set-mode", "Site mode"],
+  ["set-interface", "Interface"],
+  ["set-citation-style", "Citation style"],
+  ["set-copy", "Copy behavior"],
+  ["set-pet", "Pixel pet"],
+  ["set-connections", "Similar papers"],
+];
+
+function jump(id: string) {
+  document
+    .getElementById(id)
+    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 export default function Settings() {
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") === "dev" ? "dev" : "preferences";
@@ -48,6 +145,34 @@ export default function Settings() {
       return true;
     }
   });
+
+  const mainRef = useRef<HTMLDivElement>(null);
+  const [devSections, setDevSections] = useState<[string, string][]>([]);
+
+  // The Developer panel owns its own sections; list them in the rail.
+  useEffect(() => {
+    if (tab !== "dev") return;
+    const root = mainRef.current;
+    if (!root) return;
+
+    const scan = () => {
+      const found: [string, string][] = [];
+      root
+        .querySelectorAll<HTMLElement>("[data-set-section]")
+        .forEach((el, i) => {
+          if (!el.id) el.id = `set-dev-${i}`;
+          found.push([el.id, el.dataset.setSection ?? ""]);
+        });
+      setDevSections((prev) =>
+        JSON.stringify(prev) === JSON.stringify(found) ? prev : found
+      );
+    };
+
+    scan();
+    const observer = new MutationObserver(scan);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [tab]);
 
   function togglePet() {
     const next = !petVisible;
@@ -79,8 +204,19 @@ export default function Settings() {
     }
   }
 
+  const railItems = tab === "dev" ? devSections : PREF_SECTIONS;
+  const modeLabel =
+    mode === "library"
+      ? "Library"
+      : mode === "presentation"
+        ? "Presentation"
+        : "Researcher";
+  const citeLabel =
+    CITATION_STYLES.find((s) => s.id === settings.citationStyle)?.label ??
+    settings.citationStyle;
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-[960px] flex-col gap-5">
       <header>
         <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
           Preferences
@@ -110,7 +246,7 @@ export default function Settings() {
               aria-selected={tab === id}
               onClick={() => setParams(id === "dev" ? { tab: "dev" } : {})}
               className={`rounded border-[3px] border-gray-900 px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.12em] transition-colors pixel-ease ${
-                tab === id ? "bg-accent text-onAccent" : "bg-white text-ink hover:bg-accentSoft"
+                tab === id ? "bg-accent text-onAccent" : "bg-surface text-ink hover:bg-accentSoft"
               }`}
             >
               {label}
@@ -119,290 +255,284 @@ export default function Settings() {
         </div>
       </header>
 
-      {tab === "dev" && <DevPanel />}
-
-      {tab === "preferences" && (
-        <>
-      {/* MODE — moved here from the top bar */}
-      <section
-        data-settings-section="mode"
-        className="rounded border-[3px] border-gray-900 bg-white p-5"
-      >
-        <h2 className="font-pixelify text-xl font-bold text-ink">
-          Site mode
-        </h2>
-
-        <p className="mt-1 text-sm text-muted">
-          Library mode is the visitor-friendly librarian with the feature
-          set the admin exposes; Researcher mode is the full pro tool and
-          ignores feature locks. Switching is instant and persists in this
-          browser.
-        </p>
-
-        <div
-          role="radiogroup"
-          aria-label="Site mode"
-          className="mt-4 flex w-full max-w-full flex-col rounded border-[3px] sm:w-fit sm:flex-row border-gray-900 bg-white p-0.5"
-        >
-          {(
-            [
-              ["library", "LIBRARY", "Visitor view"],
-              ["researcher", "RESEARCHER", "Full pro tool"],
-              ["presentation", "PRESENTATION", "Shipped, free version"],
-            ] as const
-          ).map(([id, label, hint]) => {
-            const active = mode === id;
-
-            return (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => setMode(id)}
-                className={`rounded border-[3px] px-4 py-2 text-left transition-colors pixel-ease ${
-                  active
-                    ? "border-gray-900 bg-accent text-onAccent"
-                    : "border-transparent text-muted hover:text-ink"
-                }`}
-              >
-                <span className="block font-mono text-xs font-bold uppercase tracking-[0.12em]">
-                  {label}
-                </span>
-                <span
-                  className={`mt-0.5 block text-[11px] ${
-                    active ? "text-onAccent/80" : ""
-                  }`}
-                >
-                  {hint}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* INTERFACE */}
-      <section
-        data-settings-section="interface"
-        className="rounded border-[3px] border-gray-900 bg-white p-5"
-      >
-        <h2 className="font-pixelify text-xl font-bold text-ink">
-          Interface
-        </h2>
-
-        <label className="mt-3 flex items-start gap-3 text-sm text-ink">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4"
-            checked={prefs.navLabels}
-            onChange={(event) => setNavLabels(event.target.checked)}
-          />
-
-          <span>
-            <span className="font-bold">Show menu labels in the top bar</span>
-            <span className="mt-0.5 block text-muted">
-              Turn this off for an icon-only navigation; the title of
-              each item remains available as a tooltip and to screen
-              readers.
-            </span>
-          </span>
-        </label>
-      </section>
-
-      {/* CITATION STYLE */}
-      <section
-        data-settings-section="citation-style"
-        className="rounded border-[3px] border-gray-900 bg-white p-5"
-      >
-        <h2 className="font-pixelify text-xl font-bold text-ink">
-          Preferred citation style
-        </h2>
-
-        <p className="mt-1 text-sm text-muted">
-          Used when copying a formatted citation from selected
-          papers.
-        </p>
-
-        <div
-          role="radiogroup"
-          aria-label="Preferred citation style"
-          className="mt-4 grid gap-2 sm:grid-cols-2"
-        >
-          {CITATION_STYLES.map((style) => {
-            const active = settings.citationStyle === style.id;
-
-            return (
-              <button
-                key={style.id}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                data-citation-style={style.id}
-                onClick={() =>
-                  update({ citationStyle: style.id as CitationStyle })
-                }
-                className={`rounded border-[3px] border-gray-900 p-3 text-left transition-colors pixel-ease ${
-                  active
-                    ? "bg-accent text-onAccent"
-                    : "bg-surface text-ink hover:bg-accentSoft"
-                }`}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-bold">{style.label}</span>
-
-                  {active && (
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.12em]">
-                      Default
-                    </span>
-                  )}
-                </span>
-
-                <span
-                  className={`mt-1 block text-xs leading-5 ${
-                    active ? "text-onAccent" : "text-muted"
-                  }`}
-                >
-                  {style.sample}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* COPY BEHAVIOR */}
-      <section
-        data-settings-section="copy"
-        className="rounded border-[3px] border-gray-900 bg-white p-5"
-      >
-        <h2 className="font-pixelify text-xl font-bold text-ink">
-          Copy behavior
-        </h2>
-
-        <div className="mt-3 flex flex-col gap-3">
-          <label className="flex items-start gap-3 text-sm text-ink">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4"
-              checked={settings.citationIncludeDoi}
-              onChange={(event) =>
-                update({
-                  citationIncludeDoi: event.target.checked,
-                })
-              }
-            />
-
-            <span>
-              <span className="font-bold">
-                Include DOI links in formatted citations
-              </span>
-              <span className="mt-0.5 block text-muted">
-                Adds https://doi.org/… to APA, MLA, Chicago, and IEEE
-                citations.
-              </span>
-            </span>
-          </label>
-
-          <label className="flex items-start gap-3 text-sm text-ink">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4"
-              checked={settings.bibtexIncludeAbstract}
-              onChange={(event) =>
-                update({
-                  bibtexIncludeAbstract: event.target.checked,
-                })
-              }
-            />
-
-            <span>
-              <span className="font-bold">
-                Include abstracts in copied BibTeX
-              </span>
-              <span className="mt-0.5 block text-muted">
-                Batch file exports from My Library are unchanged.
-              </span>
-            </span>
-          </label>
-        </div>
-      </section>
-
-      {/* PIXEL PET */}
-      <section
-        data-settings-section="pet"
-        className="rounded border-[3px] border-gray-900 bg-white p-5"
-      >
-        <h2 className="font-pixelify text-xl font-bold text-ink">
-          Pixel pet
-        </h2>
-
-        <label className="mt-3 flex items-start gap-3 text-sm text-ink">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4"
-            checked={petVisible}
-            onChange={togglePet}
-          />
-
-          <span>
-            <span className="font-bold">Show the pixel pet companion</span>
-            <span className="mt-0.5 block text-muted">
-              The pet sits in the corner, shows tips, and removes
-              papers that you drag onto it. Turn it off for a
-              distraction-free view.
-            </span>
-          </span>
-        </label>
-      </section>
-
-      {/* CONNECTIONS */}
-      <section
-        data-settings-section="connections"
-        className="rounded border-[3px] border-gray-900 bg-white p-5"
-      >
-        <h2 className="font-pixelify text-xl font-bold text-ink">
-          Similar-papers scope
-        </h2>
-
-        <p className="mt-1 text-sm text-muted">
-          Which source the connections pane opens with. Local is the
-          repository graph; Web reads live from OpenAlex.
-        </p>
-
-        <div
-          role="radiogroup"
-          aria-label="Default connections scope"
-          className="mt-3 flex w-fit rounded border-[3px] border-gray-900 bg-white p-0.5"
-        >
-          {(["local", "web"] as const).map((option) => (
+      <div className="set-shell">
+        <nav className="set-rail" aria-label="Settings sections">
+          <p className="set-rail-title">Sections</p>
+          {railItems.map(([id, label]) => (
             <button
-              key={option}
+              key={id}
               type="button"
-              role="radio"
-              aria-checked={scope === option}
-              onClick={() => updateScope(option)}
-              className={`rounded px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.1em] transition-colors pixel-ease ${
-                scope === option
-                  ? "bg-accent text-onAccent"
-                  : "text-muted hover:text-ink"
-              }`}
+              className="set-chip"
+              onClick={() => jump(id)}
             >
-              {option}
+              {label}
             </button>
           ))}
-        </div>
-      </section>
+        </nav>
 
-      <p className="text-xs text-muted">
-        Current mode:{" "}
-        <span className="font-bold text-ink">
-          {mode === "library" ? "Library" : mode === "presentation" ? "Presentation" : "Researcher"}
-        </span>{" "}
-        — switch it in the Site mode section above.
-      </p>
-        </>
-      )}
+        <div className="set-main" ref={mainRef}>
+          {tab === "preferences" && (
+          <div className="set-legend" aria-hidden="true">
+            <span><i className="set-lamp" data-state="on" /> On</span>
+            <span><i className="set-lamp" data-state="off" /> Off</span>
+            <span><i className="set-lamp" data-state="changed" /> Changed from default</span>
+          </div>
+          )}
+
+          {tab === "dev" && <DevPanel />}
+
+          {tab === "preferences" && (
+            <>
+              <SetPanel id="mode" title="Site mode" count={modeLabel}>
+                <SetRow
+                  title="Mode"
+                  note="Library mode is the visitor-friendly librarian with the feature set the admin exposes; Researcher mode is the full pro tool and ignores feature locks. Switching is instant and persists in this browser."
+                  lamp={mode === "researcher" ? "changed" : "on"}
+                  stack
+                >
+                  <div
+                    role="radiogroup"
+                    aria-label="Site mode"
+                    className="set-seg w-full flex-col sm:w-fit sm:flex-row"
+                  >
+                    {(
+                      [
+                        ["library", "LIBRARY", "Visitor view"],
+                        ["researcher", "RESEARCHER", "Full pro tool"],
+                        ["presentation", "PRESENTATION", "Shipped, free version"],
+                      ] as const
+                    ).map(([id, label, hint]) => {
+                      const active = mode === id;
+
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setMode(id)}
+                          className={`border-[3px] px-4 py-2 text-left transition-colors pixel-ease ${
+                            active
+                              ? "border-gray-900 bg-accent text-onAccent"
+                              : "border-transparent text-muted hover:text-ink"
+                          }`}
+                        >
+                          <span className="block font-mono text-xs font-bold uppercase tracking-[0.12em]">
+                            {label}
+                          </span>
+                          <span
+                            className={`mt-0.5 block text-[11px] ${
+                              active ? "text-onAccent/80" : ""
+                            }`}
+                          >
+                            {hint}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </SetRow>
+              </SetPanel>
+
+              <SetPanel id="interface" title="Interface">
+                <SetRow
+                  title="Menu labels in the top bar"
+                  note="Turn this off for an icon-only navigation; the title of each item remains available as a tooltip and to screen readers."
+                  lamp={prefs.navLabels ? "on" : "off"}
+                  value={prefs.navLabels ? "On" : "Off"}
+                  atDefault={prefs.navLabels}
+                  onReset={() => setNavLabels(true)}
+                >
+                  <label className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={prefs.navLabels}
+                      onChange={(event) => setNavLabels(event.target.checked)}
+                    />
+                    <span className="font-bold">Show menu labels in the top bar</span>
+                  </label>
+                </SetRow>
+              </SetPanel>
+
+              <SetPanel
+                id="citation-style"
+                title="Preferred citation style"
+                count={citeLabel}
+              >
+                <SetRow
+                  title="Citation style"
+                  note="Used when copying a formatted citation from selected papers."
+                  lamp={settings.citationStyle === "apa" ? "on" : "changed"}
+                  atDefault={settings.citationStyle === "apa"}
+                  onReset={() => update({ citationStyle: "apa" })}
+                  stack
+                >
+                  <div
+                    role="radiogroup"
+                    aria-label="Preferred citation style"
+                    className="grid w-full gap-2 sm:grid-cols-2"
+                  >
+                    {CITATION_STYLES.map((style) => {
+                      const active = settings.citationStyle === style.id;
+
+                      return (
+                        <button
+                          key={style.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          data-citation-style={style.id}
+                          onClick={() =>
+                            update({ citationStyle: style.id as CitationStyle })
+                          }
+                          className={`border-[3px] border-gray-900 p-3 text-left transition-colors pixel-ease ${
+                            active
+                              ? "bg-accent text-onAccent"
+                              : "bg-surface text-ink hover:bg-accentSoft"
+                          }`}
+                        >
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-bold">{style.label}</span>
+
+                            {active && (
+                              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.12em]">
+                                Default
+                              </span>
+                            )}
+                          </span>
+
+                          <span
+                            className={`mt-1 block text-xs leading-5 ${
+                              active ? "text-onAccent" : "text-muted"
+                            }`}
+                          >
+                            {style.sample}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </SetRow>
+              </SetPanel>
+
+              <SetPanel id="copy" title="Copy behavior">
+                <SetRow
+                  title="DOI links in citations"
+                  note="Adds https://doi.org/… to APA, MLA, Chicago, and IEEE citations."
+                  lamp={settings.citationIncludeDoi ? "on" : "off"}
+                  value={settings.citationIncludeDoi ? "On" : "Off"}
+                  atDefault={settings.citationIncludeDoi}
+                  onReset={() => update({ citationIncludeDoi: true })}
+                >
+                  <label className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={settings.citationIncludeDoi}
+                      onChange={(event) =>
+                        update({
+                          citationIncludeDoi: event.target.checked,
+                        })
+                      }
+                    />
+                    <span className="font-bold">
+                      Include DOI links in formatted citations
+                    </span>
+                  </label>
+                </SetRow>
+
+                <SetRow
+                  title="Abstracts in BibTeX"
+                  note="Batch file exports from My Library are unchanged."
+                  lamp={settings.bibtexIncludeAbstract ? "on" : "off"}
+                  value={settings.bibtexIncludeAbstract ? "On" : "Off"}
+                  atDefault={settings.bibtexIncludeAbstract}
+                  onReset={() => update({ bibtexIncludeAbstract: true })}
+                >
+                  <label className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={settings.bibtexIncludeAbstract}
+                      onChange={(event) =>
+                        update({
+                          bibtexIncludeAbstract: event.target.checked,
+                        })
+                      }
+                    />
+                    <span className="font-bold">
+                      Include abstracts in copied BibTeX
+                    </span>
+                  </label>
+                </SetRow>
+              </SetPanel>
+
+              <SetPanel id="pet" title="Pixel pet">
+                <SetRow
+                  title="Pixel pet companion"
+                  note="The pet sits in the corner, shows tips, and removes papers that you drag onto it. Turn it off for a distraction-free view."
+                  lamp={petVisible ? "on" : "off"}
+                  value={petVisible ? "On" : "Off"}
+                  atDefault={petVisible}
+                  onReset={() => {
+                    if (!petVisible) togglePet();
+                  }}
+                >
+                  <label className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={petVisible}
+                      onChange={togglePet}
+                    />
+                    <span className="font-bold">Show the pixel pet companion</span>
+                  </label>
+                </SetRow>
+              </SetPanel>
+
+              <SetPanel id="connections" title="Similar-papers scope" count={scope}>
+                <SetRow
+                  title="Default scope"
+                  note="Which source the connections pane opens with. Local is the repository graph; Web reads live from OpenAlex."
+                  lamp={scope === "local" ? "on" : "changed"}
+                  atDefault={scope === "local"}
+                  onReset={() => updateScope("local")}
+                >
+                  <div
+                    role="radiogroup"
+                    aria-label="Default connections scope"
+                    className="set-seg"
+                  >
+                    {(["local", "web"] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        role="radio"
+                        aria-checked={scope === option}
+                        onClick={() => updateScope(option)}
+                        className={`px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.1em] transition-colors pixel-ease ${
+                          scope === option
+                            ? "bg-accent text-onAccent"
+                            : "text-muted hover:text-ink"
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </SetRow>
+              </SetPanel>
+
+              <p className="text-xs text-muted">
+                Current mode:{" "}
+                <span className="font-bold text-ink">{modeLabel}</span>{" "}
+                — switch it in the Site mode section above.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

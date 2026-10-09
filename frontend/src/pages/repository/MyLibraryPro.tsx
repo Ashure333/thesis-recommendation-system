@@ -17,6 +17,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, LayoutGrid, List, Lock, Trash2 } from "lucide-react";
+import "./library.css";
 import ResponsiveLabel from "../../components/ResponsiveLabel";
 
 import {
@@ -128,6 +129,14 @@ function yearBins(papers: Paper[]): { label: string; count: number }[] {
     }));
 }
 
+/* Spine colour: a stable tone (0-5) per subject. */
+function toneOf(paper: Paper): number {
+  const key = paper.subject_category?.split(":", 1)[0]?.trim() || "";
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return h % 6;
+}
+
 function categoryOf(paper: Paper) {
   const parts = paper.subject_category?.split(":", 2).map((p) => p.trim());
   return { subject: parts?.[0] ?? "", category: parts?.[1] ?? "" };
@@ -160,7 +169,7 @@ export default function MyLibraryPro({
   const navigate = useNavigate();
   const [tab, setTab] = useState<ProTab>("library");
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<"list" | "grid">("list");
+  const [view, setView] = useState<"list" | "grid">("grid");
   const [pill, setPill] = useState<"all" | "pdf" | "recent" | "unsorted">(
     "all",
   );
@@ -567,9 +576,28 @@ export default function MyLibraryPro({
     );
   }, [papers, pill, q]);
 
+  const deskEntries = useMemo(
+    () =>
+      [...entries]
+        .sort((a, b) => (b.saved_at ?? "").localeCompare(a.saved_at ?? ""))
+        .slice(0, 4),
+    [entries],
+  );
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageStart = (page - 1) * pageSize;
   const paged = filtered.slice(pageStart, pageStart + pageSize);
+
+  /* Shelves: the current page grouped by subject. */
+  const shelves = useMemo(() => {
+    const map = new Map<string, Paper[]>();
+    for (const paper of paged) {
+      const key = categoryOf(paper).subject || "Unsorted";
+      map.set(key, [...(map.get(key) ?? []), paper]);
+    }
+    return [...map.entries()];
+  }, [paged]);
+
 
   function toggleSelected(id: number) {
     setSelectedIds((current) => {
@@ -734,9 +762,41 @@ export default function MyLibraryPro({
 
       {/* ================= LIBRARY ================= */}
       {tab === "library" && (
-        <div className="flex flex-col gap-3">
+        <div className="lib-page flex flex-col gap-6">
+          {/* On my desk: the most recently saved papers */}
+          {deskEntries.length > 0 && (
+            <section className="lib-desk" aria-label="On my desk">
+              <div className="lib-desk-head">
+                <h2 className="lib-desk-title font-pixelify">On my desk</h2>
+                <span className="lib-desk-sub">Your latest saves</span>
+              </div>
+              <div className="lib-desk-row">
+                {deskEntries.map((entry) => (
+                  <button
+                    key={entry.paper.id}
+                    type="button"
+                    data-lib-tone={toneOf(entry.paper)}
+                    onClick={() => viewer.openPaper(entry.paper)}
+                    className="lib-desk-item"
+                  >
+                    <h4>
+                      <MathText text={entry.paper.title} />
+                    </h4>
+                    <small>
+                      {entry.paper.author ?? "Unknown author"}
+                      {entry.paper.publication_year
+                        ? ` · ${entry.paper.publication_year}`
+                        : ""}
+                    </small>
+                  </button>
+                ))}
+              </div>
+              <div className="lib-desk-edge" />
+            </section>
+          )}
+
           {/* Ask box — routes to the Chat tab when PRO is unlocked */}
-          <div className="font-pixelify rounded border-[3px] border-gray-900 bg-white p-4">
+          <div className="font-pixelify lib-panel p-4">
             <div className="flex items-center gap-2">
               {locked && (
                 <span
@@ -782,7 +842,7 @@ export default function MyLibraryPro({
           </div>
 
           {/* Filters */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded border-[3px] border-gray-900 bg-white p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 lib-panel p-3">
             <div className="flex flex-wrap items-center gap-1.5">
               {(
                 [
@@ -822,7 +882,7 @@ export default function MyLibraryPro({
                 className="ui-input min-h-10 w-56 px-3 py-2 text-sm"
               />
 
-              <div className="flex rounded border-[3px] border-gray-900 bg-white p-0.5">
+              <div className="flex lib-panel p-0.5">
                 <button
                   type="button"
                   aria-pressed={view === "list"}
@@ -855,7 +915,7 @@ export default function MyLibraryPro({
 
           {/* Selection bar */}
           {selectedCount > 0 && (
-            <div className="flex flex-wrap items-center gap-3 rounded border-[3px] border-gray-900 bg-accentSoft px-4 py-2">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-accentSoft px-4 py-2">
               <span className="font-mono text-xs font-bold text-ink">
                 {selectedCount} selected
               </span>
@@ -873,7 +933,7 @@ export default function MyLibraryPro({
 
           {/* Papers */}
           {filtered.length === 0 ? (
-            <div className="rounded border-[3px] border-gray-900 bg-white p-6">
+            <div className="lib-panel p-6">
               <EmptyState
                 title="No papers match."
                 description="Try a different filter or search term."
@@ -881,70 +941,87 @@ export default function MyLibraryPro({
               />
             </div>
           ) : view === "grid" ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {paged.map((paper) => (
-                <article
-                  key={paper.id}
-                  draggable
-                  onDragStart={(event) => startPaperDrag(event, paper)}
-                  className={`cursor-grab rounded border-[3px] border-gray-900 bg-white p-4 active:cursor-grabbing ${
-                    selectedIds.has(paper.id)
-                      ? "shadow-[inset_0_0_0_3px_var(--accent)]"
-                      : ""
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${paper.title}`}
-                      checked={selectedIds.has(paper.id)}
-                      onChange={() => toggleSelected(paper.id)}
-                      className="mt-1 h-4 w-4 accent-[#1f5f8b]"
-                    />
-                    <button
-                      type="button"
-                      aria-label="Remove paper from collection"
-                      onClick={(event) => void handleRemove(paper, event)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded border-[3px] border-gray-900 bg-white text-muted transition-colors hover:bg-accent hover:text-onAccent"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+            <div>
+              {shelves.map(([subject, shelfPapers]) => (
+                <section key={subject} className="lib-shelf">
+                  <div className="lib-shelf-label">
+                    <h3 className="font-pixelify">{subject}</h3>
+                    <span>
+                      {shelfPapers.length} on this shelf
+                    </span>
                   </div>
-                  <h3 className="mt-2 font-pixelify text-sm font-bold leading-5 text-ink">
-                    <MathText text={paper.title} />
-                  </h3>
-                  <p className="mt-1 text-xs text-muted">
-                    {paper.author ?? "Unknown author"} ·{" "}
-                    {paper.publication_year ?? "—"}
-                  </p>
-                  {paper.abstract && (
-                    <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted">
-                      <Highlight text={paper.abstract} terms={q ? [q] : []} />
-                    </p>
-                  )}
-                  <PaperChips paper={paper} />
+                  <div className="lib-shelf-row">
+                    {shelfPapers.map((paper) => (
+                      <article
+                        key={paper.id}
+                        draggable
+                        data-lib-tone={toneOf(paper)}
+                        data-selected={selectedIds.has(paper.id)}
+                        onDragStart={(event) => startPaperDrag(event, paper)}
+                        className="lib-cover cursor-grab active:cursor-grabbing"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${paper.title}`}
+                            checked={selectedIds.has(paper.id)}
+                            onChange={() => toggleSelected(paper.id)}
+                            className="mt-1 h-4 w-4 accent-[#1f5f8b]"
+                          />
+                          <span className="lib-cover-year">
+                            {paper.publication_year ?? "—"}
+                          </span>
+                        </div>
+                        <h3 className="mt-2 font-pixelify text-sm font-bold leading-5 text-ink">
+                          <MathText text={paper.title} />
+                        </h3>
+                        <p className="mt-1 text-xs text-muted">
+                          {paper.author ?? "Unknown author"}
+                        </p>
+                        {paper.abstract && (
+                          <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted">
+                            <Highlight
+                              text={paper.abstract}
+                              terms={q ? [q] : []}
+                            />
+                          </p>
+                        )}
+                        <PaperChips paper={paper} />
 
-                  <div className="mt-3 flex flex-wrap gap-2 border-t-[2px] border-gray-200 pt-3">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => viewer.openPaper(paper)}
-                    >
-                      View
-                    </Button>
+                        <div className="mt-auto flex items-center gap-2 pt-3">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => viewer.openPaper(paper)}
+                          >
+                            View
+                          </Button>
+                          <button
+                            type="button"
+                            aria-label="Remove paper from collection"
+                            onClick={(event) => void handleRemove(paper, event)}
+                            className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 bg-surface text-muted transition-colors hover:bg-accent hover:text-onAccent"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </article>
+                    ))}
                   </div>
-                </article>
+                  <div className="lib-shelf-plank" aria-hidden="true" />
+                </section>
               ))}
             </div>
           ) : (
-            <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white">
+            <div className="lib-list">
               {paged.map((paper) => (
                 <div
                   key={paper.id}
                   draggable
                   onDragStart={(event) => startPaperDrag(event, paper)}
-                  className={`flex cursor-grab items-start gap-3 border-b border-gray-200 p-3 last:border-b-0 active:cursor-grabbing ${
-                    selectedIds.has(paper.id) ? "bg-accentSoft/60" : ""
+                  data-lib-tone={toneOf(paper)}
+                  className={`lib-row cursor-grab active:cursor-grabbing ${
+                    selectedIds.has(paper.id) ? "!bg-accentSoft/60" : ""
                   }`}
                 >
                   <input
@@ -980,7 +1057,7 @@ export default function MyLibraryPro({
                       type="button"
                       aria-label="Remove paper from collection"
                       onClick={(event) => void handleRemove(paper, event)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded border-[3px] border-gray-900 bg-white text-muted transition-colors hover:bg-accent hover:text-onAccent"
+                      className="inline-flex h-9 w-9 items-center justify-center lib-panel text-muted transition-colors hover:bg-accent hover:text-onAccent"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -997,7 +1074,7 @@ export default function MyLibraryPro({
           </p>
 
           {/* Pagination */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded border-[3px] border-gray-900 bg-white px-4 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 lib-panel px-4 py-2">
             <span className="font-mono text-xs text-muted">
               {filtered.length === 0
                 ? "0 papers"

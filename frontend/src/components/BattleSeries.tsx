@@ -7,8 +7,10 @@
  * when seed papers are used, real quality against their references.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import TournamentInterpretation from "./TournamentInterpretation";
+import { interpretSeries } from "../utils/battleInterpretation.ts";
 import {
   cleanSeriesQueries,
   comparePipelines,
@@ -55,6 +57,15 @@ export default function BattleSeries({ topK, name, onBattle }: Props) {
   const [summary, setSummary] = useState<SeriesSummary | null>(null);
   const [labels, setLabels] = useState<SeriesLabel[]>([]);
   const cancel = useRef(false);
+  // Collapsed until wanted; a running or finished series keeps it open.
+  const [open, setOpen] = useState(false);
+  const generate = useCallback(
+    (style: Parameters<typeof interpretSeries>[1]) =>
+      summary ? interpretSeries(summary, style, name) : "",
+    // `name` is stable for the page; the summary is what changes the text
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [summary],
+  );
 
   useEffect(() => {
     getSeriesLabels().then(setLabels).catch(() => undefined);
@@ -76,6 +87,7 @@ export default function BattleSeries({ topK, name, onBattle }: Props) {
   async function loadSummary(forLabel: string) {
     try {
       setSummary(await getSeriesSummary(forLabel));
+      setOpen(true);
     } catch {
       /* the board is best-effort */
     }
@@ -118,6 +130,7 @@ export default function BattleSeries({ topK, name, onBattle }: Props) {
     setItems(list);
     setStates(list.map(() => "waiting"));
     setSummary(null);
+    setOpen(true);
     setRunning(true);
     cancel.current = false;
 
@@ -148,12 +161,33 @@ export default function BattleSeries({ topK, name, onBattle }: Props) {
   return (
     <section
       aria-label="Battle series"
-      className="rounded border-[3px] border-gray-900 bg-surface p-3"
+      className="rounded border-[3px] border-gray-900 bg-surface"
     >
-      <h2 className="font-pixelify text-lg font-bold text-ink">Battle series</h2>
-      <p className="mt-1 text-xs leading-5 text-muted">
-        Run many queries under one label and read them as one board. Pasted queries give pooled agreement; sampled
-        seed papers are also scored against their own references, which is real quality.
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block font-pixelify text-lg font-bold text-ink">Battle series</span>
+          <span className="mt-0.5 block text-xs leading-5 text-muted">
+            Run many queries under one label and read them as one board.
+          </span>
+        </span>
+        <span
+          aria-hidden="true"
+          className="shrink-0 rounded border-[2px] border-gray-900 bg-white px-2 py-0.5 font-mono text-[11px] font-bold text-ink"
+        >
+          {open ? "Hide" : "Open"}
+        </span>
+      </button>
+
+      {open && (
+      <div className="space-y-4 border-t-[3px] border-gray-900 px-4 py-4">
+      <p className="text-xs leading-5 text-muted">
+        Pasted queries give pooled agreement; sampled seed papers are also scored against their own references,
+        which is real quality.
       </p>
 
       <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Series source">
@@ -338,7 +372,19 @@ export default function BattleSeries({ topK, name, onBattle }: Props) {
               </p>
             </div>
           )}
+
+          <div className="mt-3">
+            <TournamentInterpretation
+              nameOf={name}
+              generate={generate}
+              resetKey={`${summary.label}:${summary.n_battles}:${summary.judged.n_judged}`}
+              storageKey="paperrec_series_interpretation_style"
+              filenameStem={`battle-series-${slug(summary.label) || "board"}`}
+            />
+          </div>
         </div>
+      )}
+      </div>
       )}
     </section>
   );

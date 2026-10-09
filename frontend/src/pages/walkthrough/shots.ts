@@ -4,8 +4,9 @@
  * Every image the Walkthrough and Engine pages show is listed here once,
  * with its title and caption, in reading order. `shotUrl(id)` is the file
  * under /public/walkthrough. All of them were captured from the running
- * app in Researcher (Pro) mode with the default theme, the garden fully
- * grown and every unlock switched on, at 1440 px wide unless noted.
+ * app in Researcher (Pro) mode with the Indigo theme (light mode), the
+ * garden fully grown and every unlock switched on, at 1440 px wide unless
+ * noted.
  */
 
 export interface Shot {
@@ -53,7 +54,7 @@ export const SHOTS: Shot[] = [
   S("repository-list", "Paper table", "Title with subject and category chips, authors, year, date added and type. Star a row to favorite it; tick rows to select."),
   S("repository-algorithm-collapsed", "Algorithm bar", "At rest the algorithm console is a single line: the active pipeline's weight bar and name."),
   S("repository-algorithm-open", "Algorithm bar, open", "Change opens the six presets, the custom mix and (in Recommend scope) Top K and Diversify."),
-  S("repository-algorithm-dials", "Custom dials", "The custom pipeline's three dials normalize to 100% and print the resulting formula."),
+  S("repository-algorithm-dials", "Custom dials", "The custom blend popover: drag the dot on the triangle toward a signal, or use the three dials. The shares normalize to 100% and the resulting formula is printed."),
   S("repository-search-library", "Library search", "Typing in the Library scope filters the table live and highlights the matched words in the snippet."),
   S("repository-recommend", "Recommend scope", "A query ranked by the active pipeline: a score bar per row, Top K and Diversify beside the algorithm buttons."),
   S("repository-recommend-ghost-wire", "Another algorithm, same query", "Pressing GHOST WIRE (S-BERT) re-ranks the same query at once; the header names the algorithm that produced the list."),
@@ -74,7 +75,7 @@ export const SHOTS: Shot[] = [
   /* --------------------------------------------------------- upload */
   S("upload", "Upload", "A drop zone for PDF, BibTeX, RIS and EndNote files, an identifier box (DOI or arXiv) and the BibTeX export guide."),
   S("upload-identifier-typed", "Lookup by identifier", "Paste a DOI, an arXiv id or a link; Look up fetches the metadata."),
-  S("upload-identifier-review", "Review form", "The record resolved from arXiv 1706.03762, ready to correct, with the four required recommendation fields checked on the right."),
+  S("upload-identifier-review", "Review form", "The record resolved from arXiv 1706.03762, ready to correct. A banner warns when the paper is already in the repository."),
   S("upload-pdf-review", "Review form from a PDF", "Dropping a PDF extracts title, authors, abstract and keywords heuristically; you correct them before saving."),
   S("upload-bibtex-popup", "Paste BibTeX manually", "Paste one or many BibTeX entries; each is parsed into the review navigator."),
 
@@ -92,11 +93,11 @@ export const SHOTS: Shot[] = [
 
   /* ---------------------------------------------------------- arena */
   S("arena", "Arena", "The arcade cabinet: query, depth and the high-score board, with the battle log below."),
-  S("arena-cabinet", "The cabinet", "Player one types a query, picks a depth (Top 5, 10 or 15) and presses start; the board keeps the win tally."),
+  S("arena-cabinet", "The cabinet", "Player one types a query, picks a depth (Top 5, 10 or 15) and presses start; the board keeps the tally of decisive wins."),
   S("arena-query-typed", "A query typed", "The Repository / Web scope switch sits above the query line."),
-  S("arena-battling", "Battle in progress", "Six rounds tick by while the pipelines run: ROUND n OF 6."),
+  S("arena-battling", "Battle in progress", "The meter fills as each pipeline actually finishes (n of 6 done), with the finished pipelines and their top results listed."),
   S("arena-result", "Battle complete", "When the battle ends the board updates and the result tabs appear below."),
-  S("arena-winner", "01 Winner", "The pipeline that captured the largest share of independence-weighted consensus, and that share."),
+  S("arena-winner", "01 Winner", "The pipeline that captured the largest share of independence-weighted consensus, and that share. A lead of under two points is shown as too close to call."),
   S("arena-consensus", "02 Consensus", "Papers ordered by how many of the six pipelines ranked them, then by average rank."),
   S("arena-pairwise", "03 Pairwise", "For each pair of pipelines: overlap at K and the mean rank gap."),
   S("arena-battle-grid", "04 Battle grid", "Every paper's rank under every pipeline; empty cells mark papers that missed the top K."),

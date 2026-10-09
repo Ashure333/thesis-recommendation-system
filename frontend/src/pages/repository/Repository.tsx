@@ -38,6 +38,8 @@ import LayoutOptions from "../../components/LayoutOptions";
 import StaggerIn from "../../components/retro/StaggerIn";
 import Pagination from "../../components/retro/Pagination";
 import PaneHandle, { usePaneWidth } from "../../components/ResizeHandle";
+import { accession, spineColor } from "../../utils/catalogue.ts";
+import "./repository.css";
 import Highlight from "../../components/Highlight";
 import WebSimilarPanel from "../../components/WebSimilarPanel";
 import ConnectionsPane from "../../components/ConnectionsPane";
@@ -1400,7 +1402,7 @@ export default function Repository() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1560px]">
+    <div className="cat-repo mx-auto w-full max-w-[1560px]">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-orb")!} />
       <PageHeader
         eyebrow="Repository"
@@ -1485,12 +1487,12 @@ export default function Repository() {
 
         {prefs.sidebar && (
         <aside
-          className={`shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:block lg:w-[var(--pane-left)] ${
+          className={`cat-panel shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:block lg:w-[var(--pane-left)] ${
             filtersOpenNarrow ? "" : "hidden"
           }`}
           data-tips="repo-filters"
         >
-          <div className="flex items-center gap-1.5 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
+          <div className="cat-head flex items-center gap-1.5 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
             <SlidersHorizontal className="h-3.5 w-3.5 text-muted" />
             <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
               Filter console
@@ -1956,12 +1958,12 @@ export default function Repository() {
             ==================================================== */}
 
         <section
-          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white"
+          className="cat-panel flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white"
           aria-label="Paper results"
           data-tips="repo-results"
         >
           {/* One header: what this is, how many, and the actions. */}
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5">
+          <div className="cat-head flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b-[3px] border-gray-900 bg-canvas px-4 py-2.5">
             <span className="flex min-w-0 items-center gap-1.5">
               {searchMode === "web" ? (
                 <Globe className="h-3.5 w-3.5 shrink-0 text-muted" />
@@ -1970,7 +1972,7 @@ export default function Repository() {
               ) : (
                 <Table className="h-3.5 w-3.5 shrink-0 text-muted" />
               )}
-              <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink">
+              <p className="cat-plate font-mono text-xs font-bold uppercase tracking-[0.15em] text-ink">
                 {searchMode === "web"
                   ? "Web results"
                   : searchMode === "recommend"
@@ -2252,7 +2254,7 @@ export default function Repository() {
                               setInspectorCollapsed(false);
                               setSelectedWeb(web);
                             }}
-                            className={`cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
+                            className={`cat-row cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
                               webActive ? "bg-accentSoft/60" : "hover:bg-canvas"
                             }`}
                           >
@@ -2359,7 +2361,7 @@ export default function Repository() {
                             setSelectedWeb(null);
                             selectPaper(paper);
                           }}
-                          className={`cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
+                          className={`cat-row cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
                             active
                               ? "bg-accentSoft/60"
                               : "hover:bg-canvas"
@@ -2581,6 +2583,7 @@ export default function Repository() {
                     return (
                       <tr
                         key={paper.id}
+                        style={{ "--spine": spineColor(paperSubject) ?? "transparent" } as React.CSSProperties}
                         onClick={() => selectPaper(paper)}
                         onPointerDown={(event) => {
                           if (event.pointerType !== "mouse") {
@@ -2605,7 +2608,7 @@ export default function Repository() {
                             event.clientY
                           );
                         }}
-                        className={`cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
+                        className={`cat-row cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
                           isSelected ? "bg-accentSoft" : active ? "bg-accentSoft/60" : "hover:bg-canvas"
                         }`}
                       >
@@ -2644,6 +2647,7 @@ export default function Repository() {
                         </td>
                         {compactList ? (
                         <td className="w-full min-w-0 max-w-0 px-2 py-2.5">
+                          <span className="cat-acc" aria-hidden="true">{accession(paper.id)}</span>
                           <EditableCell
                             paperId={paper.id}
                             field="title"
@@ -2717,6 +2721,7 @@ export default function Repository() {
                         </td>
                         ) : (
                         <td className="w-[46%] max-w-0 px-2 py-2.5">
+                          <span className="cat-acc" aria-hidden="true">{accession(paper.id)}</span>
                           <div className="flex min-w-0 items-center gap-1.5">
                             {paperSubject && (
                               <span className="shrink-0 rounded border-[2px] border-gray-900 bg-gray-900 px-1 py-0.5 text-xs font-bold text-white">
@@ -2900,8 +2905,8 @@ export default function Repository() {
         />
 
         {statsOpen && (
-        <aside className="w-full shrink-0 overflow-hidden rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b-[3px] border-gray-900 bg-canvas px-3 py-1.5">
+        <aside className="cat-panel cat-card w-full shrink-0 overflow-hidden rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
+          <div className="cat-head sticky top-0 z-10 flex items-center justify-between border-b-[3px] border-gray-900 bg-canvas px-3 py-1.5">
             <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
               Inspector
             </span>
@@ -2927,8 +2932,8 @@ export default function Repository() {
         )}
 
         {!statsOpen && (
-        <aside className="w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b-[3px] border-gray-900 bg-canvas px-3 py-1.5">
+        <aside className="cat-panel cat-card w-full shrink-0 overflow-y-auto rounded border-[3px] border-gray-900 bg-white lg:w-[var(--pane-right)]">
+          <div className="cat-head sticky top-0 z-10 flex items-center justify-between border-b-[3px] border-gray-900 bg-canvas px-3 py-1.5">
             <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
               Inspector
             </span>

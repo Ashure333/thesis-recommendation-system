@@ -14,6 +14,8 @@
 
 import { useState } from "react";
 
+import "../pages/settings.css";
+
 import { CHARM_KINDS, PARTICLE_LAYERS, SCENE_LAYERS, charmsFor } from "../data/charms";
 import { BACKDROP_THEMES } from "../data/backdrops";
 import { SPECIES_STAGE_FERT, TREE_SPECIES, treeSpecies } from "../data/knowledge";
@@ -74,21 +76,25 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded border-[3px] border-gray-900 bg-white px-3 py-2">
-      <div className="min-w-0">
-        <p className="font-mono text-[11px] font-bold uppercase tracking-wide text-ink">{title}</p>
-        {note && <p className="text-xs leading-5 text-muted">{note}</p>}
+    <div className="set-row set-row-nolamp">
+      <div className="set-label">
+        <p className="set-label-t">{title}</p>
+        {note && <p className="set-label-n">{note}</p>}
       </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
+      <div className="set-ctl">{children}</div>
     </div>
   );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded border-[3px] border-gray-900 bg-white p-4">
-      <h2 className="font-pixelify text-lg font-bold text-ink">{title}</h2>
-      <div className="mt-3 flex flex-col gap-2">{children}</div>
+    <section className="set-panel" data-set-section={title}>
+      <div className="set-panel-head">
+        <h2 className="font-pixelify text-lg font-bold text-ink">{title}</h2>
+      </div>
+      <div className="set-panel-body">{children}</div>
+      <div className="set-panel-foot" />
+      <div className="set-screws" />
     </section>
   );
 }

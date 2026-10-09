@@ -753,7 +753,7 @@ export default function Evaluation() {
   ] as const;
 
   return (
-    <PageShell className="!gap-3 !py-5">
+    <PageShell className="!max-w-[1200px] !gap-5 !py-6">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-key")!} />
       <PageHeader
         eyebrow="Arena"
@@ -795,7 +795,7 @@ export default function Evaluation() {
         className="overflow-hidden rounded-lg border-[3px] border-gray-900 bg-gray-900 text-onInk shadow-[6px_6px_0_rgba(0,0,0,0.25)]"
       >
         {/* the marquee */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-accent px-3 py-1.5 text-onAccent">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b-[3px] border-gray-900 bg-accent px-4 py-2 text-onAccent">
           <p className="flex items-center gap-2 font-pixelify text-lg font-bold uppercase leading-none tracking-[0.2em]">
             <Star className="h-4 w-4" aria-hidden="true" />
             Pipeline battle
@@ -817,9 +817,9 @@ export default function Evaluation() {
           </p>
         </div>
 
-        <div className="grid gap-2 p-2.5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_300px]">
           {/* THE SCREEN */}
-          <div className="rounded border-[3px] border-black/60 bg-gray-950 p-3 shadow-[inset_0_0_0_2px_rgba(255,255,255,0.08),inset_0_0_36px_rgba(0,0,0,0.55)]">
+          <div className="rounded border-[3px] border-black/60 bg-gray-950 p-4 shadow-[inset_0_0_0_2px_rgba(255,255,255,0.08),inset_0_0_36px_rgba(0,0,0,0.55)]">
             {/* mode select */}
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-onInk/70">
@@ -880,7 +880,7 @@ export default function Evaluation() {
             </div>
 
             {!webMode && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
+              <div className="mt-3 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
                 <span>Seed paper</span>
                 {seedPaper ? (
                   <>
@@ -923,7 +923,7 @@ export default function Evaluation() {
               }}
             />
 
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
                 Depth
                 <select
@@ -955,7 +955,7 @@ export default function Evaluation() {
                 the log, so a tag beside the web options would promise
                 a record that is not written. */}
             {!webMode && (
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 border-t-2 border-dashed border-onInk/20 pt-2">
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t-2 border-dashed border-onInk/20 pt-3">
                 <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/70">
                   Run tag
                 </span>
@@ -1002,7 +1002,7 @@ export default function Evaluation() {
             )}
 
             {webMode && (
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-onInk/80">
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-onInk/80">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/70">
                     Sources
@@ -1052,7 +1052,7 @@ export default function Evaluation() {
             )}
 
             {/* what the screen says: the attract text, the rounds, or the result line */}
-            <div className="mt-2 border-t-2 border-dashed border-onInk/25 pt-2">
+            <div className="mt-3 border-t-2 border-dashed border-onInk/25 pt-3">
               {loading ? (
                 <div>
                   <p className="flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-onInk">
@@ -1068,10 +1068,10 @@ export default function Evaluation() {
                   <PixelProgress
                     value={webMode || progress.order.length === 0 ? null : finishedCount / totalCount}
                     stage={webMode ? undefined : `${finishedCount} OF ${totalCount} DONE`}
-                    className="mt-2 w-full"
+                    className="mt-3 w-full"
                   />
                   {progress.finished.length > 0 && (
-                    <ul className="mt-2 space-y-0.5 font-mono text-[10px] text-onInk/80">
+                    <ul className="mt-3 space-y-0.5 font-mono text-[10px] text-onInk/80">
                       {progress.finished.map((entry) => (
                         <li key={entry.id} className="flex gap-2">
                           <span className="w-28 shrink-0 truncate font-bold text-onInk">
@@ -1163,18 +1163,12 @@ export default function Evaluation() {
         <div className="status-error">{error}</div>
       )}
 
-      <BattleSeries
-        topK={topK}
-        name={displayName}
-        onBattle={() => void loadHistory(1)}
-      />
-
       {/* ======================================================
           RESULTS
           ====================================================== */}
 
       {!loading && battle && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {/* ------------------------------------------------
               RESULT TABS — one panel per result type, the first
               one is the summary, the last the recorded history
@@ -1182,11 +1176,11 @@ export default function Evaluation() {
 
           {/* RAIL — always visible; the battle grid/scores/records are the
               default view, the rest adapt once a battle lands */}
-          <div className="overflow-x-auto rounded border-[3px] border-gray-900 bg-gray-900 p-1.5">
+          <div className="rounded border-[3px] border-gray-900 bg-gray-900 p-2">
             <div
               role="tablist"
               aria-label="Arena results"
-              className="flex min-w-max gap-1.5"
+              className="flex flex-wrap gap-1.5"
             >
               {RESULT_TABS.map(({ id, label, icon: Icon }, index) => {
                 const active = resultsTab === id;
@@ -1199,7 +1193,7 @@ export default function Evaluation() {
                     aria-selected={active}
                     aria-label={label}
                     onClick={() => setResultsTab(id)}
-                    className={`relative flex items-center gap-1.5 rounded border-[2px] px-2.5 py-1.5 font-pixelify text-[11px] font-bold uppercase tracking-[0.12em] transition-colors pixel-ease ${
+                    className={`relative flex items-center gap-1.5 rounded border-[2px] px-2 py-1.5 font-pixelify text-[11px] font-bold uppercase tracking-[0.12em] transition-colors pixel-ease ${
                       active
                         ? "border-gray-900 bg-accent text-onAccent shadow-[inset_0_-3px_0_rgba(0,0,0,0.3)]"
                         : "border-gray-700 bg-gray-800 text-onInk/75 hover:border-accent hover:text-accent"
@@ -1222,15 +1216,15 @@ export default function Evaluation() {
             </div>
           </div>
 
-          <div key={resultsTab} className="animate-step-in space-y-3">
+          <div key={resultsTab} className="animate-step-in space-y-4">
 
           {/* ------------------------------------------------
               WINNER BANNER
               ------------------------------------------------ */}
 
           {resultsTab === "overview" && battle?.winner && (
-            <section className="rounded border-[3px] border-gray-900 bg-gray-900 p-3 text-onInk">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+            <section className="rounded border-[3px] border-gray-900 bg-gray-900 p-4 text-onInk">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <p className="animate-blink flex items-center gap-2 font-mono text-xs font-bold tracking-[0.3em] text-accent">
                     <Star className="h-3.5 w-3.5" />
@@ -1267,14 +1261,14 @@ export default function Evaluation() {
                       : ""}
                     . Agreement with a rival pipeline counts only as
                     much as that rival is built from different
-                    signals, a pipeline can.t be confirmed by its
+                    signals, a pipeline cannot be confirmed by its
                     own hybrids. This is agreement on one query, not
                     accuracy: use the Tournament tab to test which
                     pipeline is actually better.
                   </p>
                 </div>
 
-                <div className="shrink-0 text-right">
+                <div className="shrink-0 sm:text-right">
                   <p className="font-mono text-3xl font-bold leading-none text-accent">
                     {(battle.winner.value * 100).toFixed(0)}%
                   </p>
@@ -1292,7 +1286,7 @@ export default function Evaluation() {
 
           {resultsTab === "scores" && battle && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
-            <div className="border-b border-gray-200 px-3 py-2">
+            <div className="border-b border-gray-200 px-4 py-3">
               <p className="text-sm font-bold text-ink">
                 Score distribution
               </p>
@@ -1437,7 +1431,7 @@ export default function Evaluation() {
           <div>
 
           <section className="rounded border-[3px] border-gray-900 bg-white">
-            <div className="border-b border-gray-200 px-3 py-2">
+            <div className="border-b border-gray-200 px-4 py-3">
               <p className="text-sm font-bold text-ink">
                 Consensus ranking
               </p>
@@ -1450,7 +1444,7 @@ export default function Evaluation() {
             <div className="divide-y divide-gray-200">
               {gridPapers.slice(0, 5).map((entry, index) => (
                 <StaggerIn key={entry.paper_id} index={index}>
-                  <div className="flex items-center gap-2 px-3 py-2">
+                  <div className="flex items-center gap-2 px-4 py-2.5">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-[3px] border-gray-900 bg-surface font-mono text-xs font-bold text-ink">
                       {index + 1}
                     </span>
@@ -1491,7 +1485,7 @@ export default function Evaluation() {
           {resultsTab === "pairwise" && battle && (
           <div>
               <section className="rounded border-[3px] border-gray-900 bg-white">
-                <div className="border-b border-gray-200 px-3 py-2">
+                <div className="border-b border-gray-200 px-4 py-3">
                   <p className="text-sm font-bold text-ink">
                     Pairwise agreement
                   </p>
@@ -1502,7 +1496,7 @@ export default function Evaluation() {
                   </p>
                 </div>
 
-                <div className="grid gap-2 px-3 py-2 sm:grid-cols-2">
+                <div className="grid gap-3 px-4 py-3 sm:grid-cols-2">
                   {pagedPairs.map((pair, index) => {
                     const countA =
                       battle.pipelines.find((p) => p.id === pair.a)
@@ -1565,7 +1559,7 @@ export default function Evaluation() {
 
           {resultsTab === "grid" && battle && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
-            <div className="border-b border-gray-200 px-3 py-2">
+            <div className="border-b border-gray-200 px-4 py-3">
               <p className="font-pixelify text-sm font-bold text-ink">
                 Battle grid
               </p>
@@ -1664,7 +1658,7 @@ export default function Evaluation() {
 
           {resultsTab === "scores" && battle && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
-            <div className="border-b border-gray-200 px-3 py-2">
+            <div className="border-b border-gray-200 px-4 py-3">
               <p className="text-sm font-bold text-ink">
                 Each pipeline&rsquo;s top 5
               </p>
@@ -1675,7 +1669,7 @@ export default function Evaluation() {
               </p>
             </div>
 
-            <div className="space-y-2 px-3 py-2">
+            <div className="space-y-3 px-4 py-3">
               {(() => {
                 const allScores = battle.pipelines.flatMap(
                   (pipeline) =>
@@ -1786,7 +1780,7 @@ export default function Evaluation() {
 
           {resultsTab === "cite" && battle && citations && (
             <section className="rounded border-[3px] border-gray-900 bg-white">
-              <div className="border-b border-gray-200 px-3 py-2">
+              <div className="border-b border-gray-200 px-4 py-3">
                 <p className="font-pixelify text-sm font-bold text-ink">
                   Result interpretation
                 </p>
@@ -1797,7 +1791,7 @@ export default function Evaluation() {
                 </p>
               </div>
 
-              <div className="space-y-2 px-3 py-2">
+              <div className="space-y-3 px-4 py-3">
                 {citations.map((entry) => (
                   <div
                     key={entry.id}
@@ -1837,6 +1831,12 @@ export default function Evaluation() {
           a finished battle lands on top of it.
           ====================================================== */}
 
+      <BattleSeries
+        topK={topK}
+        name={displayName}
+        onBattle={() => void loadHistory(1)}
+      />
+
       <section
         aria-label="Battle log"
         data-arena-log=""
@@ -1860,7 +1860,7 @@ export default function Evaluation() {
             a spreadsheet, JSONL is the analysis file that carries
             every run's full consensus and agreement structure.
             ---- */}
-        <div className="flex flex-wrap items-center gap-2 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 border-b-[3px] border-gray-900 bg-canvas px-4 py-3">
           <label className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted">
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
             Export
@@ -1934,7 +1934,8 @@ export default function Evaluation() {
                 </thead>
                 <tbody>
                   {history.map((run, index) => {
-                    const fresh = index === 0 && historyPage === 1 && battle !== null && !webMode && !loading;
+                    const fresh =
+                      index === 0 && historyPage === 1 && battle?.battle_id != null && !webMode && !loading;
 
                     return (
                       <StaggerIn
@@ -1982,17 +1983,20 @@ export default function Evaluation() {
                             <span className="font-mono text-muted">—</span>
                           )}
                         </td>
-                        <td className="px-2 py-1.5 text-left">
-                          <div className="w-full">
-                            <PipelineChip pipelineId={run.winner_pipeline_id} grow />
+                        <td className="px-2 py-2 text-left">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <PipelineChip pipelineId={run.winner_pipeline_id} />
                             {run.decisive === false && (
-                              <span className="mt-0.5 block font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                              <span className="rounded border border-gray-900/40 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-muted">
                                 too close
                               </span>
                             )}
                             {run.judged_basis && (
-                              <span className="mt-0.5 block font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
-                                judged{run.judged_leader ? ` · ${displayName(run.judged_leader)}` : ""}
+                              <span
+                                className="rounded border border-gray-900 bg-accentSoft px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-ink"
+                                title={run.judged_leader ? `Judged leader: ${displayName(run.judged_leader)}` : "Judged"}
+                              >
+                                judged
                               </span>
                             )}
                           </div>

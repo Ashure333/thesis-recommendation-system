@@ -28,11 +28,9 @@ import ChatMarkdown from "./ChatMarkdown";
    as a .md file.
    ============================================================ */
 
-const STYLE_KEY = "paperrec_tournament_interpretation_style";
-
-function readStyle(): InterpretationStyle {
+function readStyle(key: string): InterpretationStyle {
   try {
-    const saved = window.localStorage.getItem(STYLE_KEY);
+    const saved = window.localStorage.getItem(key);
     if (INTERPRETATION_STYLES.some((s) => s.id === saved)) {
       return saved as InterpretationStyle;
     }
@@ -94,31 +92,41 @@ const ACTION =
 export default function TournamentInterpretation({
   result,
   nameOf,
+  generate,
+  resetKey,
+  storageKey = "paperrec_tournament_interpretation_style",
+  filenameStem,
 }: {
-  result: TournamentResult;
+  result?: TournamentResult;
   nameOf: (pipelineId: string) => string;
+  /** Write the text for another kind of result (e.g. a battle series). */
+  generate?: (style: InterpretationStyle) => string;
+  /** A different value starts from fresh, un-edited text. */
+  resetKey?: string | number | null;
+  storageKey?: string;
+  filenameStem?: string;
 }) {
-  const [style, setStyle] = useState<InterpretationStyle>(readStyle);
+  const [style, setStyle] = useState<InterpretationStyle>(() => readStyle(storageKey));
   const [view, setView] = useState<"preview" | "markdown">("preview");
   const [edits, setEdits] = useState<Partial<Record<InterpretationStyle, string>>>({});
   const [notice, setNotice] = useState<string | null>(null);
 
   // A different run starts from fresh text.
-  useEffect(() => setEdits({}), [result.run_id]);
+  useEffect(() => setEdits({}), [resetKey ?? result?.run_id]);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STYLE_KEY, style);
+      window.localStorage.setItem(storageKey, style);
     } catch {
       /* best-effort */
     }
   }, [style]);
 
   const generated = useMemo(
-    () => interpret(result, style, nameOf),
+    () => (generate ? generate(style) : interpret(result!, style, nameOf)),
     // nameOf is stable per render of the panel; the result is what matters
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [result, style],
+    [result, generate, style],
   );
   const text = edits[style] ?? generated;
   const edited = edits[style] !== undefined && edits[style] !== generated;
@@ -259,7 +267,7 @@ export default function TournamentInterpretation({
           className={ACTION}
           onClick={() =>
             download(
-              `tournament-${result.run_id ?? "run"}-${style}.md`,
+              `${filenameStem ?? `tournament-${result?.run_id ?? "run"}`}-${style}.md`,
               text.endsWith("\n") ? text : `${text}\n`,
             )
           }

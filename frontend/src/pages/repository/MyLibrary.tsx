@@ -87,7 +87,7 @@ export default function MyLibrary() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1560px]">
+    <div className="mx-auto w-full max-w-[1240px]">
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-star")!} />
       <PageHeader
         eyebrow="Saved papers"

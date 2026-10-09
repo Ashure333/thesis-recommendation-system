@@ -105,7 +105,7 @@ from app.services.literature_gather import (
     expand_references,
     gather_cited_works,
 )
-from app.services.evaluation import battle_judge, battle_series, loo_qrels, tournament_jobs
+from app.services.evaluation import battle_judge, battle_series, loo_qrels, recipe_sweep, tournament_jobs
 from app.services.evaluation.tournament import (
     eligible_query_count,
     export_tournament,
@@ -2951,6 +2951,54 @@ def compare_recommendation_pipelines_stream(
                 print(f"PIPELINE COMPARISON FAILED: {error}")
                 yield json.dumps(
                     {"event": "error", "detail": "Pipeline comparison failed."}
+                ) + "\n"
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
+
+# ============================================================
+# RECIPE SWEEP — the Lab's blend explorer
+# ============================================================
+
+class RecipeSweepRequest(BaseModel):
+    n_queries: int = Field(default=30, ge=4, le=100)
+    k: int = Field(default=10, ge=1, le=25)
+    step: int = 10
+    min_refs: int = Field(default=3, ge=1, le=20)
+    seed: int = Field(default=0, ge=0)
+
+
+@app.post("/api/evaluation/recipe-sweep")
+def run_recipe_sweep(request: RecipeSweepRequest):
+    """Score a grid of signal blends on leave-one-out queries.
+
+    Streams newline-delimited JSON: ``start``, ``progress`` per query,
+    then ``done`` with the result (see evaluation/recipe_sweep.py).
+    Nothing is stored: a sweep is an experiment, not a record.
+    """
+
+    if request.step not in recipe_sweep.ALLOWED_STEPS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"step must be one of {list(recipe_sweep.ALLOWED_STEPS)}.",
+        )
+
+    def lines():
+        with SessionLocal() as session:
+            try:
+                for event in recipe_sweep.run_sweep(
+                    session,
+                    n_queries=request.n_queries,
+                    k=request.k,
+                    step=request.step,
+                    min_refs=request.min_refs,
+                    seed=request.seed,
+                ):
+                    yield json.dumps(event) + "\n"
+            except Exception as error:
+                print(f"RECIPE SWEEP FAILED: {error}")
+                yield json.dumps(
+                    {"event": "error", "detail": "The sweep failed."}
                 ) + "\n"
 
     return StreamingResponse(lines(), media_type="application/x-ndjson")
