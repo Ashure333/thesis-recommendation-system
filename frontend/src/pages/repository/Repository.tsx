@@ -22,6 +22,7 @@ import {
   importPaperFromMetadata,
   getRecommendations,
   getWebRecommendations,
+  getPaper,
   notifyRecommendationIndexStale,
   Paper,
   SearchResult,
@@ -73,6 +74,11 @@ import { useSun } from "../../state/sun";
 import { useLongPressFeed } from "../../utils/longPress";
 import { useStatsDrawer } from "../../state/statsDrawer";
 import { triggerSlimeAnimation } from "../../utils/slimeEvents";
+import {
+  blendRecommendations,
+  seedWebQuery,
+  type BlendRow,
+} from "../../utils/blendRecommendations";
 
 function categoryOf(paper: Paper) {
   const parts = paper.subject_category?.split(":", 2).map((p) => p.trim());
@@ -92,6 +98,9 @@ type SearchMode = "repository" | "web" | "recommend";
 
 /** MMR lambda used by the Diversify toggle (matches the Search page). */
 const MMR_LAMBDA = 0.7;
+
+/** Per-browser preference for blending web hits into Recommend. */
+const BLEND_WEB_KEY = "paperrec_repo_blend_web";
 
 /** Stable identity for a web hit (dedupe across repeat searches). */
 function webKey(result: WebSearchResult): string {
@@ -172,6 +181,27 @@ export default function Repository() {
   const recommendRequestRef = useRef(0);
   const [topK, setTopK] = useState(10);
   const [diversify, setDiversify] = useState(false);
+  // Opt-in: also fetch live web recommendations and merge them into
+  // the Recommend list (off by default, remembered per browser).
+  const [blendWeb, setBlendWebRaw] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(BLEND_WEB_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  function setBlendWeb(next: boolean) {
+    setBlendWebRaw(next);
+    try {
+      window.localStorage.setItem(BLEND_WEB_KEY, next ? "1" : "0");
+    } catch {
+      // Best-effort.
+    }
+  }
+  // Merged rows (null = blend off for the list on screen) and the
+  // notice shown when the web half failed.
+  const [blendRows, setBlendRows] = useState<BlendRow[] | null>(null);
+  const [blendNotice, setBlendNotice] = useState<string | null>(null);
   const [subject, setSubject] = useState(subjects[0]);
   const [category, setCategory] = useState(categories[0]);
   const [documentType, setDocumentType] = useState(documentTypes[0]);
@@ -677,6 +707,37 @@ export default function Repository() {
     setRecommendLoading(true);
     setRecommendError(null);
 
+    // Opt-in web half, fetched in parallel. It never throws: a failure
+    // resolves to null so the local results still land.
+    const blendController = blendWeb ? new AbortController() : null;
+    const webHalf: Promise<WebSearchResult[] | null> = blendController
+      ? (async () => {
+          try {
+            let webQuery = query;
+            if (!webQuery && seedOverride !== undefined) {
+              const seedPaper =
+                papers.find((p) => p.id === seedOverride) ??
+                (selectedPaper?.id === seedOverride ? selectedPaper : null) ??
+                (await getPaper(seedOverride));
+              webQuery = seedWebQuery(seedPaper);
+            }
+            if (!webQuery) return null;
+            return await getWebRecommendations({
+              q: webQuery,
+              pipeline: pipelineId,
+              topK: Math.min(topK, 25),
+              peer_reviewed: true,
+              open_access: false,
+              sources: webSources,
+              ...(pipelineId === "custom" ? { weights: customWeights } : {}),
+              signal: blendController.signal,
+            });
+          } catch {
+            return null;
+          }
+        })()
+      : Promise.resolve(null);
+
     try {
       const results = await getRecommendations({
         pipeline: pipelineId,
@@ -692,10 +753,28 @@ export default function Repository() {
         ...(diversify ? { mmrLambda: MMR_LAMBDA } : {}),
       });
 
+      const webHits = blendController ? await webHalf : null;
+
       // A newer search (e.g. another algorithm clicked meanwhile) wins.
       if (requestId !== recommendRequestRef.current) return;
 
-      setRecommendResults(results);
+      if (blendController) {
+        const rows = blendRecommendations({
+          local: results,
+          web: webHits ?? [],
+          topK,
+        });
+        setBlendRows(rows);
+        setBlendNotice(webHits === null ? "Web results unavailable" : null);
+        setSelectedWeb(null);
+        setRecommendResults(
+          rows.flatMap((row) => (row.origin === "local" ? [row.result] : [])),
+        );
+      } else {
+        setBlendRows(null);
+        setBlendNotice(null);
+        setRecommendResults(results);
+      }
       setRecommendSearched(true);
 
       publishStats({
@@ -707,6 +786,7 @@ export default function Repository() {
         ...(diversify ? { mmrLambda: MMR_LAMBDA } : {}),
       });
     } catch (e) {
+      blendController?.abort();
       if (requestId !== recommendRequestRef.current) return;
 
       setRecommendError(
@@ -737,7 +817,12 @@ export default function Repository() {
 
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineId, customWeights, topK, diversify]);
+  }, [pipelineId, customWeights, topK, diversify, blendWeb, blendWeb ? webSources : null]);
+
+  // A web row picked in Web mode must not linger in the Recommend inspector.
+  useEffect(() => {
+    if (searchMode === "recommend") setSelectedWeb(null);
+  }, [searchMode]);
 
   // The same for web results: a new algorithm re-ranks the live hits.
   useEffect(() => {
@@ -1331,6 +1416,45 @@ export default function Repository() {
                   <p className="mt-1.5 text-xs leading-5 text-muted">
                     Top-K and Diversify live in the Algorithm bar above.
                   </p>
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      checked={blendWeb}
+                      onChange={(e) => setBlendWeb(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span>
+                      Blend in web results
+                      <span className="block text-xs leading-4 text-muted">
+                        Also fetches live hits for the same query and ranks
+                        them with the corpus in one list. Off by default.
+                      </span>
+                    </span>
+                  </label>
+                  {blendWeb && (
+                    <div className="mt-2">
+                      <label className="filter-label" htmlFor="blend-sources">
+                        Web sources
+                      </label>
+                      <select
+                        id="blend-sources"
+                        value={webSources}
+                        onChange={(e) => setWebSources(e.target.value)}
+                        className="min-h-10 w-full rounded border-[3px] border-gray-900 bg-field px-3 py-2 text-sm font-medium text-ink"
+                      >
+                        <option value="openalex,crossref,arxiv">All (OpenAlex + Crossref + arXiv)</option>
+                        <option value="openalex,crossref">OpenAlex + Crossref</option>
+                        <option value="openalex,arxiv">OpenAlex + arXiv</option>
+                        <option value="crossref,arxiv">Crossref + arXiv</option>
+                        <option value="openalex">OpenAlex only</option>
+                        <option value="crossref">Crossref only</option>
+                        <option value="arxiv">arXiv only</option>
+                        <option value="openalex,crossref,doaj">OpenAlex + Crossref + DOAJ</option>
+                        <option value="openalex,crossref,arxiv,doaj">All four (+ arXiv, DOAJ)</option>
+                        <option value="doaj">DOAJ only</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1691,7 +1815,7 @@ export default function Repository() {
                     ? recommendLoading
                       ? "ranking…"
                       : recommendSearched
-                        ? `${recommendResults.length} ranked via ${pipelineName(activePipelineConfig)}`
+                        ? `${blendRows ? blendRows.length : recommendResults.length} ranked via ${pipelineName(activePipelineConfig)}`
                         : ""
                     : similarityMode
                       ? similarityLoading
@@ -1901,7 +2025,7 @@ export default function Repository() {
                     description="Enter a query in the filter console, pick a pipeline, and press Rank corpus. Results land here with their score and signal breakdown."
                   />
                 </div>
-              ) : recommendResults.length === 0 ? (
+              ) : (blendRows ?? recommendResults).length === 0 ? (
                 <div className="p-6">
                   <EmptyState
                     title="No matches."
@@ -1909,6 +2033,12 @@ export default function Repository() {
                   />
                 </div>
               ) : (
+                <>
+                {blendNotice && (
+                  <p className="status-warning m-3 text-xs" role="status">
+                    {blendNotice}. Showing repository results only.
+                  </p>
+                )}
                 <table className={`w-full text-left text-xs ${compactList ? "" : "min-w-[720px]"}`}>
                   <thead>
                     <tr className="font-pixelify border-b-[3px] border-gray-900 text-xs uppercase tracking-wide text-muted">
@@ -1924,7 +2054,116 @@ export default function Repository() {
                   </thead>
 
                   <tbody>
-                    {recommendResults.map((result, index) => {
+                    {(blendRows ?? recommendResults.map((result): BlendRow => ({ origin: "local", result, blendScore: 0 }))).map((row, index) => {
+                      if (row.origin === "web") {
+                        const web = row.web;
+                        const key = webKey(web);
+                        const status = webImportStatus[key];
+                        const webActive = selectedWeb !== null && webKey(selectedWeb) === key;
+                        const comps = web.components;
+                        const webSegments = [
+                          { color: "bg-tfidf", value: comps?.tfidf ?? 0 },
+                          { color: "bg-sbert", value: comps?.sbert ?? 0 },
+                          { color: "bg-meta", value: comps?.metadata ?? 0 },
+                        ];
+                        const webTotal = webSegments.reduce((sum, s) => sum + s.value, 0) || 1;
+                        const webLabel = "Live web result, not in the repository yet";
+
+                        return (
+                          <tr
+                            key={`web:${key}`}
+                            onClick={() => {
+                              setInspectorCollapsed(false);
+                              setSelectedWeb(web);
+                            }}
+                            className={`cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
+                              webActive ? "bg-accentSoft/60" : "hover:bg-canvas"
+                            }`}
+                          >
+                            <td className="px-3 py-2.5 text-right font-mono font-bold text-muted">
+                              {index + 1}
+                            </td>
+                            <td className="px-1 py-2.5 text-center" colSpan={2}>
+                              <span
+                                title={webLabel}
+                                aria-label={webLabel}
+                                className="inline-flex items-center gap-1 rounded border-[2px] border-gray-900 bg-white px-1 py-0.5 font-mono text-xs font-bold leading-none text-ink"
+                              >
+                                <ResponsiveLabel icon={Globe} collapseBelow="xl" iconClassName="h-3 w-3 shrink-0">
+                                  WEB
+                                </ResponsiveLabel>
+                              </span>
+                            </td>
+                            <td className={`px-2 py-2.5 ${compactList ? "w-full max-w-0" : "max-w-[280px]"}`}>
+                              <span className="block font-pixelify font-bold text-ink">
+                                <MathText text={web.title} />
+                              </span>
+                              <span className="mt-0.5 block truncate font-mono text-[11px] text-muted">
+                                {web.source}
+                                {web.venue ? ` · ${web.venue}` : ""}
+                                {web.publication_year ? ` · ${web.publication_year}` : ""}
+                              </span>
+                              <span
+                                className="mt-1 flex flex-wrap items-center gap-2"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {status === "saved" ? (
+                                  <span className="inline-flex items-center gap-1 rounded border-[2px] border-gray-900 bg-accent px-2 py-0.5 text-xs font-bold text-onAccent">
+                                    <Check className="h-2.5 w-2.5" />
+                                    Saved to repository
+                                  </span>
+                                ) : status === "exists" ? (
+                                  <span className="inline-flex items-center gap-1 rounded border-[2px] border-gray-900 bg-white px-2 py-0.5 text-xs font-bold text-ink">
+                                    <Check className="h-2.5 w-2.5" />
+                                    Already in repository
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => void importWebResult(web)}
+                                    disabled={importingKey !== null}
+                                    className="rounded border-[2px] border-gray-900 bg-accent px-2 py-0.5 text-xs font-bold text-onAccent transition-colors pixel-ease hover:bg-accentSoft disabled:opacity-50"
+                                  >
+                                    {importingKey === key ? "Importing…" : "Import"}
+                                  </button>
+                                )}
+                                {webRowErrors[key] && (
+                                  <span className="text-xs font-bold text-ink">{webRowErrors[key]}</span>
+                                )}
+                              </span>
+                            </td>
+                            <td className={`max-w-[180px] px-2 py-2.5 ${compactList ? "hidden" : ""}`}>
+                              <span className="block truncate font-pixelify text-muted">{web.author ?? "—"}</span>
+                            </td>
+                            <td className={`px-2 py-2.5 text-right ${compactList ? "hidden" : ""}`}>
+                              <span className="font-pixelify text-ink">{web.publication_year ?? "—"}</span>
+                            </td>
+                            <td className={`px-2 py-2.5 text-right ${compactList ? "hidden" : ""}`}>
+                              <span className="font-pixelify text-muted">{web.document_type ?? "Work"}</span>
+                            </td>
+                            <td className="px-2 py-2.5 text-right">
+                              <div className={`ml-auto flex flex-col items-end ${compactList ? "w-14" : "w-24"}`}>
+                                <span className="font-mono font-bold text-ink">
+                                  {Number(row.score).toFixed(4)}
+                                </span>
+                                <span className="mt-1 flex h-1.5 w-full overflow-hidden rounded-full border-[1px] border-gray-900">
+                                  {webSegments.map((segment, i) =>
+                                    segment.value > 0 ? (
+                                      <span
+                                        key={i}
+                                        className={segment.color}
+                                        style={{ width: `${(segment.value / webTotal) * 100}%` }}
+                                      />
+                                    ) : null,
+                                  )}
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      const result = row.result;
                       const paper = result.paper;
                       const active = selected?.id === paper.id;
                       const isSaved = savedIds.has(paper.id);
@@ -1940,7 +2179,10 @@ export default function Repository() {
                       return (
                         <tr
                           key={paper.id}
-                          onClick={() => selectPaper(paper)}
+                          onClick={() => {
+                            setSelectedWeb(null);
+                            selectPaper(paper);
+                          }}
                           className={`cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors pixel-ease ${
                             active
                               ? "bg-accentSoft/60"
@@ -2039,6 +2281,7 @@ export default function Repository() {
                     })}
                   </tbody>
                 </table>
+                </>
               )
             ) : loading ? (
               <div className="p-8 text-center">
@@ -2523,7 +2766,7 @@ export default function Repository() {
               »
             </button>
           </div>
-          {searchMode === "web" ? (
+          {searchMode === "web" || (searchMode === "recommend" && selectedWeb !== null) ? (
             /* ------------------------------------------------
                WEB RESULT DETAILS
                ------------------------------------------------ */
@@ -2699,8 +2942,8 @@ export default function Repository() {
                 webResults.length === 1 ? "" : "s"
               }`
             : searchMode === "recommend"
-              ? `${recommendSearched ? recommendResults.length : 0} ranked result${
-                  recommendResults.length === 1 ? "" : "s"
+              ? `${recommendSearched ? (blendRows ?? recommendResults).length : 0} ranked result${
+                  (blendRows ?? recommendResults).length === 1 ? "" : "s"
                 }`
               : `Showing ${rankedPapers.length} of ${papers.length} document${
                   papers.length === 1 ? "" : "s"
@@ -2719,6 +2962,7 @@ export default function Repository() {
           <span>
             top_k: {topK}
             {diversify ? " · diversify: on" : ""}
+            {blendRows ? " · web: blended" : ""}
           </span>
         )}
         <span className="text-ink">double-click cells to edit · autosaves</span>

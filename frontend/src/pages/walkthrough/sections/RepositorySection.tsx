@@ -200,6 +200,10 @@ export function Recommending() {
             near-duplicate results are spread apart.
           </P>
           <P>
+            Tick <Chip>Blend in web results</Chip> to also fetch live web hits for the same query and
+            rank them with the corpus in one list; web rows carry a WEB tag and an Import button.
+          </P>
+          <P>
             A <Chip>seed paper</Chip> works the same way, but the query is an existing paper: use
             "Find similar" on My Library, or the seed action in the Repository, and the system builds
             the query representation from that paper's own prepared text and excludes it from the

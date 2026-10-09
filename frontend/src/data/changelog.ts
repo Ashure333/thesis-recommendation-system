@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "recommend-blend-web",
+    date: "Oct 9",
+    title: "Recommend can blend in live web results",
+    tag: "NEW",
+    body: "A new Blend in web results option in the Recommend scope also fetches live web hits for the same query and ranks them with the corpus in one list. Web rows carry a WEB tag and an Import button. It is off by default.",
+    details: [
+      "src/utils/blendRecommendations.ts: pure merge helper. Each list is rescaled by its own best score (both lists min-max normalise their signals inside their own candidate set, so raw scores are not directly comparable), then sorted together; ties go to the local paper. Web hits matching a local paper by DOI, or by normalised title plus year, are dropped (local wins). The result is cut to Top K.",
+      "src/pages/repository/Repository.tsx: the web half runs in parallel through getWebRecommendations with the same pipeline and weights; a seed run builds its query from the seed's title and first keywords. If the web half fails the local list still shows, with a Web results unavailable notice.",
+      "The choice is remembered per browser (paperrec_repo_blend_web). scripts/blendRecommendations.test.mjs covers the merge.",
+    ],
+  },
+  {
     id: "doaj-web-source",
     date: "Oct 9",
     title: "DOAJ joins web search as an opt-in source",

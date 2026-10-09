@@ -198,6 +198,22 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "precision a small amount. Leave it off for pure score order.",
   },
   {
+    title: "BLEND IN WEB RESULTS",
+    keywords: [
+      "blend web",
+      "blend in web results",
+      "web and local",
+      "mix web results",
+      "recommend web",
+    ],
+    body:
+      "The Recommend scope has a Blend in web results option (off by default). " +
+      "When on, a run also fetches live web hits for the same query and ranks " +
+      "them with the corpus in one list. Web rows carry a WEB tag and an " +
+      "Import button. If the web sources are down, you still get the " +
+      "repository results.",
+  },
+  {
     title: "DUPLICATES",
     keywords: [
       "duplicate",
