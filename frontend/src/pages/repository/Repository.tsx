@@ -17,7 +17,10 @@ import {
   deletePaper,
   deletePaperPdf,
   getLibrary,
+  getSyncStatus,
   rebuildRecommendationIndex,
+  startSync,
+  type SyncJob,
   searchWeb,
   importPaperFromMetadata,
   getRecommendations,
@@ -1046,11 +1049,41 @@ export default function Repository() {
     );
   }
 
+  /* Sync = refresh metadata from Crossref (authors as given / middle /
+     family, missing year / abstract), then rebuild the index. It runs on
+     the server in the background; this follows it and reports. */
+  function syncLine(job: SyncJob): string {
+    if (job.phase === "indexing") return "Sync: rebuilding the recommendation index…";
+    const total = job.total ?? 0;
+    return total > 0
+      ? `Sync: refreshing metadata ${job.done ?? 0}/${total} · ${job.changed ?? 0} updated`
+      : "Sync: looking for papers to refresh…";
+  }
+
   async function handleSync() {
     setSyncing(true);
     setError(null);
     try {
-      await rebuildRecommendationIndex();
+      let job: SyncJob;
+
+      try {
+        job = await startSync();
+      } catch (e) {
+        // Already running (e.g. started before a page reload): follow it.
+        if (!(e instanceof Error && /already running/i.test(e.message))) throw e;
+        job = await getSyncStatus();
+      }
+
+      while (job.state === "running") {
+        setActionMessage(syncLine(job));
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        job = await getSyncStatus();
+      }
+
+      if (job.state === "error") {
+        throw new Error(job.error ?? "the sync stopped unexpectedly");
+      }
+
       notifyRecommendationIndexStale();
       const filters = {
         search: search || undefined,
@@ -1063,6 +1096,16 @@ export default function Repository() {
       };
       const fresh = await listPapers(filters);
       setPapers(fresh);
+
+      const done = job.summary;
+      const parts = Object.entries(done?.fields ?? {}).map(
+        ([field, count]) => `${count} ${field.replace("_", " ")}`,
+      );
+      setActionMessage(
+        done && done.changed > 0
+          ? `Sync complete: ${done.changed} papers updated (${parts.join(", ")}).`
+          : "Sync complete: metadata was already up to date.",
+      );
     } catch (e) {
       setError(
         e instanceof Error ? `Sync failed: ${e.message}` : "Sync failed.",

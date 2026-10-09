@@ -95,10 +95,51 @@ def _ensure_columns() -> None:
             conn.commit()
 
 
+def backfill_authors() -> int:
+    """Structure the author string of every paper that has none yet.
+
+    ``paper_authors`` is new, so papers stored before it have a
+    ``papers.author`` string and no parts. Re-assigning the same text
+    would not register as a change, so the parts are built directly.
+    Idempotent: only papers without any author row are touched.
+    Returns the number of papers structured.
+    """
+    from app.models.models import Paper, PaperAuthor, _author_rows
+    from app.services.author_names import parse_author_list
+
+    with SessionLocal() as session:
+        # Keep the stored display strings exactly as they are.
+        session.info["skip_author_sync"] = True
+        have = {
+            row[0]
+            for row in session.query(PaperAuthor.paper_id).distinct()
+        }
+        done = 0
+
+        for paper in session.query(Paper).filter(
+            Paper.author.isnot(None), Paper.author != ""
+        ):
+            if paper.id in have:
+                continue
+
+            names = parse_author_list(paper.author)
+
+            if not names:
+                continue
+
+            paper.authors = _author_rows(names)
+            done += 1
+
+        session.commit()
+
+    return done
+
+
 def init_db() -> None:
     """Create all tables if they don't already exist."""
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
+    backfill_authors()
 
 
 def get_session():

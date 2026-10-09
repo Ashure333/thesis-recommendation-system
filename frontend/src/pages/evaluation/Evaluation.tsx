@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   ArrowLeftRight,
   BarChart3,
+  Download,
   History,
   Layers,
   Quote,
@@ -11,9 +12,13 @@ import {
 } from "lucide-react";
 
 import {
+  archiveBattleHistory,
   comparePipelines,
-  webComparePipelines,
+  deleteBattleHistory,
+  exportBattleHistory,
   getBattleHistory,
+  webComparePipelines,
+  BattleExportFormat,
   BattleRun,
   CompareResponse,
 } from "../../api";
@@ -24,8 +29,11 @@ import { triggerSlimeAnimation } from "../../utils/slimeEvents";
 import PixelProgress from "../../components/retro/PixelProgress";
 import { useSun } from "../../state/sun";
 import StaggerIn from "../../components/retro/StaggerIn";
+import RetroDialog from "../../components/retro/RetroDialog";
 import PageTabs from "../../components/PageTabs";
 import StatsForNerds from "../../components/StatsForNerds";
+import TournamentNerdStats from "../../components/TournamentNerdStats";
+import TournamentPanel from "../../components/TournamentPanel";
 import FreqBars from "../../components/retro/FreqBars";
 import Pagination from "../../components/retro/Pagination";
 import { ArrowRight, Star } from "../../components/retro/PixelIcons";
@@ -74,6 +82,54 @@ function formatScore(value: number | null): string {
     return "—";
   }
   return value.toFixed(4);
+}
+
+/* ----
+   RESEARCH CONTROLS
+
+   The Arena is also the study's instrument, so the run log needs the
+   three things a collection protocol requires and a game screen does
+   not: naming a run, getting the history out as a file, and starting
+   the tally from empty. Each of those lives beside the thing it acts
+   on -- the tag next to Press start, the export and reset next to the
+   battle log -- so nobody can archive the wrong table by accident.
+   ---- */
+
+/* The six classes the campaign queries are drawn from. Offered as
+   suggestions rather than enforced: a walkthrough run on something
+   else is still a legitimate run to record, and rejecting it would
+   push people into leaving the field blank, which tells an analyst
+   strictly less than an unfamiliar value does. */
+const SUBJECT_CLASSES = [
+  "Machine Learning",
+  "Natural Language Processing",
+  "Information Retrieval",
+  "Data Mining",
+  "Computer Vision",
+  "Software Engineering",
+];
+
+/* Namespace prefix for a formal campaign run. Free text on purpose --
+   the campaign names runs after the query they hold, and a dropdown
+   of legal labels would only get in the way of that. */
+const CAMPAIGN_LABEL_PREFIX = "campaign-";
+
+/* Hand a downloaded export to the browser under the name the server
+   gave it. A blob URL rather than a data: URI because a JSONL export
+   of a full campaign runs to megabytes, and revoking the object URL
+   straight after the click is what keeps the tab from holding it. */
+function downloadText(filename: string, text: string, mimeType: string) {
+  const blob = new Blob([text], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
 }
 
 function PipelineChip({
@@ -134,10 +190,33 @@ export default function Evaluation() {
   >([]);
   const [copiedCitation, setCopiedCitation] = useState<string | null>(null);
 
+  /* Research tag applied to the NEXT recorded battle. Held here rather
+     than sent per keystroke so an untagged walkthrough is the default
+     state, not something that has to be undone. */
+  const [runLabel, setRunLabel] = useState("");
+  const [subjectClass, setSubjectClass] = useState("");
+
+  /* Export / archive / reset, all of which act on the whole table. */
+  const [exportFormat, setExportFormat] = useState<BattleExportFormat>("csv");
+  const [exporting, setExporting] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  /* A delete is not offered as a button. Archiving already covers the
+     campaign workflow -- it empties the log AND keeps the runs -- so a
+     permanent-delete control would only ever be reached by someone who
+     wants to lose data. It lives in the archive dialog instead, behind
+     its own second confirmation. */
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [logNotice, setLogNotice] = useState<string | null>(null);
+
   /* Page-level view: the battle, or the ranking math. */
   const { on: nerdOn } = useNerdButtons();
-  const [pageTabRaw, setPageTab] = useState<"battle" | "stats">("battle");
-  const pageTab = nerdOn ? pageTabRaw : "battle";
+  const [pageTabRaw, setPageTab] = useState<
+    "battle" | "tournament" | "stats"
+  >("battle");
+  const pageTab =
+    !nerdOn && pageTabRaw === "stats" ? "battle" : pageTabRaw;
 
   /* Arena results are tab-separated instead of one long stack. */
   const [resultsTab, setResultsTab] = useState<
@@ -223,6 +302,8 @@ export default function Evaluation() {
         : await comparePipelines({
             query: queryText.trim(),
             topK,
+            runLabel: runLabel.trim() || undefined,
+            subjectClass: subjectClass || undefined,
           });
 
       if (controller.signal.aborted) return;
@@ -262,6 +343,94 @@ export default function Evaluation() {
       );
     } finally {
       if (!controller.signal.aborted) setLoading(false);
+    }
+  }
+
+  // ----------------------------------------------------------
+  // RUN LOG — export, archive, reset
+  // ----------------------------------------------------------
+
+  /* One shared notice line for the three log actions. They all end in
+     the same place -- "the log now holds N runs" -- and a dialog that
+     closes itself leaves nothing behind, so the outcome is said once
+     here and fades. */
+  function sayLog(message: string) {
+    setLogNotice(message);
+    window.setTimeout(
+      () => setLogNotice((current) => (current === message ? null : current)),
+      6_000,
+    );
+  }
+
+  async function downloadHistory(format: BattleExportFormat) {
+    setExporting(true);
+
+    try {
+      const payload = await exportBattleHistory(format);
+
+      downloadText(
+        payload.filename,
+        payload.text,
+        format === "csv" ? "text/csv;charset=utf-8" : "application/x-ndjson",
+      );
+
+      sayLog(`Exported ${historyTotal} runs to ${payload.filename}.`);
+    } catch (err) {
+      sayLog(
+        err instanceof Error ? err.message : "Export failed.",
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function archiveHistory() {
+    setArchiving(true);
+
+    try {
+      const result = await archiveBattleHistory();
+
+      setArchiveOpen(false);
+      sayLog(
+        `Archived ${result.archived} runs to ${result.path}. The log is empty.`,
+      );
+
+      await loadHistory(1);
+    } catch (err) {
+      sayLog(
+        err instanceof Error ? err.message : "Archive failed.",
+      );
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  /* ----------------------------------------------------------
+     A delete is not offered as a button. Archiving already covers the
+     campaign workflow -- it empties the log AND keeps the runs -- so a
+     permanent-delete control would only ever be reached by someone
+     who wants to lose data. It lives in the archive dialog instead,
+     behind its own second confirmation, for the rare case where the
+     runs really must not be kept anywhere.
+     ---------------------------------------------------------- */
+
+  async function destroyHistory() {
+    setDeleting(true);
+
+    try {
+      const result = await deleteBattleHistory();
+
+      setDeleteOpen(false);
+      setArchiveOpen(false);
+      sayLog(`Deleted ${result.deleted} runs. No copy was kept.`);
+
+      await loadHistory(1);
+    } catch (err) {
+      sayLog(
+        err instanceof Error ? err.message : "Delete failed.",
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -562,8 +731,12 @@ export default function Evaluation() {
       <HuntItem item={HUNT_ITEMS.find((item) => item.id === "hunt-key")!} />
       <PageHeader
         eyebrow="Arena"
-        title="Pipeline battle"
-        description="Run all six pipelines on one query. Compare the consensus ranking, the per-pipeline ranks, and the pairwise agreement."
+        title={pageTab === "tournament" ? "Pipeline tournament" : "Pipeline battle"}
+        description={
+          pageTab === "tournament"
+            ? "Score all six pipelines on many papers whose references are known, then test whether any of them is genuinely better."
+            : "Run all six pipelines on one query. Compare the consensus ranking, the per-pipeline ranks, and the pairwise agreement."
+        }
       />
 
       <div>
@@ -573,6 +746,7 @@ export default function Evaluation() {
           onChange={setPageTab}
           options={[
             { id: "battle", label: "Battle" },
+            { id: "tournament" as const, label: "Tournament" },
             ...(nerdOn && !isPresentationStored()
               ? [{ id: "stats" as const, label: "Stats for Nerds", nerd: true }]
               : []),
@@ -580,7 +754,9 @@ export default function Evaluation() {
         />
       </div>
 
-      {pageTab === "stats" ? (
+      {pageTab === "tournament" ? (
+        <TournamentPanel />
+      ) : pageTab === "stats" ? (
         <section>
           <StatsForNerds
             inputs={{
@@ -590,6 +766,9 @@ export default function Evaluation() {
             }}
             contextNote="Every battle runs the six presets on the same query; this is the shared computation behind their scores — expand the live trace to walk the current query through one pipeline."
           />
+          <div className="mt-3">
+            <TournamentNerdStats />
+          </div>
         </section>
       ) : (
         <>
@@ -639,6 +818,19 @@ export default function Evaluation() {
                   type="button"
                   onClick={() => setWebMode(scope === "web")}
                   aria-pressed={webMode === (scope === "web")}
+                  /* The explanation is a tooltip, not a caption. As a
+                     <span> in this row it became a layout participant:
+                     with the 300px high-scores pane beside it the left
+                     column is narrow enough that the sentence wrapped to
+                     an orphan right-aligned line at 1440 and sat inline
+                     at 860, so the same control changed height with the
+                     window and pushed the query field down a line. */
+                  title={
+                    scope === "web"
+                      ? "Live hits from the scholarly sources ticked below. " +
+                        "Web battles are never recorded to the tally."
+                      : "Rank your own repository."
+                  }
                   className={`rounded border-[2px] px-2.5 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.15em] transition-colors pixel-ease ${
                     webMode === (scope === "web")
                       ? "border-accent bg-accent text-onAccent"
@@ -648,11 +840,6 @@ export default function Evaluation() {
                   {scope === "repository" ? "Repository" : "Web"}
                 </button>
               ))}
-              {webMode && (
-                <span className="ml-auto max-w-sm text-[11px] leading-4 text-onInk/70">
-                  Live OpenAlex / Crossref / arXiv hits; never recorded to the tally.
-                </span>
-              )}
             </div>
 
             <label
@@ -705,6 +892,57 @@ export default function Evaluation() {
                 {loading ? "Running…" : isPresentationStored() ? "Run Arena" : "Press start"}
               </button>
             </div>
+
+            {/* RUN TAG — what the next recorded battle will be called.
+                Only for repository battles: web battles never reach
+                the log, so a tag beside the web options would promise
+                a record that is not written. */}
+            {!webMode && (
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 border-t-2 border-dashed border-onInk/20 pt-2">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/70">
+                  Run tag
+                </span>
+
+                <label className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
+                  Label
+                  <input
+                    type="text"
+                    value={runLabel}
+                    onChange={(event) => setRunLabel(event.target.value)}
+                    disabled={loading}
+                    placeholder={`${CAMPAIGN_LABEL_PREFIX}ml-text-5`}
+                    aria-label="Run label for the next battle"
+                    className="w-44 rounded border-[2px] border-onInk/40 bg-gray-950 px-2 py-1 font-mono text-xs normal-case text-onInk placeholder:text-onInk/40 focus:border-accent focus:outline-none"
+                  />
+                </label>
+
+                <label className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
+                  Class
+                  <input
+                    type="text"
+                    value={subjectClass}
+                    onChange={(event) => setSubjectClass(event.target.value)}
+                    disabled={loading}
+                    placeholder="none"
+                    list="arena-subject-classes"
+                    aria-label="Subject class for the next battle"
+                    className="w-48 rounded border-[2px] border-onInk/40 bg-gray-950 px-2 py-1 font-mono text-xs normal-case text-onInk placeholder:text-onInk/40 focus:border-accent focus:outline-none"
+                  />
+                </label>
+
+                <datalist id="arena-subject-classes">
+                  {SUBJECT_CLASSES.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+
+                <span className="text-[11px] leading-4 text-onInk/60">
+                  {runLabel.trim() || subjectClass
+                    ? "Recorded under that name."
+                    : "Untagged — not usable as campaign data."}
+                </span>
+              </div>
+            )}
 
             {webMode && (
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-onInk/80">
@@ -904,7 +1142,7 @@ export default function Evaluation() {
                 <div className="min-w-0">
                   <p className="animate-blink flex items-center gap-2 font-mono text-xs font-bold tracking-[0.3em] text-accent">
                     <Star className="h-3.5 w-3.5" />
-                    WINNER
+                    CONSENSUS LEADER · NO QUALITY VERDICT
                   </p>
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -925,7 +1163,9 @@ export default function Evaluation() {
                     . Agreement with a rival pipeline counts only as
                     much as that rival is built from different
                     signals, a pipeline can.t be confirmed by its
-                    own hybrids.
+                    own hybrids. This is agreement on one query, not
+                    accuracy: use the Tournament tab to test which
+                    pipeline is actually better.
                   </p>
                 </div>
 
@@ -1308,18 +1548,25 @@ export default function Evaluation() {
           )}
 
           {/* ------------------------------------------------
-              SCORE BARS
+              SCORE BARS — the same scores read down a pipeline
+              rather than across a rank row. It is a second view of
+              the table above, not a second "Score distribution":
+              both panels are gated on resultsTab === "scores", so
+              before this heading was corrected the Scores tab showed
+              two identically-titled sections stacked on each other,
+              each restating ranks 1-5 for every pipeline.
               ------------------------------------------------ */}
 
           {resultsTab === "scores" && battle && (
           <section className="rounded border-[3px] border-gray-900 bg-white">
             <div className="border-b border-gray-200 px-3 py-2">
               <p className="text-sm font-bold text-ink">
-                Score distribution
+                Each pipeline&rsquo;s top 5
               </p>
               <p className="mt-1 text-xs leading-5 text-muted">
-                Each pipeline's top 5 scores, scaled against the
-                highest score across all pipelines for comparison.
+                The same scores as above, read down one pipeline at a
+                time. Use it to see a pipeline&rsquo;s shape — whether
+                it separates its first hit or flattens out.
               </p>
             </div>
 
@@ -1484,6 +1731,65 @@ export default function Evaluation() {
           </p>
         </div>
 
+        {/* ----
+            EXPORT / ARCHIVE — the collection protocol's controls,
+            directly under the count they act on. The format dropdown
+            is CSV vs JSONL rather than a file type menu because the
+            two are genuinely different artefacts: CSV is a table for
+            a spreadsheet, JSONL is the analysis file that carries
+            every run's full consensus and agreement structure.
+            ---- */}
+        <div className="flex flex-wrap items-center gap-2 border-b-[3px] border-gray-900 bg-canvas px-3 py-2">
+          <label className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted">
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+            Export
+            <select
+              value={exportFormat}
+              onChange={(event) =>
+                setExportFormat(event.target.value as BattleExportFormat)
+              }
+              disabled={exporting || historyTotal === 0}
+              aria-label="Export format"
+              className="rounded border-[2px] border-gray-900 bg-white px-2 py-1 font-mono text-[11px] text-ink focus:outline-none disabled:opacity-50"
+            >
+              <option value="csv">CSV · one row per run</option>
+              <option value="jsonl">JSONL · full responses</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={() => void downloadHistory(exportFormat)}
+            disabled={exporting || historyTotal === 0}
+            className="rounded border-[3px] border-gray-900 bg-white px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exporting ? "Exporting…" : "Download"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setArchiveOpen(true)}
+            disabled={historyTotal === 0}
+            className="rounded border-[3px] border-gray-900 bg-white px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Archive &amp; reset
+          </button>
+
+          <span className="text-[11px] leading-4 text-muted">
+            Archives write every run to storage/exports/ before the log is
+            cleared, so a reset never destroys the tally it was measuring.
+          </span>
+        </div>
+
+        {logNotice && (
+          <p
+            role="status"
+            className="border-b-[3px] border-gray-900 bg-accentSoft px-3 py-1.5 font-mono text-[11px] text-ink"
+          >
+            {logNotice}
+          </p>
+        )}
+
         {history.length === 0 ? (
           <div className="px-3 py-5 text-center">
             <p className="animate-blink font-pixelify text-lg font-bold uppercase tracking-[0.2em] text-ink">
@@ -1500,6 +1806,7 @@ export default function Evaluation() {
                     <th className="w-12 px-3 py-1.5 text-right uppercase tracking-wide text-muted">#</th>
                     <th className="px-2 py-1.5 uppercase tracking-wide text-muted">Time</th>
                     <th className="px-2 py-1.5 uppercase tracking-wide text-muted">Query</th>
+                    <th className="px-2 py-1.5 uppercase tracking-wide text-muted">Tag</th>
                     <th className="px-2 py-1.5 text-left uppercase tracking-wide text-muted">Winner</th>
                     <th className="px-3 py-1.5 text-right uppercase tracking-wide text-muted">Score</th>
                   </tr>
@@ -1530,6 +1837,29 @@ export default function Evaluation() {
                           <p className="truncate font-medium text-ink">
                             {run.query ?? `Seed paper #${run.seed_paper_id}`}
                           </p>
+                        </td>
+                        {/* The tag column is what makes a formal run
+                            identifiable in the log itself. Every run
+                            recorded before the research log existed
+                            shows an em dash: that blank IS the signal
+                            that a row predates the campaign. */}
+                        <td className="max-w-[180px] px-2 py-1.5">
+                          {run.run_label || run.subject_class ? (
+                            <>
+                              {run.run_label && (
+                                <p className="truncate font-mono text-[11px] font-bold text-ink">
+                                  {run.run_label}
+                                </p>
+                              )}
+                              {run.subject_class && (
+                                <p className="truncate font-mono text-[10px] text-muted">
+                                  {run.subject_class}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <span className="font-mono text-muted">—</span>
+                          )}
                         </td>
                         <td className="px-2 py-1.5 text-left">
                           <div className="w-full">
@@ -1568,6 +1898,77 @@ export default function Evaluation() {
           </>
         )}
       </section>
+
+      {/* ======================================================
+          ARCHIVE & RESET — the campaign's starting gun.
+
+          The dialog states the two facts that make the action
+          reviewable rather than frightening: exactly how many runs
+          will be written out, and exactly where they will land. The
+          filename is quoted as a pattern, not invented, because the
+          server stamps the timestamp at the moment of writing.
+          ====================================================== */}
+
+      <RetroDialog
+        open={archiveOpen}
+        title="Archive and reset the battle log"
+        confirmLabel={archiving ? "Archiving…" : `Archive ${historyTotal} runs`}
+        cancelLabel="Keep the log"
+        onCancel={() => setArchiveOpen(false)}
+        onConfirm={() => void archiveHistory()}
+      >
+        <div className="flex flex-col gap-2.5">
+          <p className="text-ink">
+            <span className="font-bold">{historyTotal}</span>{" "}
+            {historyTotal === 1 ? "run" : "runs"} will be written to a
+            JSONL file under
+          </p>
+
+          <p className="select-all rounded border-[2px] border-gray-900 bg-canvas px-2 py-1 font-mono text-[11px] text-ink">
+            storage/exports/battle_runs-&lt;timestamp&gt;.jsonl
+          </p>
+
+          <p className="text-ink">
+            and then the battle log is cleared, so the tally counts only
+            the runs you collect from here on. The archive keeps every
+            run in full — its consensus ranking, per-pipeline ranks and
+            pairwise agreement — so a reset costs you nothing that was
+            already collected.
+          </p>
+
+          <p className="text-muted">
+            Existing archive files are never overwritten; each reset adds
+            a new one.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => setDeleteOpen(true)}
+            className="self-start rounded border-[2px] border-gray-900 bg-white px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-ink transition-colors pixel-ease hover:bg-accentSoft"
+          >
+            Delete instead, keep nothing
+          </button>
+        </div>
+      </RetroDialog>
+
+      {/* Second dialog, one level deeper: archiving already satisfies
+          the protocol, so a permanent delete has to be asked for
+          twice before it will happen. */}
+      <RetroDialog
+        open={deleteOpen}
+        title="Delete the battle log"
+        size="sm"
+        confirmLabel={deleting ? "Deleting…" : "Delete, keep nothing"}
+        cancelLabel="Go back"
+        onCancel={() => setDeleteOpen(false)}
+        onConfirm={() => void destroyHistory()}
+      >
+        <p className="text-ink">
+          All {historyTotal} {historyTotal === 1 ? "run" : "runs"} will
+          be deleted and nothing will be written anywhere. There is no
+          way to recover them.
+        </p>
+      </RetroDialog>
         </>
       )}
     </PageShell>

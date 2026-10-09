@@ -7,13 +7,15 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
+from datetime import datetime
 from urllib.parse import urlsplit
 from pathlib import Path
 
 import requests
 from fastapi import FastAPI, Depends, Form, HTTPException, UploadFile, File, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -21,7 +23,15 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.database import engine, init_db, get_session, SessionLocal
-from app.models.models import Paper, PersonalLibrary, BattleRun, Announcement, User
+from app.models.models import (
+    Paper,
+    PersonalLibrary,
+    BattleRun,
+    Announcement,
+    User,
+    TournamentRun,
+    TournamentQueryScore,
+)
 from app.services.catalog import (
     DEFAULT_CATEGORIES,
     DEFAULT_DOCUMENT_TYPES,
@@ -58,8 +68,10 @@ from app.services.duplicate_detection import (
 from app.services.citations import (
     clustered_works,
     refresh_paper_citations,
+    link_reference_rows,
 )
 from app.services.web_connections import (
+    EXTRA_SOURCES,
     fetch_neighborhood,
     fetch_web_neighborhood,
     resolve_work_titles,
@@ -85,7 +97,26 @@ from app.services.text_preparation import refresh_prepared_text
 from app.services.storage import (
     delete_paper_file,
     get_paper_file_path,
+    exports_dir,
 )
+
+from app.services.metadata_sync import sync_metadata
+from app.services.literature_gather import (
+    expand_references,
+    gather_cited_works,
+)
+from app.services.evaluation.tournament import (
+    eligible_query_count,
+    export_tournament,
+    run_summary as tournament_run_summary,
+    run_tournament,
+)
+from app.services.evaluation.battle_log import (
+    EXPORT_FORMATS,
+    battle_stats,
+    iter_export,
+)
+from app.services.evaluation.corpus_state import corpus_snapshot
 
 from app.services.local_user import get_or_create_default_user
 
@@ -2633,6 +2664,93 @@ def get_recommendation_trace(
 # PIPELINE COMPARISON ("PIPELINE BATTLE")
 # ============================================================
 
+def _clean_tag(value: str | None) -> str | None:
+    """A trimmed research tag, or None when it carries nothing.
+
+    An empty string in the database is a lie of omission: it reads as
+    "the researcher labelled this run" to anything that only checks
+    for presence. Normalising here means the split in
+    evaluation/battle_log.py can treat "" and NULL as the same
+    untagged bucket.
+    """
+
+    if value is None:
+        return None
+
+    trimmed = value.strip()
+
+    return trimmed or None
+
+
+def _record_battle_run(
+    *,
+    db: Session,
+    result: CompareResponse,
+    query: str | None,
+    seed_paper_id: int | None,
+    top_k: int,
+    custom_weights: dict[str, float] | None,
+    mmr_lambda: float | None,
+    mmr_pool: int,
+    run_label: str | None,
+    subject_class: str | None,
+) -> BattleRun:
+    """Write one recorded battle, with everything needed to analyse it later.
+
+    Kept apart from the route for one reason: once the campaign is
+    collecting data, this function must never be able to influence a
+    result. It is handed the finished CompareResponse and the request
+    values it was run with, and it only reads -- it re-derives no
+    score, recomputes no consensus, and re-picks no winner, so a bug
+    here can cost a run its label but cannot change what the pipeline
+    decided.
+
+    ``response_json`` is the whole point of the table's research
+    half. The consensus entries with their vote counts and average
+    ranks, the per-pipeline ranked lists, and every pairwise overlap
+    and mean rank gap exist only in this object; without the blob they
+    are returned to the browser and lost, which is why the Arena used
+    to keep a winner summary and nothing else.
+
+    ``mmr_pool`` is stored only when diversification actually ran:
+    a plain Arena battle leaves the request's default 50 in place,
+    and recording that as though it had been chosen would put a knob
+    in the export that was never used.
+    """
+
+    corpus = corpus_snapshot(db)
+
+    run = BattleRun(
+        query=query,
+        seed_paper_id=seed_paper_id,
+        top_k=top_k,
+        winner_pipeline_id=result.winner.pipeline_id,
+        winner_metric=result.winner.metric,
+        winner_value=result.winner.value,
+        avg_consensus_rank=result.winner.avg_consensus_rank,
+        run_label=_clean_tag(run_label),
+        subject_class=_clean_tag(subject_class),
+        # The route already rejects a request carrying both a query and
+        # a seed paper, so which one is set IS the query kind. Storing
+        # it means the campaign's text-vs-seed split is a group-by on
+        # an indexed column rather than a CASE over nullable text.
+        query_kind="seed" if seed_paper_id is not None else "text",
+        mmr_lambda=mmr_lambda,
+        mmr_pool=mmr_pool if mmr_lambda is not None else None,
+        custom_weights=(
+            json.dumps(custom_weights) if custom_weights else None
+        ),
+        response_json=result.model_dump_json(),
+        corpus_size=corpus["corpus_size"],
+        corpus_version=corpus["corpus_version"],
+    )
+
+    db.add(run)
+    db.commit()
+
+    return run
+
+
 @app.post(
     "/api/recommendations/compare",
     response_model=CompareResponse,
@@ -2703,19 +2821,28 @@ def compare_recommendation_pipelines(
         # tally wins over time. Runs with no winner (empty
         # repository) are not recorded, and Lab simulations
         # opt out so they don't pollute the Arena's records.
+        #
+        # Everything past the winner summary is provenance, written
+        # from values the run already has: the whole CompareResponse
+        # (the consensus and pairwise structure this page displays is
+        # otherwise gone the moment the response is returned), the
+        # knobs it ran with, and the corpus it ran against. None of
+        # it is consulted while the battle is being computed -- see
+        # _record_battle_run for why that matters once a campaign is
+        # under way.
         if result.winner is not None and request.record_battle:
-            db.add(
-                BattleRun(
-                    query=request.query,
-                    seed_paper_id=request.seed_paper_id,
-                    top_k=request.top_k,
-                    winner_pipeline_id=result.winner.pipeline_id,
-                    winner_metric=result.winner.metric,
-                    winner_value=result.winner.value,
-                    avg_consensus_rank=result.winner.avg_consensus_rank,
-                )
+            _record_battle_run(
+                db=db,
+                result=result,
+                query=request.query,
+                seed_paper_id=request.seed_paper_id,
+                top_k=request.top_k,
+                custom_weights=custom_weights,
+                mmr_lambda=request.mmr_lambda,
+                mmr_pool=request.mmr_pool,
+                run_label=request.run_label,
+                subject_class=request.subject_class,
             )
-            db.commit()
 
         return result
 
@@ -2994,20 +3121,7 @@ def get_battle_history(
     )
 
     return {
-        "runs": [
-            {
-                "id": run.id,
-                "query": run.query,
-                "seed_paper_id": run.seed_paper_id,
-                "top_k": run.top_k,
-                "winner_pipeline_id": run.winner_pipeline_id,
-                "winner_metric": run.winner_metric,
-                "winner_value": run.winner_value,
-                "avg_consensus_rank": run.avg_consensus_rank,
-                "created_at": run.created_at.isoformat(),
-            }
-            for run in runs
-        ],
+        "runs": [_battle_run_dict(run) for run in runs],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -3020,6 +3134,491 @@ def get_battle_history(
             for pipeline_id, wins in tally_rows
         ],
     }
+
+
+# ============================================================
+# BATTLE HISTORY — EXPORT / ARCHIVE / RESET / STATS
+# ============================================================
+#
+# The four routes the campaign protocol needs. Chapter III collects a
+# fixed set of formal runs and reports only those, with development
+# walkthroughs excluded -- which means the tally has to be provably
+# reset and exportable on the morning the campaign starts, not
+# reconstructed afterwards from timestamps.
+
+# Columns the export and the stats read, in one place so a new
+# research-log column is added in three spots at most (here, the
+# model, and SCALAR_COLUMNS in evaluation/battle_log.py).
+_BATTLE_EXPORT_COLUMNS = (
+    BattleRun.id,
+    BattleRun.created_at,
+    BattleRun.run_label,
+    BattleRun.subject_class,
+    BattleRun.query_kind,
+    BattleRun.query,
+    BattleRun.seed_paper_id,
+    BattleRun.top_k,
+    BattleRun.winner_pipeline_id,
+    BattleRun.winner_metric,
+    BattleRun.winner_value,
+    BattleRun.avg_consensus_rank,
+    BattleRun.mmr_lambda,
+    BattleRun.mmr_pool,
+    BattleRun.custom_weights,
+    BattleRun.response_json,
+    BattleRun.corpus_size,
+    BattleRun.corpus_version,
+)
+
+
+def _battle_run_dict(run: BattleRun) -> dict:
+    """One recorded run as the API's plain-dict shape.
+
+    Shared by the paginated history and the export, so the two can
+    never disagree about a column's name or nullability.
+    response_json is deliberately NOT included: the paginated list
+    would carry six pipelines' worth of ranked lists per row, and the
+    JSONL export exists precisely to move that around.
+    """
+
+    return {
+        "id": run.id,
+        "query": run.query,
+        "seed_paper_id": run.seed_paper_id,
+        "top_k": run.top_k,
+        "winner_pipeline_id": run.winner_pipeline_id,
+        "winner_metric": run.winner_metric,
+        "winner_value": run.winner_value,
+        "avg_consensus_rank": run.avg_consensus_rank,
+        "run_label": run.run_label,
+        "subject_class": run.subject_class,
+        "query_kind": run.query_kind,
+        "corpus_size": run.corpus_size,
+        "corpus_version": run.corpus_version,
+        "created_at": run.created_at.isoformat(),
+    }
+
+
+def _battle_run_payload(run) -> dict:
+    """``_battle_run_dict`` plus the stored response blob.
+
+    The export needs the blob and the paginated list does not, so it
+    is added here rather than in the shared helper.
+    """
+
+    payload = _battle_run_dict(run)
+
+    payload["custom_weights"] = run.custom_weights
+    payload["mmr_lambda"] = run.mmr_lambda
+    payload["mmr_pool"] = run.mmr_pool
+    payload["response_json"] = run.response_json
+
+    return payload
+
+
+def _iter_battle_runs(db: Session):
+    """Every recorded run, oldest first, as plain dicts.
+
+    Ordered oldest-first because an exported file read by a person
+    should run in the order the campaign did. The session is yielded
+    rows one at a time rather than .all() so the export never holds
+    the whole table -- and, more importantly, so the response body can
+    start arriving while the rows are still being read.
+    """
+
+    for run in (
+        db.query(*_BATTLE_EXPORT_COLUMNS)
+        .order_by(BattleRun.created_at.asc(), BattleRun.id.asc())
+        .yield_per(200)
+    ):
+        yield _battle_run_payload(run)
+
+
+def _clear_battle_runs(db: Session) -> int:
+    """Empty the table, returning how many rows went.
+
+    A single DELETE ... WHERE true rather than loading and db.delete()ing
+    each row: the table holds one row per run and a campaign archives
+    in one go, and the ORM route would make the reset as slow as the
+    largest history ever recorded.
+    """
+
+    deleted = (
+        db.query(BattleRun)
+        .delete()
+    )
+
+    db.commit()
+
+    return int(deleted or 0)
+
+
+# ============================================================
+# TOURNAMENTS (statistically grounded battles)
+#
+# The single-bout Arena crowns a consensus winner with no ground truth
+# and no uncertainty. A tournament scores every pipeline on many
+# leave-one-out citation queries and lets paired tests decide; see
+# app/services/evaluation/tournament.py and stats.py.
+# ============================================================
+
+class TournamentRequest(BaseModel):
+    pipelines: list[str] | None = None
+    top_k: int = 10
+    n_queries: int = 60
+    min_refs: int = 3
+    primary_metric: str = "ndcg"
+    seed: int = 0
+    custom_weights: dict[str, float] | None = None
+    label: str | None = None
+    record: bool = True
+
+
+@app.get("/api/evaluation/tournament/pool")
+def tournament_pool(
+    min_refs: int = 3,
+    db: Session = Depends(get_session),
+):
+    """How many leave-one-out queries the repository can supply."""
+
+    return eligible_query_count(db, max(1, min_refs))
+
+
+@app.post("/api/evaluation/tournament")
+def run_pipeline_tournament(
+    request: TournamentRequest,
+    db: Session = Depends(get_session),
+):
+    custom_weights = _resolve_custom_recipe(request.custom_weights)
+    pipelines = request.pipelines
+
+    if custom_weights and pipelines and "custom" not in pipelines:
+        pipelines = [*pipelines, "custom"]
+
+    try:
+        return run_tournament(
+            db,
+            pipelines=pipelines,
+            top_k=request.top_k,
+            n_queries=request.n_queries,
+            min_refs=request.min_refs,
+            primary_metric=request.primary_metric,
+            seed=request.seed,
+            custom_weights=custom_weights,
+            label=_clean_tag(request.label),
+            record=request.record,
+        )
+
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    except Exception as error:
+        print()
+        print("TOURNAMENT FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Tournament failed.",
+        ) from error
+
+
+@app.get("/api/evaluation/tournament/history")
+def tournament_history(
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_session),
+):
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    total = db.query(TournamentRun).count()
+
+    runs = (
+        db.query(TournamentRun)
+        .order_by(TournamentRun.created_at.desc(), TournamentRun.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return {
+        "runs": [tournament_run_summary(run) for run in runs],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": max(1, (total + page_size - 1) // page_size),
+    }
+
+
+def _tournament_detail(db: Session, run_id: int) -> dict:
+    run = db.get(TournamentRun, run_id)
+
+    if run is None:
+        raise HTTPException(status_code=404, detail="Tournament not found.")
+
+    scores = (
+        db.query(TournamentQueryScore)
+        .filter(TournamentQueryScore.run_id == run_id)
+        .order_by(
+            TournamentQueryScore.seed_paper_id,
+            TournamentQueryScore.pipeline_id,
+        )
+        .all()
+    )
+
+    return {
+        **json.loads(run.result_json),
+        "run_id": run.id,
+        "created_at": run.created_at.isoformat(),
+        "query_scores": [
+            {
+                "pipeline_id": row.pipeline_id,
+                "seed_paper_id": row.seed_paper_id,
+                "num_relevant": row.num_relevant,
+                "ndcg": row.ndcg,
+                "mrr": row.mrr,
+                "recall": row.recall,
+                "hit": row.hit,
+            }
+            for row in scores
+        ],
+    }
+
+
+@app.get("/api/evaluation/tournament/{run_id}")
+def get_tournament(run_id: int, db: Session = Depends(get_session)):
+    return _tournament_detail(db, run_id)
+
+
+@app.get("/api/evaluation/tournament/{run_id}/export")
+def export_tournament_run(
+    run_id: int,
+    format: str = "csv",
+    db: Session = Depends(get_session),
+):
+    """Download a stored tournament: raw per-query scores (csv),
+    the pairwise tests (pairwise) or the whole record (json)."""
+
+    detail = _tournament_detail(db, run_id)
+
+    try:
+        filename, media_type, text = export_tournament(detail, format)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return Response(
+        content=text,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@app.get("/api/evaluation/battles/export")
+def export_battle_history(format: str = "csv"):
+    """
+    The whole run history as a download: one row per run.
+
+    `format=csv` is flattened for a spreadsheet -- scalars plus the
+    consensus and pairwise figures summarised out of the stored
+    response. `format=jsonl` is one JSON object per line carrying each
+    run's CompareResponse in full, so the per-pipeline ranked lists,
+    vote counts and overlap@k survive into analysis.
+
+    Oldest run first, so the file reads in the order the campaign was
+    run.
+
+    No request session: a streamed body is produced after the request
+    dependency has been torn down, so the generator opens its own (see
+    `stream` below).
+    """
+
+    if format not in EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown export format: {format!r}. "
+                f"Use one of {', '.join(EXPORT_FORMATS)}."
+            ),
+        )
+
+    # UTC, like every timestamp the table itself stores, so a filename
+    # sitting in a folder can be compared against the runs inside it
+    # without first working out a timezone.
+    stamped = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = f"battle_runs-{stamped}.{format}"
+
+    # The generator opens its own session: FastAPI finishes the request
+    # dependency -- and closes its session -- before a streaming body
+    # is sent, so a generator reading `db` here would be reading a
+    # closed session halfway through a large export.
+    def stream():
+        db_stream = SessionLocal()
+
+        try:
+            for chunk in iter_export(
+                _iter_battle_runs(db_stream),
+                format,
+            ):
+                yield chunk
+        finally:
+            db_stream.close()
+
+    return StreamingResponse(
+        stream(),
+        media_type=(
+            "text/csv; charset=utf-8"
+            if format == "csv"
+            else "application/x-ndjson; charset=utf-8"
+        ),
+        headers={
+            # The download is a snapshot of the research record, so it
+            # gets a name a person can find again in a folder.
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"'
+            ),
+        },
+    )
+
+
+@app.post("/api/evaluation/battles/archive")
+def archive_battle_history(db: Session = Depends(get_session)):
+    """
+    Write the current history to a timestamped JSONL file under
+    storage/exports/, then clear the table.
+
+    This is the campaign workflow: archive whatever walkthroughs have
+    accumulated, start the table clean, then run the campaign so the
+    tally can only be describing formal runs.
+
+    JSONL rather than CSV because the archive is the copy that has to
+    stay analysable -- it carries every run's consensus and pairwise
+    structure, which a flattened row cannot.
+
+    The file is written in full before a single row is deleted. If the
+    write fails the table is untouched, because losing a run nobody
+    can see is worse than an archive that did not happen.
+    """
+
+    directory = exports_dir()
+    stamped = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    path = directory / f"battle_runs-{stamped}.jsonl"
+
+    archived = 0
+
+    try:
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            for chunk in iter_export(
+                _iter_battle_runs(db),
+                "jsonl",
+            ):
+                handle.write(chunk)
+                archived += chunk.count("\n")
+
+            # fsync before any row is deleted: the file has to be on
+            # disk, not merely in the buffer, before the table that
+            # holds the only other copy is emptied.
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    except Exception as error:
+        print("BATTLE ARCHIVE FAILED")
+        print(error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not write the battle archive; no rows were deleted.",
+        ) from error
+
+    deleted = _clear_battle_runs(db)
+
+    return {
+        "status": "archived",
+        "archived": archived,
+        "deleted": deleted,
+        "filename": path.name,
+        # Relative to the project root, the same convention the paper
+        # file paths use -- an absolute path from a browser is a
+        # machine detail nobody else can open.
+        "path": f"storage/exports/{path.name}",
+    }
+
+
+@app.delete("/api/evaluation/battles")
+def delete_battle_history(
+    confirm: bool = Query(
+        default=False,
+        description=(
+            "Must be true. Clears every recorded run with no copy "
+            "kept anywhere."
+        ),
+    ),
+    db: Session = Depends(get_session),
+):
+    """
+    Clear the battle history for good.
+
+    Destructive and unrecoverable: unlike /archive this writes nothing
+    first, so `confirm=true` is required rather than assumed. The
+    campaign protocol calls for archiving, not deleting -- a delete is
+    for clearing a table that is about to be replaced.
+    """
+
+    if not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Refusing to clear the battle history without "
+                "confirm=true. Use /api/evaluation/battles/archive to "
+                "keep a copy."
+            ),
+        )
+
+    deleted = _clear_battle_runs(db)
+
+    return {
+        "status": "deleted",
+        "deleted": deleted,
+    }
+
+
+@app.get("/api/evaluation/battles/stats")
+def get_battle_stats(db: Session = Depends(get_session)):
+    """
+    Win shares per pipeline over the recorded runs: overall, split by
+    query kind, and split by subject class.
+
+    The aggregate the results chapter is written from. Splits with
+    fewer than battle_log.MIN_BATTLES_PER_SPLIT runs are omitted and
+    listed in `omitted` instead, because a share taken from one battle
+    is 0% or 100% and reads like a result.
+
+    Runs that predate the research-log columns carry no query kind
+    label of their own beyond the backfill and no subject class at
+    all; they appear as (untagged) buckets rather than being dropped.
+    """
+
+    runs = [
+        {
+            "winner_pipeline_id": pipeline_id,
+            "run_label": run_label,
+            "subject_class": subject_class,
+            "query_kind": query_kind,
+        }
+        for pipeline_id, run_label, subject_class, query_kind in (
+            db.query(
+                BattleRun.winner_pipeline_id,
+                BattleRun.run_label,
+                BattleRun.subject_class,
+                BattleRun.query_kind,
+            )
+            .order_by(BattleRun.id.asc())
+            .all()
+        )
+    ]
+
+    return battle_stats(runs)
 
 
 # ============================================================
@@ -3379,16 +3978,45 @@ def web_result_connections(
     doi: str | None = Query(default=None, max_length=300),
     title: str | None = Query(default=None, max_length=400),
     work_id: str | None = Query(default=None, max_length=32),
+    sources: str | None = Query(
+        default=None,
+        max_length=120,
+        description=(
+            "Comma-separated providers to union in. Defaults to "
+            "semantic_scholar,crossref alongside OpenAlex; unknown names "
+            "are ignored rather than rejected."
+        ),
+    ),
 ):
     """Related works for a web result that is not in the library.
 
-    Same OpenAlex neighborhood as a saved paper's web-connections,
-    resolved by DOI, else OpenAlex work id, else a title match. Only
-    OpenAlex is ever contacted. Replies 200 with empty lists and
-    `resolved: false` when nothing could be matched, so the client
-    can show an empty state rather than an error.
+    The same citation neighborhood a saved paper gets, resolved by DOI,
+    else provider work id, else a title match. OpenAlex leads (it is the
+    only source that returns each neighbor's own reference list, which
+    the edge structure is built from); Semantic Scholar and Crossref are
+    unioned in so a work one graph has never cited still shows its
+    neighbors from the other.
+
+    Replies 200 with empty lists and `resolved: false` when nothing
+    could be matched, so the client can show an empty state rather than
+    an error. A failing extra source is not an error -- it simply
+    contributes nothing.
     """
-    result = fetch_neighborhood(doi=doi, title=title, work_id=work_id)
+    if sources is None:
+        wanted = tuple(EXTRA_SOURCES)
+    else:
+        wanted = tuple(
+            name.strip()
+            for name in sources.split(",")
+            if name.strip() in EXTRA_SOURCES
+        )
+
+    result = fetch_neighborhood(
+        doi=doi,
+        title=title,
+        work_id=work_id,
+        sources=wanted,
+    )
 
     if result.get("ok"):
         result["resolved"] = True
@@ -3406,6 +4034,8 @@ def web_result_connections(
             "prior_works": [],
             "derivative_works": [],
             "edges": [],
+            "sources": ["openalex", *wanted],
+            "source_counts": {},
         }
 
     raise HTTPException(
@@ -3415,6 +4045,312 @@ def web_result_connections(
             "Try again in a moment."
         ),
     )
+
+
+class GatherLiteratureRequest(BaseModel):
+    limit: int = 300
+    rebuild_index: bool = True
+
+
+# One gather at a time: it writes many papers and rebuilds the index.
+# Progress lives in memory so the Arena can draw a live meter; a
+# restart simply forgets a finished job.
+_GATHER_LOCK = threading.Lock()
+_GATHER_JOB: dict = {"state": "idle"}
+
+
+def _gather_snapshot() -> dict:
+    with _GATHER_LOCK:
+        return {**_GATHER_JOB, "recent": list(_GATHER_JOB.get("recent", []))}
+
+
+def _gather_update(**fields) -> None:
+    with _GATHER_LOCK:
+        _GATHER_JOB.update(fields)
+
+
+def _run_gather_job(limit: int, rebuild_index: bool) -> None:
+    """Worker thread: gather, then (optionally) rebuild the index."""
+
+    session = SessionLocal()
+    recent: list[str] = []
+
+    def on_progress(summary, batches_done, batches_total, title):
+        if title:
+            recent.append(title)
+            del recent[:-5]
+
+        _gather_update(
+            phase="fetching",
+            batches_done=batches_done,
+            batches_total=batches_total,
+            recent=list(recent),
+            **{
+                key: summary[key]
+                for key in (
+                    "unresolved_references",
+                    "considered",
+                    "added",
+                    "already_in_library",
+                    "skipped_no_abstract",
+                    "failed_batches",
+                    "rows_linked",
+                )
+            },
+        )
+
+    def on_expand(summary, batches_done, batches_total):
+        _gather_update(
+            phase="references",
+            ref_batches_done=batches_done,
+            ref_batches_total=batches_total,
+            papers_expanded=summary["papers_expanded"],
+            papers_considered=summary["papers_considered"],
+            ref_rows_added=summary["rows_added"],
+        )
+
+    try:
+        with IMPORT_LOCK:
+            # 1. Give papers that have no cached references theirs, so
+            #    they can be queries (a gather leaves most of the library
+            #    as cited-but-never-looked-up works).
+            expanded = expand_references(session, on_progress=on_expand)
+
+            # 2. Link every cached reference to the papers it names.
+            _gather_update(phase="linking")
+            link_reference_rows(session)
+
+            # 3. Import the most-cited references still unresolved.
+            _gather_update(phase="fetching")
+            summary = gather_cited_works(
+                session, limit=limit, on_progress=on_progress
+            )
+
+        summary["references"] = expanded
+
+        summary["index_rebuilt"] = False
+
+        if summary["added"] > 0:
+            set_recommendation_index_stale(True)
+
+            if rebuild_index:
+                _gather_update(phase="indexing")
+
+                try:
+                    rebuild_recommendation_data()
+                    set_recommendation_index_stale(False)
+                    summary["index_rebuilt"] = True
+                except Exception as error:
+                    print("RECOMMENDATION REBUILD FAILED AFTER GATHER")
+                    print(error)
+
+        _gather_update(
+            state="done",
+            phase="done",
+            summary=summary,
+            finished_at=time.time(),
+        )
+
+    except Exception as error:
+        print("LITERATURE GATHER FAILED")
+        print(error)
+        _gather_update(
+            state="error",
+            error=str(error),
+            finished_at=time.time(),
+        )
+
+    finally:
+        session.close()
+
+
+@app.post("/api/citations/gather-literature")
+def gather_literature(request: GatherLiteratureRequest):
+    """
+    Start gathering the library's most-cited unresolved references as
+    papers (from OpenAlex) so leave-one-out tournaments have resolved
+    ground truth, then rebuild the recommendation index so the new
+    papers can be retrieved. Runs in the background; poll
+    ``GET /api/citations/gather-literature/status``.
+    """
+
+    if not 1 <= request.limit <= 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="limit must be between 1 and 1000.",
+        )
+
+    with _GATHER_LOCK:
+        if _GATHER_JOB.get("state") == "running":
+            raise HTTPException(
+                status_code=409,
+                detail="A literature gather is already running.",
+            )
+
+        _GATHER_JOB.clear()
+        _GATHER_JOB.update(
+            state="running",
+            phase="references",
+            limit=request.limit,
+            batches_done=0,
+            batches_total=0,
+            added=0,
+            rows_linked=0,
+            skipped_no_abstract=0,
+            already_in_library=0,
+            recent=[],
+            started_at=time.time(),
+        )
+
+    threading.Thread(
+        target=_run_gather_job,
+        args=(request.limit, request.rebuild_index),
+        daemon=True,
+    ).start()
+
+    return _gather_snapshot()
+
+
+@app.get("/api/citations/gather-literature/status")
+def gather_literature_status():
+    snapshot = _gather_snapshot()
+
+    if snapshot.get("started_at"):
+        end = snapshot.get("finished_at") or time.time()
+        snapshot["elapsed"] = round(end - snapshot["started_at"], 1)
+
+    return snapshot
+
+
+# ------------------------------------------------------------
+# SYNC (refresh metadata from Crossref, then rebuild the index)
+#
+# The Repository's Sync button used to only rebuild the recommendation
+# index, so records never changed. It now first refreshes each paper's
+# metadata (see app/services/metadata_sync.py) and then rebuilds the
+# index so the refreshed text is what gets scored. One run at a time;
+# progress is polled from the status route.
+# ------------------------------------------------------------
+
+class SyncRequest(BaseModel):
+    force: bool = False
+    rebuild_index: bool = True
+
+
+_SYNC_LOCK = threading.Lock()
+_SYNC_JOB: dict = {"state": "idle"}
+
+
+def _sync_update(**fields) -> None:
+    with _SYNC_LOCK:
+        _SYNC_JOB.update(fields)
+
+
+def _run_sync_job(force: bool, rebuild_index: bool) -> None:
+    session = SessionLocal()
+
+    def on_progress(summary, done, total):
+        _sync_update(
+            phase="metadata",
+            done=done,
+            total=total,
+            considered=summary["considered"],
+            changed=summary["changed"],
+            not_found=summary["not_found"],
+            failed=summary["failed"],
+            fields=summary["fields"],
+        )
+
+    try:
+        with IMPORT_LOCK:
+            summary = sync_metadata(
+                session, force=force, on_progress=on_progress
+            )
+
+        summary["index_rebuilt"] = False
+
+        # Even with nothing to change, the index may already be stale
+        # (edits made earlier), so Sync still honours its old job.
+        if rebuild_index:
+            _sync_update(phase="indexing")
+
+            try:
+                rebuild_recommendation_data()
+                set_recommendation_index_stale(False)
+                summary["index_rebuilt"] = True
+            except Exception as error:
+                print("RECOMMENDATION REBUILD FAILED AFTER SYNC")
+                print(error)
+        elif summary["changed"]:
+            set_recommendation_index_stale(True)
+
+        _sync_update(
+            state="done",
+            phase="done",
+            summary=summary,
+            finished_at=time.time(),
+        )
+
+    except Exception as error:
+        print("METADATA SYNC FAILED")
+        print(error)
+        _sync_update(
+            state="error", error=str(error), finished_at=time.time()
+        )
+
+    finally:
+        session.close()
+
+
+@app.post("/api/papers/sync")
+def start_sync(request: SyncRequest | None = None):
+    request = request or SyncRequest()
+
+    with _SYNC_LOCK:
+        if _SYNC_JOB.get("state") == "running":
+            raise HTTPException(
+                status_code=409,
+                detail="A sync is already running.",
+            )
+
+        _SYNC_JOB.clear()
+        _SYNC_JOB.update(
+            state="running",
+            phase="metadata",
+            done=0,
+            total=0,
+            changed=0,
+            started_at=time.time(),
+        )
+
+    threading.Thread(
+        target=_run_sync_job,
+        args=(request.force, request.rebuild_index),
+        daemon=True,
+    ).start()
+
+    with _SYNC_LOCK:
+        return dict(_SYNC_JOB)
+
+
+@app.get("/api/papers/sync/status")
+def sync_status():
+    with _SYNC_LOCK:
+        snapshot = dict(_SYNC_JOB)
+
+    if snapshot.get("started_at"):
+        end = snapshot.get("finished_at") or time.time()
+        snapshot["elapsed"] = round(end - snapshot["started_at"], 1)
+
+    return snapshot
+
+
+@app.post("/api/citations/link-references")
+def link_citation_references(db: Session = Depends(get_session)):
+    """Match cached references/citers to local papers by OpenAlex id,
+    so leave-one-out tournaments have resolved ground truth."""
+
+    return link_reference_rows(db)
 
 
 @app.post("/api/papers/{paper_id}/citations/refresh")

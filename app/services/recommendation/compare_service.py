@@ -85,6 +85,17 @@ class CompareRequest(BaseModel):
     mmr_pool: int = Field(default=50, ge=1, le=100)
     # Lab simulations should not pollute the Arena's battle history.
     record_battle: bool = True
+    # Research tag for the run being recorded, free text, e.g.
+    # "campaign-ml-text-5". Optional because casual use must not be
+    # forced to name its runs -- but a formal campaign run cannot be
+    # identified without one, and the label cannot be reconstructed
+    # from the query afterwards.
+    run_label: str | None = Field(default=None, max_length=200)
+    # Which of the campaign's subject classes this run belongs to.
+    # Optional for the same reason: no preset is enforced here, so a
+    # run outside the six classes is still recorded rather than
+    # rejected.
+    subject_class: str | None = Field(default=None, max_length=100)
 
 
 class RankedPaper(BaseModel):
@@ -131,6 +142,14 @@ class WinnerResult(BaseModel):
     maximum possible weighted consensus, which puts pure and hybrid
     pipelines on the same scale. Ties are broken by the lower average
     consensus rank.
+
+    DESCRIPTIVE ONLY. This measures agreement with the other
+    pipelines on one query, not quality: it uses no ground truth and
+    carries no uncertainty, and it favours whichever pipeline sits
+    nearest the centre of the group. For a verdict about which
+    pipeline is better, run a tournament (evaluation/tournament.py),
+    which scores many queries against known relevance and tests the
+    differences.
     """
 
     pipeline_id: str

@@ -57,6 +57,10 @@ class ResearchChatSource(BaseModel):
     paper_id: int | None = None
     title: str
     author: str | None = None
+    # Repository papers carry their authors as given / middle / family
+    # parts so citation styles can format each name properly; web hits
+    # only have the display string above.
+    authors: list[dict] = []
     year: int | None = None
     score: float
     abstract: str | None = None
@@ -87,6 +91,15 @@ def _sources_from_results(results) -> list[ResearchChatSource]:
             paper_id=result["paper"].id,
             title=result["paper"].title or "Untitled paper",
             author=result["paper"].author,
+            authors=[
+                {
+                    "given": part.given,
+                    "middle": part.middle,
+                    "family": part.family,
+                    "suffix": part.suffix,
+                }
+                for part in (getattr(result["paper"], "authors", None) or [])
+            ],
             year=result["paper"].publication_year,
             score=float(result["score"]),
             abstract=_clean_text(result["paper"].abstract, 1200),
