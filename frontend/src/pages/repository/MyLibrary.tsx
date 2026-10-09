@@ -95,9 +95,7 @@ export default function MyLibrary() {
         description={
           loading
             ? "Loading your saved papers…"
-            : `${entries.length} saved paper${entries.length === 1 ? "" : "s"} · ${
-                proUnlocked ? "PRO collection" : "collection"
-              }.`
+            : `${entries.length} saved paper${entries.length === 1 ? "" : "s"}.`
         }
         action={
           <div className="flex flex-wrap items-center gap-3">
