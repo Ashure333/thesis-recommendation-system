@@ -32,6 +32,49 @@ import WebWorksList from "./WebWorksList";
 type Scope = "library" | "web";
 type Side = "prior" | "derivative";
 
+/* Which providers the web neighborhood is drawn from. OpenAlex is
+   always the lead and cannot be switched off -- it is the only one that
+   returns each neighbor's own reference list, which the graph's edge
+   structure is built from. The rest are additive, so the default asks
+   for the widest neighborhood and the choice is remembered per browser
+   rather than re-picked per selection. */
+const OPTIONAL_SOURCES = [
+  ["semantic_scholar", "Semantic Scholar"],
+  ["crossref", "Crossref"],
+  ["open_citations", "OpenCitations"],
+  ["europe_pmc", "Europe PMC"],
+] as const;
+
+const SOURCE_KEY = "paperrec_web_conn_sources";
+
+type SourceState = Record<string, boolean>;
+
+function readSources(): SourceState {
+  try {
+    const raw = window.localStorage.getItem(SOURCE_KEY);
+
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SourceState>;
+
+      return {
+        semantic_scholar: parsed.semantic_scholar !== false,
+        crossref: parsed.crossref !== false,
+        open_citations: parsed.open_citations !== false,
+        europe_pmc: parsed.europe_pmc !== false,
+      };
+    }
+  } catch {
+    // fall through to the wide default
+  }
+
+  return {
+    semantic_scholar: true,
+    crossref: true,
+    open_citations: true,
+    europe_pmc: true,
+  };
+}
+
 const QUERY_CHARS = 1500;
 
 /** Text query that stands in for the web paper in the corpus. */
@@ -79,11 +122,34 @@ export default function WebSimilarPanel({
   const [web, setWeb] = useState<WebResultConnections | null>(null);
   const [webError, setWebError] = useState("");
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [sourceState, setSourceState] = useState<SourceState>(readSources);
+
+  /* Only the enabled extras go on the wire; the backend ignores unknown
+     names, so this never has to be escaped or validated here. */
+  const sourceQuery = OPTIONAL_SOURCES
+    .filter(([id]) => sourceState[id])
+    .map(([id]) => id)
+    .join(",");
 
   const query = webResultQuery(result);
   const weightsKey = weights
     ? `${weights.tfidf}/${weights.sbert}/${weights.metadata}`
     : "";
+
+  function toggleSource(id: string, on: boolean) {
+    setSourceState((current) => {
+      const next = { ...current, [id]: on };
+
+      try {
+        window.localStorage.setItem(SOURCE_KEY, JSON.stringify(next));
+      } catch {
+        // best-effort: a browser that refuses storage still gets the
+        // narrower neighborhood for this session.
+      }
+
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (scope !== "library") return;
@@ -123,7 +189,7 @@ export default function WebSimilarPanel({
     setActiveKey(null);
 
     getWebResultConnections(
-      { doi: result.doi, title: result.title },
+      { doi: result.doi, title: result.title, sources: sourceQuery },
       controller.signal
     )
       .then((data) => setWeb(data))
@@ -132,7 +198,7 @@ export default function WebSimilarPanel({
       });
 
     return () => controller.abort();
-  }, [scope, result.doi, result.title]);
+  }, [scope, result.doi, result.title, sourceQuery]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-web-similar>
@@ -222,13 +288,13 @@ export default function WebSimilarPanel({
         ) : webError ? (
           <div className="p-4">
             <EmptyState
-              title="Couldn't reach OpenAlex."
+              title="Couldn't reach the citation sources."
               description={webError}
             />
           </div>
         ) : web === null ? (
           <p className="animate-blink p-4 text-sm font-bold text-muted">
-            Looking up related works on OpenAlex…
+            Looking up related works on OpenAlex and Semantic Scholar…
           </p>
         ) : !web.resolved ||
           (web.prior_works.length === 0 &&
@@ -236,11 +302,47 @@ export default function WebSimilarPanel({
           <div className="p-4">
             <EmptyState
               title="No related works found for this result"
-              description="OpenAlex could not match it by DOI or title, or lists no references or citers for it."
+              description="No provider could match it by DOI or title, or none of them lists references or citers for it."
             />
           </div>
         ) : (
           <>
+            {/* Provider switches. OpenAlex is fixed on because it is
+                the only source that supplies the graph's edge
+                structure, so it is named rather than offered. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-900/20 px-4 py-2">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                Sources
+              </span>
+
+              <span className="flex items-center gap-1.5 rounded border-[2px] border-gray-900 bg-canvas px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#2f9e44]" />
+                OpenAlex
+              </span>
+
+              {OPTIONAL_SOURCES.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={sourceState[id]}
+                  onClick={() => toggleSource(id, !sourceState[id])}
+                  title={`${sourceState[id] ? "Stop including" : "Also include"} ${label} works`}
+                  className={`flex items-center gap-1.5 rounded border-[2px] px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] transition-colors pixel-ease ${
+                    sourceState[id]
+                      ? "border-gray-900 bg-canvas text-ink"
+                      : "border-dashed border-gray-900 text-muted hover:bg-accentSoft"
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      sourceState[id] ? "bg-[#2f9e44]" : "bg-gray-400"
+                    }`}
+                  />
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <div
               role="tablist"
               aria-label="Related works"
@@ -273,6 +375,7 @@ export default function WebSimilarPanel({
               works={side === "prior" ? web.prior_works : web.derivative_works}
               activeKey={activeKey}
               onActiveKey={setActiveKey}
+              connections={web}
             />
           </>
         )}

@@ -134,9 +134,8 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "discount",
       "height",
       "cheat",
+      "charm",
       "daisies",
-      "dance",
-      "pinata",
       "pro",
       "purchase",
       "buy",
@@ -145,10 +144,12 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "The Sun Shop lives in the tree card's menus in the Garden. It " +
       "sells fertilizer in packs of 1, 5, or 10 — larger packs cost " +
       "less — and you can buy a pack or drag it straight onto the " +
-      "tree. Each packet adds 2 growth points and 30 feet; ten " +
-      "thousand packets take the tree from Seed to Ancient maple. At " +
-      "100, 500, and 1000 feet it unlocks a typed cheat word: " +
-      "daisies, dance, or pinata, and a stored garden tip otherwise. " +
+      "tree. Each packet adds 2 growth points, and height follows " +
+      "the tree's stage: 3,000 packets take it from Seed to the " +
+      "ancient crown at 1,000 feet. At 250, 450, 650, 850 and 1,000 " +
+      "feet it unlocks one of that tree's five charm words (the " +
+      "oak's are mast, daisies, jay, dapple and hollow), and a " +
+      "stored garden tip otherwise. " +
       "You earn sun by using the system: +10 for a daily visit, +1 " +
       "for 10 pets and for each question (daily caps), +5 for a " +
       "treasure or achievement, +2 for five tips. The Tree skins " +

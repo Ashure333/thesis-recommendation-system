@@ -593,6 +593,23 @@ export default function TreeOfKnowledge({
   /* "Get info" reveals the research the tree holds; the default
      sidebar itself always shows the tree's name and fact card. */
   const [infoExpanded, setInfoExpanded] = useState(false);
+  /* The card is anchored to the stage's bottom edge, so expanding it
+     grows it upward and would leave the reader staring at the top of
+     the old content. Instead, once "Get info" opens, scroll the card's
+     own body to the newly revealed section and hand it focus without
+     scrolling the page. `infoOpen` is a dependency too: collapsing the
+     card unmounts the body, so re-opening it must land on the reveal
+     again rather than back at the tree's name. */
+  const infoBodyRef = useRef<HTMLDivElement | null>(null);
+  const infoRevealRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!infoOpen || !infoExpanded) return;
+    const body = infoBodyRef.current;
+    const reveal = infoRevealRef.current;
+    if (!body || !reveal) return;
+    body.scrollTop = Math.max(0, reveal.offsetTop - 6);
+    reveal.focus({ preventScroll: true });
+  }, [infoExpanded, infoOpen]);
 
   /* Backdrop themes: Meadow is the default; the Theme shop adds
      and applies the rest. */
@@ -1401,23 +1418,28 @@ export default function TreeOfKnowledge({
         {/* TREE INFO — bottom-left card over the stage (in full
             screen it clears the action row while the menu is open) */}
         <div
-          className={`absolute left-3 z-30 w-[min(20rem,calc(100%-1.5rem))] ${
-            immersive && drawerOpen ? "bottom-16" : "bottom-3"
+          className={`absolute left-3 z-30 flex w-[min(20rem,calc(100%-1.5rem))] flex-col [overflow-anchor:none] ${
+            immersive && drawerOpen
+              ? "bottom-16 max-h-[calc(100%-5.25rem)]"
+              : "bottom-3 max-h-[calc(100%-1.5rem)]"
           }`}
         >
-          <div className="overflow-hidden rounded border-[3px] border-gray-900 bg-white/95">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded border-[3px] border-gray-900 bg-white/95">
             <button
               type="button"
               onClick={() => setInfoOpen((value) => !value)}
               aria-expanded={infoOpen}
-              className="flex w-full items-center justify-between gap-2 border-b-[2px] border-gray-900 bg-canvas px-3 py-1.5 font-pixelify text-xs font-bold uppercase tracking-[0.15em] text-ink"
+              className="flex w-full shrink-0 items-center justify-between gap-2 border-b-[2px] border-gray-900 bg-canvas px-3 py-1.5 font-pixelify text-xs font-bold uppercase tracking-[0.15em] text-ink"
             >
               Tree info
               <span>{infoOpen ? "\u25BE" : "\u25B8"}</span>
             </button>
 
             {infoOpen && (
-              <div className="max-h-[36vh] overflow-y-auto p-3">
+              <div
+                ref={infoBodyRef}
+                className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
+              >
                 <p className="font-pixelify text-base font-bold leading-tight text-ink">
                   {SPECIES_INFO[speciesId].name}
                 </p>
@@ -1438,7 +1460,7 @@ export default function TreeOfKnowledge({
                     Get info
                   </button>
                 ) : (
-                  <div>
+                  <div ref={infoRevealRef} tabIndex={-1} className="outline-none">
                     <span
                       role="status"
                       className="mb-2 mt-3 inline-block rounded border-[2px] border-gray-900 bg-accentSoft px-2 py-1 font-mono text-[10px] font-bold text-[#2b6e1e]"

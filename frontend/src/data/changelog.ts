@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "garden-charm-word-pairing",
+    date: "Oct 9",
+    title: "Feeding the tree announces the right charm word",
+    tag: "FIXED",
+    body: "A feeding that crossed one charm milestone used to announce the wrong word. Growing past 450 ft on its own unlocked the 250 ft word, so the garden told you to type the charm you already had. Every crossed height now brings the word at its own rung, and a stage that shares its painted height with the next one says so instead of promising 0 ft.",
+    details: [
+      "src/utils/gardenMilestones.ts: new pure cheatsCrossed(before, after, heights, set). The old code filtered CHEAT_HEIGHTS and then indexed the word set with the FILTERED index, so a rise from 300 to 460 ft (450 only) paired with the 250 ft word; each rung is now paired with its own index on the ladder. Covered by scripts/gardenMilestones.test.mjs alongside milestonesCrossed.",
+      "src/state/sun.tsx applyFertilizer: the wisdom line falls back to 'Same height as the next stage, only fuller.' when the species' stage table paints two stages at the same height (several species reach 1000 ft at Giant), instead of saying '0 ft to the next stage'. The header comment now matches the code: fertilizer goes to a hold, height follows the stage table, and there are five charm rungs at 250 / 450 / 650 / 850 / 1000 ft.",
+      "src/components/retro/TreeOfKnowledge.tsx: Get info no longer leaves the reader at the top of the old content. The card is anchored to the stage's bottom edge, so revealing the research grows it upward; the card's own body now scrolls to the revealed section and takes focus without scrolling the page (overflow-anchor is off so the browser does not fight it), and the card is capped to the stage so it cannot run off the top.",
+    ],
+  },
+  {
     id: "web-result-similar",
     date: "Oct 9",
     title: "Similar papers for web results",

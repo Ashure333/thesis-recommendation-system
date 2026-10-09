@@ -1,4 +1,4 @@
-import { Chip, WikiSection, WikiSub, WikiTable } from "../wiki";
+import { Chip, WikiCite, WikiSection, WikiSub, WikiTable } from "../wiki";
 import { P, WikiGallery, WikiNote, WikiSteps, WikiThumb } from "../wikiMedia";
 
 const CHARMS: [string, string, string, string][] = [
@@ -133,7 +133,9 @@ export function GardenPage() {
             plant, creature, light and weather, relic) and a cheat word. Open <Chip>Almanac → Charms</Chip>
             and flip a peg, or type the word into the cheat console; a pop-up confirms every switch and
             closes itself after ten seconds. A charm that is still locked shows how many feet remain.
+            A feeding always announces the word at the height it just crossed.
           </P>
+          <WikiCite ids={["garden-charm-word-pairing"]} />
           <WikiTable
             headers={["Species", "250 / 450 / 650 ft", "850 / 1,000 ft", "Names"]}
             rows={CHARMS}

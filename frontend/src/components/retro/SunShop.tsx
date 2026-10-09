@@ -201,6 +201,7 @@ export default function SunShop({
     tokens,
     spendTokens,
     testTopUp,
+    testZeroWallet,
     proOverride,
     setProOverride,
   } = useSun();
@@ -704,8 +705,9 @@ export default function SunShop({
           </p>
           <p className="mt-1 text-xs leading-5 text-ink">
             Dev only: top up instantly to stress the shop and the Tree
-            of Knowledge, or force My Library PRO on without growing
-            a tree. Remove before launch.
+            of Knowledge, zero the wallet back to a clean balance, or
+            force My Library PRO on without growing a tree. Remove
+            before launch.
           </p>
           <div className="mt-3 flex flex-col gap-2">
             <button
@@ -734,6 +736,27 @@ export default function SunShop({
               <SunGlyph className="h-3 w-3" />
               <TokenGlyph className="h-3 w-3" />
             </span>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setConfirm({
+                  title: "Zero the wallet",
+                  body:
+                    `Set sun and growth tokens back to 0? You now hold ` +
+                    `${balance} sun and ${tokens} growth tokens. The trees, ` +
+                    `the fertilizer in hand, the skins and the achievements ` +
+                    `all stay — only the balances are cleared.`,
+                  onYes: testZeroWallet,
+                })
+              }
+              className="flex w-full items-center justify-between rounded border-[3px] border-[#b45309] bg-white px-3 py-1.5 font-mono text-[11px] font-bold text-ink transition-colors pixel-ease hover:bg-accentSoft"
+            >
+              <span>zero both</span>
+              <span className="flex items-center gap-1">
+                <SunGlyph className="h-3 w-3" />
+                <TokenGlyph className="h-3 w-3" />
+              </span>
             </button>
             <button
               type="button"
