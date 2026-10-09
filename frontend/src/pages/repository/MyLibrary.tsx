@@ -24,7 +24,7 @@ import MyLibraryPro from "./MyLibraryPro";
 import ProPackButton from "../../components/ProPack";
 
 export default function MyLibrary() {
-  const { proUnlocked, proPurchased } = useSun();
+  const { proUnlocked } = useSun();
   const presenting = useSiteMode().mode === "presentation";
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,13 +105,7 @@ export default function MyLibrary() {
               Browse Repository
             </Button>
 
-            {proPurchased ? (
-              <ProPackButton />
-            ) : proUnlocked ? (
-              <span className="font-pixelify inline-flex h-9 items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accent px-3 text-sm font-bold text-onAccent">
-                PRO
-              </span>
-            ) : (
+            {!proUnlocked && (
               <span
                 title={
                   presenting
