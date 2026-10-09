@@ -596,6 +596,26 @@ class BattleRun(Base):
     # version, hashed together. Lets two runs be compared only when
     # they actually saw the same corpus.
 
+    # ---------------------------------------------------------
+    # Verdict honesty and judging
+    #
+    # margin / decisive: how far the consensus leader cleared the
+    # runner-up, and whether that clears MIN_DECISIVE_MARGIN. NULL on
+    # runs recorded before this existed (and on runs that kept no
+    # response_json to recompute it from).
+    #
+    # judged_*: quality against ground truth. A seed-paper battle is
+    # scored against that paper's own references ("references"); a text
+    # battle can be scored by a person ticking relevant results blind
+    # ("human"). judgement_json holds the per-pipeline scores and the
+    # relevance judgments themselves, so the numbers can be re-derived.
+    # ---------------------------------------------------------
+    margin = Column(Float, nullable=True)
+    decisive = Column(Boolean, nullable=True, index=True)
+    judged_basis = Column(String(16), nullable=True, index=True)
+    judged_leader = Column(String(50), nullable=True)
+    judgement_json = Column(Text, nullable=True)
+
     def __repr__(self):
         return (
             f"<BattleRun id={self.id} "

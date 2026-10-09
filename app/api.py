@@ -105,7 +105,7 @@ from app.services.literature_gather import (
     expand_references,
     gather_cited_works,
 )
-from app.services.evaluation import tournament_jobs
+from app.services.evaluation import battle_judge, battle_series, loo_qrels, tournament_jobs
 from app.services.evaluation.tournament import (
     eligible_query_count,
     export_tournament,
@@ -136,6 +136,7 @@ from app.services.recommendation.compare_service import (
     CompareRequest,
     CompareResponse,
     compare_pipelines,
+    compare_pipelines_stream,
     compare_web_results,
     rank_web_results,
 )
@@ -278,6 +279,16 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
+
+    # Battles recorded before margins existed: recover how close each call
+    # was wherever the full result lists were kept.
+    try:
+        with SessionLocal() as session:
+            backfill_battle_verdicts(session)
+    except Exception as error:
+        logging.getLogger(__name__).warning(
+            "Could not backfill battle verdicts: %s", error
+        )
 
     # A tournament that was running when the server last stopped has no
     # worker any more. Flag it so the Arena offers "resume" instead of a
@@ -2755,12 +2766,98 @@ def _record_battle_run(
         response_json=result.model_dump_json(),
         corpus_size=corpus["corpus_size"],
         corpus_version=corpus["corpus_version"],
+        margin=result.winner.margin,
+        decisive=result.winner.decisive,
     )
+
+    judgement = result.judgement
+
+    if judgement:
+        run.judged_basis = judgement["basis"]
+        run.judged_leader = judgement.get("leader")
+        run.judgement_json = json.dumps(judgement)
 
     db.add(run)
     db.commit()
 
     return run
+
+
+def _validate_compare_request(request: CompareRequest, db: Session) -> None:
+    """Shared by the one-shot and the streaming compare routes."""
+
+    if not request.query and request.seed_paper_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a query or seed_paper_id.",
+        )
+
+    if request.query and request.seed_paper_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a query or seed_paper_id, not both.",
+        )
+
+    if request.seed_paper_id is not None:
+        seed_paper = (
+            db.query(Paper).filter(Paper.id == request.seed_paper_id).first()
+        )
+
+        if not seed_paper:
+            raise HTTPException(status_code=404, detail="Seed paper not found.")
+
+
+def _finish_compare(
+    db: Session,
+    request: CompareRequest,
+    result: CompareResponse,
+    custom_weights,
+) -> CompareResponse:
+    """Judge a seed-paper battle and record the run.
+
+    Runs with no winner (empty repository) are not recorded, and Lab
+    simulations opt out so they don't pollute the Arena's records.
+    Everything past the winner summary is provenance, written from
+    values the run already has (see _record_battle_run).
+    """
+
+    # A seed-paper battle has ground truth: the paper's own references.
+    # Score the lists against it (best-effort; never costs the battle).
+    if request.seed_paper_id is not None:
+        try:
+            result.judgement = battle_judge.judge_seed_battle(
+                db, result.model_dump(), request.seed_paper_id
+            )
+        except Exception as error:
+            print(f"BATTLE JUDGEMENT FAILED: {error}")
+
+    if result.winner is not None and request.record_battle:
+        recorded = _record_battle_run(
+            db=db,
+            result=result,
+            query=request.query,
+            seed_paper_id=request.seed_paper_id,
+            top_k=request.top_k,
+            custom_weights=custom_weights,
+            mmr_lambda=request.mmr_lambda,
+            mmr_pool=request.mmr_pool,
+            run_label=request.run_label,
+            subject_class=request.subject_class,
+        )
+        result.battle_id = recorded.id
+
+    return result
+
+
+def _compare_kwargs(request: CompareRequest, custom_weights) -> dict:
+    return dict(
+        query=request.query,
+        seed_paper_id=request.seed_paper_id,
+        top_k=request.top_k,
+        custom_weights=custom_weights,
+        mmr_lambda=request.mmr_lambda,
+        mmr_pool=request.mmr_pool,
+    )
 
 
 @app.post(
@@ -2778,91 +2875,18 @@ def compare_recommendation_pipelines(
     material for the thesis evaluation chapter.
     """
 
-    # --------------------------------------------------------
-    # Require either query OR seed paper
-    # --------------------------------------------------------
-
-    if (
-        not request.query
-        and request.seed_paper_id is None
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Provide either a query or seed_paper_id.",
-        )
-
-    if (
-        request.query
-        and request.seed_paper_id is not None
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Provide either a query or seed_paper_id, "
-                "not both."
-            ),
-        )
-
-    if request.seed_paper_id is not None:
-        seed_paper = (
-            db.query(Paper)
-            .filter(Paper.id == request.seed_paper_id)
-            .first()
-        )
-
-        if not seed_paper:
-            raise HTTPException(
-                status_code=404,
-                detail="Seed paper not found.",
-            )
-
+    _validate_compare_request(request, db)
     custom_weights = _resolve_custom_recipe(request.custom_weights)
 
     try:
         result = compare_pipelines(
-            db=db,
-            query=request.query,
-            seed_paper_id=request.seed_paper_id,
-            top_k=request.top_k,
-            custom_weights=custom_weights,
-            mmr_lambda=request.mmr_lambda,
-            mmr_pool=request.mmr_pool,
+            db=db, **_compare_kwargs(request, custom_weights)
         )
 
-        # Log the run to the battle history so the frontend can
-        # tally wins over time. Runs with no winner (empty
-        # repository) are not recorded, and Lab simulations
-        # opt out so they don't pollute the Arena's records.
-        #
-        # Everything past the winner summary is provenance, written
-        # from values the run already has: the whole CompareResponse
-        # (the consensus and pairwise structure this page displays is
-        # otherwise gone the moment the response is returned), the
-        # knobs it ran with, and the corpus it ran against. None of
-        # it is consulted while the battle is being computed -- see
-        # _record_battle_run for why that matters once a campaign is
-        # under way.
-        if result.winner is not None and request.record_battle:
-            _record_battle_run(
-                db=db,
-                result=result,
-                query=request.query,
-                seed_paper_id=request.seed_paper_id,
-                top_k=request.top_k,
-                custom_weights=custom_weights,
-                mmr_lambda=request.mmr_lambda,
-                mmr_pool=request.mmr_pool,
-                run_label=request.run_label,
-                subject_class=request.subject_class,
-            )
-
-        return result
+        return _finish_compare(db, request, result, custom_weights)
 
     except ValueError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=str(error),
-        ) from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
     except Exception as error:
         print()
@@ -2873,6 +2897,162 @@ def compare_recommendation_pipelines(
             status_code=500,
             detail="Pipeline comparison failed.",
         ) from error
+
+
+@app.post("/api/recommendations/compare/stream")
+def compare_recommendation_pipelines_stream(
+    request: CompareRequest,
+    db: Session = Depends(get_session),
+):
+    """The same battle, reported as it happens (newline-delimited JSON).
+
+    Events: ``start`` (the pipeline ids, in run order), one ``pipeline``
+    per finished pipeline (its results and seconds), then ``done`` with
+    the full response exactly as the one-shot route returns it, or
+    ``error``. Validation failures are ordinary HTTP errors, sent before
+    the stream opens.
+    """
+
+    _validate_compare_request(request, db)
+    custom_weights = _resolve_custom_recipe(request.custom_weights)
+
+    def lines():
+        # The request's session may be closed before a streamed body is
+        # finished, so the stream works on its own.
+        with SessionLocal() as session:
+            try:
+                for event in compare_pipelines_stream(
+                    db=session, **_compare_kwargs(request, custom_weights)
+                ):
+                    kind = event[0]
+
+                    if kind == "start":
+                        payload = {"event": "start", "pipelines": event[1]}
+                    elif kind == "pipeline":
+                        payload = {
+                            "event": "pipeline",
+                            "id": event[1].id,
+                            "seconds": round(event[2], 3),
+                            "results": [r.model_dump() for r in event[1].results],
+                        }
+                    else:
+                        done = _finish_compare(
+                            session, request, event[1], custom_weights
+                        )
+                        payload = {
+                            "event": "done",
+                            "response": done.model_dump(mode="json"),
+                        }
+
+                    yield json.dumps(payload) + "\n"
+            except ValueError as error:
+                yield json.dumps({"event": "error", "detail": str(error)}) + "\n"
+            except Exception as error:
+                print(f"PIPELINE COMPARISON FAILED: {error}")
+                yield json.dumps(
+                    {"event": "error", "detail": "Pipeline comparison failed."}
+                ) + "\n"
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
+
+# ============================================================
+# BATTLE SERIES — many queries under one label, one board
+# ============================================================
+
+class SeriesQueriesRequest(BaseModel):
+    text: str = ""
+
+
+@app.post("/api/evaluation/battle-series/queries")
+def clean_battle_series_queries(request: SeriesQueriesRequest):
+    """Normalise a pasted query list (one per line)."""
+
+    return battle_series.clean_queries(request.text)
+
+
+@app.get("/api/evaluation/battle-series/sample")
+def sample_battle_series_seeds(
+    n: int = Query(10, ge=1, le=battle_series.MAX_SERIES),
+    seed: int = Query(0, ge=0),
+    db: Session = Depends(get_session),
+):
+    """Seed papers for a series, sampled across publication years from
+    the papers that have resolved references (so every battle in the
+    series can be judged automatically)."""
+
+    queries = loo_qrels.build_loo_queries(
+        db, n=n, min_refs=1, seed=seed
+    )
+
+    return {
+        "eligible": loo_qrels.count_eligible(db, 1),
+        "papers": [
+            {
+                "id": q.seed_paper_id,
+                "title": q.title,
+                "year": q.year,
+                "n_refs": q.n_refs,
+            }
+            for q in queries
+        ],
+    }
+
+
+@app.get("/api/evaluation/battle-series/labels")
+def list_battle_series_labels(db: Session = Depends(get_session)):
+    """Run labels in use, most recent first, with their battle counts."""
+
+    rows = (
+        db.query(
+            BattleRun.run_label,
+            func.count(BattleRun.id),
+            func.max(BattleRun.created_at),
+        )
+        .filter(BattleRun.run_label.isnot(None), BattleRun.run_label != "")
+        .group_by(BattleRun.run_label)
+        .order_by(func.max(BattleRun.created_at).desc())
+        .limit(30)
+        .all()
+    )
+
+    return [
+        {"label": label, "battles": count, "last": last.isoformat() if last else None}
+        for label, count, last in rows
+    ]
+
+
+@app.get("/api/evaluation/battle-series/summary")
+def summarise_battle_series(
+    label: str = Query(..., min_length=1, max_length=200),
+    db: Session = Depends(get_session),
+):
+    """Pool every recorded battle carrying ``label``."""
+
+    runs = (
+        db.query(BattleRun)
+        .filter(
+            BattleRun.run_label == label,
+            BattleRun.winner_metric == CURRENT_BATTLE_METRIC,
+        )
+        .order_by(BattleRun.id)
+        .all()
+    )
+
+    return {
+        "label": label,
+        **battle_series.series_summary(
+            [
+                {
+                    "query": run.query,
+                    "seed_paper_id": run.seed_paper_id,
+                    "response_json": run.response_json,
+                    "judgement_json": run.judgement_json,
+                }
+                for run in runs
+            ]
+        ),
+    }
 
 
 # ============================================================
@@ -3123,11 +3303,17 @@ def get_battle_history(
         .all()
     )
 
+    # A "win" only counts when it was decisive: the consensus share is a
+    # near coin-flip most of the time, so wins by a hair are not wins. Runs
+    # scored by the older vote-count rule, and runs whose margin cannot be
+    # recovered, are counted separately instead of being mixed in.
     tally_rows = (
         db.query(
             BattleRun.winner_pipeline_id,
             func.count(BattleRun.id),
         )
+        .filter(BattleRun.winner_metric == CURRENT_BATTLE_METRIC)
+        .filter(BattleRun.decisive.is_(True))
         .group_by(BattleRun.winner_pipeline_id)
         .all()
     )
@@ -3145,6 +3331,29 @@ def get_battle_history(
             }
             for pipeline_id, wins in tally_rows
         ],
+        "verdicts": _battle_verdict_counts(db),
+    }
+
+
+CURRENT_BATTLE_METRIC = "independence_weighted_consensus"
+
+
+def _battle_verdict_counts(db: Session) -> dict:
+    """How the recorded battles split by how trustworthy their verdict is."""
+
+    current = BattleRun.winner_metric == CURRENT_BATTLE_METRIC
+
+    def count(*conditions) -> int:
+        return db.query(BattleRun).filter(*conditions).count()
+
+    return {
+        "decisive": count(current, BattleRun.decisive.is_(True)),
+        "too_close": count(current, BattleRun.decisive.is_(False)),
+        # current rule, but no margin was ever stored and no lists kept
+        "unknown": count(current, BattleRun.decisive.is_(None)),
+        # scored by the earlier vote-count rule: not comparable
+        "legacy": count(BattleRun.winner_metric != CURRENT_BATTLE_METRIC),
+        "judged": count(BattleRun.judged_basis.isnot(None)),
     }
 
 
@@ -3180,6 +3389,10 @@ _BATTLE_EXPORT_COLUMNS = (
     BattleRun.response_json,
     BattleRun.corpus_size,
     BattleRun.corpus_version,
+    BattleRun.margin,
+    BattleRun.decisive,
+    BattleRun.judged_basis,
+    BattleRun.judged_leader,
 )
 
 
@@ -3207,6 +3420,10 @@ def _battle_run_dict(run: BattleRun) -> dict:
         "query_kind": run.query_kind,
         "corpus_size": run.corpus_size,
         "corpus_version": run.corpus_version,
+        "margin": run.margin,
+        "decisive": run.decisive,
+        "judged_basis": run.judged_basis,
+        "judged_leader": run.judged_leader,
         "created_at": run.created_at.isoformat(),
     }
 
@@ -3572,6 +3789,159 @@ def export_tournament_run(
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+# ============================================================
+# JUDGING BATTLES AGAINST GROUND TRUTH
+#
+# The consensus winner measures agreement, not quality. A judged battle
+# scores the pipelines' lists against actual relevance: a seed paper's own
+# references (automatic, see /api/recommendations/compare) or results a
+# person ticked as relevant with the pipeline names hidden (below).
+# ============================================================
+
+class JudgeRequest(BaseModel):
+    # The recorded battle to judge. Its stored lists are used, so the
+    # client cannot judge lists the pipelines never returned.
+    battle_id: int | None = None
+    # Without a recorded battle (a web or Lab battle), the lists to judge.
+    lists: dict[str, list[int]] | None = None
+    top_k: int = 10
+    # Paper ids the person ticked as relevant.
+    relevant: list[int] = Field(default_factory=list)
+
+
+@app.post("/api/evaluation/judge")
+def judge_battle(
+    request: JudgeRequest,
+    db: Session = Depends(get_session),
+):
+    """Score a battle by the results a person judged relevant (human basis)."""
+
+    run = None
+
+    if request.battle_id is not None:
+        run = db.get(BattleRun, request.battle_id)
+
+        if run is None:
+            raise HTTPException(status_code=404, detail="Battle not found.")
+
+        if not run.response_json:
+            raise HTTPException(
+                status_code=409,
+                detail="That battle kept no result lists, so it cannot be judged.",
+            )
+
+        response = json.loads(run.response_json)
+        lists = battle_judge.lists_from_response(response)
+        top_k = int(response.get("top_k", request.top_k))
+    elif request.lists:
+        lists, top_k = request.lists, request.top_k
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Give a battle_id or the result lists to judge.",
+        )
+
+    pooled = {pid for ids in lists.values() for pid in ids}
+    ticked = [pid for pid in dict.fromkeys(request.relevant) if pid in pooled]
+
+    try:
+        judgement = battle_judge.judge_lists(
+            lists,
+            {pid: 1 for pid in ticked},
+            k=top_k,
+            basis=battle_judge.BASIS_HUMAN,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    if run is not None:
+        run.judged_basis = judgement["basis"]
+        run.judged_leader = judgement.get("leader")
+        run.judgement_json = json.dumps(judgement)
+        db.commit()
+
+    return judgement
+
+
+@app.get("/api/evaluation/battles/judged")
+def judged_battles_summary(db: Session = Depends(get_session)):
+    """Quality per pipeline over every judged battle, with a verdict only
+    once there are enough of them to support one."""
+
+    rows = [
+        {"judgement_json": text}
+        for (text,) in db.query(BattleRun.judgement_json)
+        .filter(BattleRun.judgement_json.isnot(None))
+        .all()
+    ]
+
+    return battle_judge.judged_summary(rows)
+
+
+def backfill_battle_verdicts(db: Session) -> int:
+    """Recover margin/decisive for recorded battles that kept their lists.
+
+    Older rows have a winner and its share but not the runner-up's, so
+    they cannot say how close the call was. Where the full result lists
+    were stored the consensus can be recomputed exactly, which settles it.
+    Rows without lists are left unknown rather than guessed at.
+    """
+
+    from app.services.recommendation.compare_service import (
+        PIPELINE_COMPONENTS,
+        MIN_DECISIVE_MARGIN,
+        consensus_shares,
+    )
+
+    done = 0
+
+    rows = (
+        db.query(BattleRun)
+        .filter(BattleRun.winner_metric == CURRENT_BATTLE_METRIC)
+        .filter(BattleRun.decisive.is_(None))
+        .filter(BattleRun.response_json.isnot(None))
+        .all()
+    )
+
+    for run in rows:
+        # A custom recipe adds a pipeline whose components are not stored
+        # with the battle; recomputing without it would change the answer.
+        if run.custom_weights:
+            continue
+
+        try:
+            data = json.loads(run.response_json)
+            rank_maps = {
+                p["id"]: {r["paper_id"]: i for i, r in enumerate(p["results"], 1)}
+                for p in data["pipelines"]
+                if p["id"] in PIPELINE_COMPONENTS
+            }
+            positions = {
+                e["paper_id"]: i for i, e in enumerate(data["consensus"], 1)
+            }
+            shares, avg_ranks = consensus_shares(
+                rank_maps=rank_maps,
+                consensus_positions=positions,
+                consensus_size=len(data["consensus"]),
+                component_sets=PIPELINE_COMPONENTS,
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
+
+        if len(shares) < 2:
+            continue
+
+        ordered = sorted(shares, key=lambda p: (-shares[p], avg_ranks[p]))
+        margin = shares[ordered[0]] - shares[ordered[1]]
+        run.margin = round(margin, 4)
+        run.decisive = margin >= MIN_DECISIVE_MARGIN
+        done += 1
+
+    db.commit()
+
+    return done
 
 
 @app.get("/api/evaluation/battles/export")

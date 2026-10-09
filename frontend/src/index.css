@@ -58,7 +58,7 @@
   --gray-900: 44 62 80;
   --gray-950: 26 35 44;
 
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-body, "Inter", system-ui, sans-serif);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -100,7 +100,7 @@ button,
 input,
 select,
 textarea {
-  font-family: "Pixelify Sans", "Inter", system-ui, sans-serif;
+  font-family: var(--font-display, "Pixelify Sans", "Inter", system-ui, sans-serif);
   letter-spacing: 0.02em;
 }
 
@@ -109,7 +109,7 @@ textarea {
 @layer components {
   /* Retro display font for the header chrome and arcade labels. */
   .font-pixelify {
-    font-family: "Pixelify Sans", "Inter", system-ui, sans-serif;
+    font-family: var(--font-display, "Pixelify Sans", "Inter", system-ui, sans-serif);
     letter-spacing: 0.02em;
   }
 
@@ -142,7 +142,7 @@ textarea {
      labels run at 16px and compact filter labels at 14px. */
   .field-label {
     @apply block text-base font-bold text-ink;
-    font-family: "Pixelify Sans", "Inter", system-ui, sans-serif;
+    font-family: var(--font-display, "Pixelify Sans", "Inter", system-ui, sans-serif);
     letter-spacing: 0.03em;
   }
 
@@ -152,13 +152,13 @@ textarea {
   .paper-row { @apply border-b border-gray-200 px-4 py-4 transition-colors last:border-b-0 hover:bg-canvas; }
   .paper-title {
     @apply text-sm font-bold leading-5 text-ink hover:underline;
-    font-family: "Pixelify Sans", "Inter", system-ui, sans-serif;
+    font-family: var(--font-display, "Pixelify Sans", "Inter", system-ui, sans-serif);
   }
   .paper-actions { @apply mt-3 flex flex-wrap items-center gap-2; }
 
   .filter-label {
     @apply mb-1.5 block text-sm font-bold text-ink;
-    font-family: "Pixelify Sans", "Inter", system-ui, sans-serif;
+    font-family: var(--font-display, "Pixelify Sans", "Inter", system-ui, sans-serif);
     letter-spacing: 0.03em;
   }
 
@@ -1556,4 +1556,29 @@ html[data-pixelfont] body *:not(svg):not(svg *) {
 /* --- The live background: the garden's scene behind the page --- */
 .live-bg canvas {
   object-fit: cover;
+}
+
+
+/* --- Developer type tweaks (see utils/uiCustom.ts, TypeTweaks) --- */
+body {
+  letter-spacing: var(--type-tracking, normal);
+  line-height: var(--type-leading, normal);
+}
+html[data-font-body] body,
+html[data-font-body][data-skin] body,
+html[data-font-body][data-skin] input,
+html[data-font-body][data-skin] textarea,
+html[data-font-body][data-skin] select {
+  font-family: var(--font-body);
+}
+html[data-font-heading] h1,
+html[data-font-heading] h2,
+html[data-font-heading] h3,
+html[data-font-heading] h4,
+html[data-font-heading][data-skin] h1,
+html[data-font-heading][data-skin] h2,
+html[data-font-heading][data-skin] h3,
+html[data-font-heading][data-skin] button,
+html[data-font-heading] .font-pixelify {
+  font-family: var(--font-display);
 }

@@ -7,6 +7,8 @@ import {
   History,
   Layers,
   Quote,
+  Scale,
+  Split,
   Table,
   Trophy,
 } from "lucide-react";
@@ -14,14 +16,21 @@ import {
 import {
   archiveBattleHistory,
   comparePipelines,
+  comparePipelinesStream,
   deleteBattleHistory,
   exportBattleHistory,
   getBattleHistory,
   webComparePipelines,
   BattleExportFormat,
   BattleRun,
+  BattleVerdictCounts,
   CompareResponse,
+  Paper,
 } from "../../api";
+import RepositoryPickerDialog from "../../components/RepositoryPickerDialog";
+import BattleJudge from "../../components/BattleJudge";
+import BattleDifferencesPanel from "../../components/BattleDifferences";
+import BattleSeries from "../../components/BattleSeries";
 
 import { pipelineConfigs, pipelineName } from "../../data/pipelineConfigs";
 import { isPresentationStored } from "../../utils/presentation";
@@ -72,8 +81,6 @@ function displayName(id: string): string {
 /* Battle round names: the six pipelines in execution order. */
 const BATTLE_STAGES = BATTLE_IDS.map((id) => displayName(id));
 
-/* Minimum loading-state duration so the battle rounds play. */
-const MIN_BATTLE_MS = 2_400;
 
 function formatScore(value: number | null): string {
   if (value === null || value === undefined) {
@@ -173,6 +180,10 @@ export default function Evaluation() {
   const { publish: publishStats } = useStatsDrawer();
 
   const [queryText, setQueryText] = useState("");
+  /* A seed paper replaces the text query: the battle is then scored
+     automatically against the paper's own references (Judge tab). */
+  const [seedPaper, setSeedPaper] = useState<Paper | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [topK, setTopK] = useState(10);
   const [battle, setBattle] = useState<CompareResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -186,6 +197,7 @@ export default function Evaluation() {
   const [serverTally, setServerTally] = useState<
     { pipeline_id: string; wins: number }[]
   >([]);
+  const [verdicts, setVerdicts] = useState<BattleVerdictCounts | null>(null);
   const [copiedCitation, setCopiedCitation] = useState<string | null>(null);
 
   /* Research tag applied to the NEXT recorded battle. Held here rather
@@ -213,12 +225,13 @@ export default function Evaluation() {
 
   /* Arena results are tab-separated instead of one long stack. */
   const [resultsTab, setResultsTab] = useState<
-    "overview" | "consensus" | "pairwise" | "grid" | "scores" | "cite"
+    "overview" | "consensus" | "pairwise" | "grid" | "scores" | "differences" | "judge" | "cite"
   >("overview");
 
   /* Web mode: battle the pipelines over live OpenAlex/Crossref/arXiv
      hits instead of the repository. */
   const [webMode, setWebMode] = useState(false);
+  const hasInput = Boolean(seedPaper && !webMode) || Boolean(queryText.trim());
   const [webSources, setWebSources] = useState(
     "openalex,crossref,arxiv",
   );
@@ -235,6 +248,7 @@ export default function Evaluation() {
       setHistoryPages(response.pages);
       setHistoryPage(response.page);
       setServerTally(response.tally);
+      setVerdicts(response.verdicts ?? null);
     } catch {
       // History is best-effort; the battle itself still works.
     }
@@ -245,38 +259,31 @@ export default function Evaluation() {
   }, []);
 
   /* Battle-round ticker: walks the six codenames while loading. */
-  const [battleStageIndex, setBattleStageIndex] = useState(0);
+  /* Real progress: the pipelines the server has finished so far. A web
+     battle is not streamed, so its meter stays indeterminate. */
+  const [progress, setProgress] = useState<{
+    order: string[];
+    finished: { id: string; seconds: number; top: string | null }[];
+  }>({ order: [], finished: [] });
 
-  useEffect(() => {
-    if (!loading) {
-      setBattleStageIndex(0);
-      return;
-    }
-
-    const id = window.setInterval(() => {
-      setBattleStageIndex((index) =>
-        Math.min(BATTLE_STAGES.length - 1, index + 1),
-      );
-    }, 400);
-
-    return () => window.clearInterval(id);
-  }, [loading]);
+  const finishedCount = progress.finished.length;
+  const totalCount = progress.order.length || BATTLE_STAGES.length;
+  const nextUp = progress.order.find(
+    (id) => !progress.finished.some((entry) => entry.id === id),
+  );
 
   async function runBattle() {
-    if (!queryText.trim()) {
-      setError("Enter a query to start the battle.");
+    if (!hasInput) {
+      setError("Enter a query or pick a seed paper to start the battle.");
       return;
     }
 
     setLoading(true);
     setError(null);
+    setProgress({ order: [], finished: [] });
 
     // The pet zaps when the battle starts.
     triggerSlimeAnimation("zap");
-
-    // The local battle resolves in milliseconds; hold the loading
-    // state open long enough for the six battle rounds to play.
-    const startedAt = Date.now();
 
     battleAbortRef.current?.abort();
     const controller = new AbortController();
@@ -292,21 +299,35 @@ export default function Evaluation() {
             openAccess,
             signal: controller.signal,
           })
-        : await comparePipelines({
-            query: queryText.trim(),
-            topK,
-            runLabel: runLabel.trim() || undefined,
-            subjectClass: subjectClass || undefined,
-          });
+        : await comparePipelinesStream(
+            {
+              query: seedPaper ? undefined : queryText.trim(),
+              seedPaperId: seedPaper?.id,
+              topK,
+              runLabel: runLabel.trim() || undefined,
+              subjectClass: subjectClass || undefined,
+            },
+            (event) => {
+              if (event.event === "start") {
+                setProgress({ order: event.pipelines, finished: [] });
+              } else if (event.event === "pipeline") {
+                setProgress((current) => ({
+                  ...current,
+                  finished: [
+                    ...current.finished,
+                    {
+                      id: event.id,
+                      seconds: event.seconds,
+                      top: event.results[0]?.title ?? null,
+                    },
+                  ],
+                }));
+              }
+            },
+            controller.signal,
+          );
 
       if (controller.signal.aborted) return;
-
-      const elapsed = Date.now() - startedAt;
-      if (elapsed < MIN_BATTLE_MS) {
-        await new Promise((resolve) =>
-          window.setTimeout(resolve, MIN_BATTLE_MS - elapsed),
-        );
-      }
 
       setBattle(data);
 
@@ -315,7 +336,7 @@ export default function Evaluation() {
         publishStats({
           pipelineId: "compare",
           mode: "keyword",
-          query: queryText.trim(),
+          query: seedPaper ? seedPaper.title : queryText.trim(),
           topK,
         });
       }
@@ -469,7 +490,8 @@ export default function Evaluation() {
       ? (() => {
           let count = 0;
           for (const run of history) {
-            if (run.winner_pipeline_id === leader.id) {
+            // Only decisive wins extend a streak; a too-close battle breaks it.
+            if (run.decisive === true && run.winner_pipeline_id === leader.id) {
               count++;
             } else {
               break;
@@ -628,7 +650,16 @@ export default function Evaluation() {
       `compared ${battle.pipelines.length} content-based recommendation ` +
       `pipelines on the ${battle.query ? "query" : "seed paper"} ` +
       `${subject} at a depth of ${battle.top_k} results per pipeline: ` +
-      `${pipelineNames}. The winner was ${winnerChip} ` +
+      `${pipelineNames}. ` +
+      (battle.winner?.decisive === false
+        ? `No pipeline led decisively: ${(battle.winner.contenders ?? [])
+            .map(nameOf)
+            .join(", ")} were within ${Math.round(
+            (battle.winner.min_margin ?? 0.02) * 100,
+          )} percentage points of each other, so the battle is too close to call. ` +
+          `The nominal consensus leader was `
+        : "The consensus leader was ") +
+      `${winnerChip} ` +
       `(${winnerId}), which captured ${winnerPct}% of the available ` +
       "independence-weighted consensus" +
       (battle.winner?.avg_consensus_rank != null
@@ -716,6 +747,8 @@ export default function Evaluation() {
     { id: "pairwise", label: "Pairwise", icon: ArrowLeftRight },
     { id: "grid", label: "Battle grid", icon: Table },
     { id: "scores", label: "Scores", icon: BarChart3 },
+    { id: "differences", label: "Why they differ", icon: Split },
+    { id: "judge", label: "Judge", icon: Scale },
     { id: "cite", label: "Interpretation", icon: Quote },
   ] as const;
 
@@ -775,7 +808,9 @@ export default function Evaluation() {
             }`}
           >
             {loading
-              ? `Round ${battleStageIndex + 1} of ${BATTLE_STAGES.length}`
+              ? webMode
+                ? "Searching the web…"
+                : `${finishedCount} of ${totalCount} pipelines done`
               : battle
                 ? "Battle complete"
                 : "Insert query"}
@@ -839,10 +874,54 @@ export default function Evaluation() {
                   if (event.key === "Enter") runBattle();
                 }}
                 placeholder="e.g. neural network text similarity"
-                disabled={loading}
+                disabled={loading || Boolean(seedPaper && !webMode)}
                 className="min-w-0 flex-1 bg-transparent font-pixelify text-lg text-onInk caret-[rgb(var(--accent))] placeholder:text-onInk/50 focus:outline-none"
               />
             </div>
+
+            {!webMode && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
+                <span>Seed paper</span>
+                {seedPaper ? (
+                  <>
+                    <span className="min-w-0 max-w-full truncate rounded border-[2px] border-onInk/40 px-2 py-1 text-xs normal-case tracking-normal text-onInk">
+                      {seedPaper.title}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => setSeedPaper(null)}
+                      className="rounded border-[2px] border-onInk/40 px-2 py-1 hover:border-accent hover:text-accent"
+                    >
+                      Clear
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setPickerOpen(true)}
+                    className="rounded border-[2px] border-onInk/40 px-2 py-1 hover:border-accent hover:text-accent"
+                  >
+                    Pick from repository
+                  </button>
+                )}
+                <span className="normal-case tracking-normal text-onInk/60">
+                  {seedPaper
+                    ? "Scored against its own references."
+                    : "Optional. Seed battles are judged automatically."}
+                </span>
+              </div>
+            )}
+
+            <RepositoryPickerDialog
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              onPick={(paper) => {
+                setSeedPaper(paper);
+                setPickerOpen(false);
+              }}
+            />
 
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
@@ -862,9 +941,9 @@ export default function Evaluation() {
               <button
                 type="button"
                 onClick={runBattle}
-                disabled={loading || !queryText.trim()}
+                disabled={loading || !hasInput}
                 className={`ml-auto rounded border-[3px] border-black/60 bg-accent px-5 py-1.5 font-pixelify text-base font-bold uppercase tracking-[0.2em] text-onAccent shadow-[0_4px_0_rgba(0,0,0,0.45)] transition-all pixel-ease hover:brightness-110 active:translate-y-[3px] active:shadow-[0_1px_0_rgba(0,0,0,0.45)] disabled:cursor-not-allowed disabled:opacity-50 ${
-                  !loading && queryText.trim() ? "animate-blink" : ""
+                  !loading && hasInput ? "animate-blink" : ""
                 }`}
               >
                 {loading ? "Running…" : isPresentationStored() ? "Run Arena" : "Press start"}
@@ -978,19 +1057,42 @@ export default function Evaluation() {
                 <div>
                   <p className="flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-[0.15em] text-onInk">
                     <ArrowRight className="h-3 w-3" aria-hidden="true" />
-                    Battling: {BATTLE_STAGES[battleStageIndex]}
+                    {webMode
+                      ? "Searching the web"
+                      : nextUp
+                        ? `Running: ${displayName(nextUp)}`
+                        : finishedCount > 0
+                          ? "Comparing the lists"
+                          : "Starting"}
                   </p>
                   <PixelProgress
-                    value={(battleStageIndex + 1) / BATTLE_STAGES.length}
-                    stage={`ROUND ${battleStageIndex + 1} OF ${BATTLE_STAGES.length}`}
+                    value={webMode || progress.order.length === 0 ? null : finishedCount / totalCount}
+                    stage={webMode ? undefined : `${finishedCount} OF ${totalCount} DONE`}
                     className="mt-2 w-full"
                   />
+                  {progress.finished.length > 0 && (
+                    <ul className="mt-2 space-y-0.5 font-mono text-[10px] text-onInk/80">
+                      {progress.finished.map((entry) => (
+                        <li key={entry.id} className="flex gap-2">
+                          <span className="w-28 shrink-0 truncate font-bold text-onInk">
+                            {displayName(entry.id)}
+                          </span>
+                          <span className="w-10 shrink-0 text-right">{entry.seconds.toFixed(1)}s</span>
+                          <span className="min-w-0 truncate">{entry.top ?? "no results"}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ) : battle?.winner ? (
                 <p className="font-mono text-xs leading-5 text-onInk/90">
                   <span className="font-bold uppercase tracking-[0.2em] text-onInk">Last battle · </span>
-                  {displayName(battle.winner.pipeline_id)} won with{" "}
-                  {(battle.winner.value * 100).toFixed(0)}% of the consensus. The result is below.
+                  {battle.winner.decisive === false
+                    ? `Too close to call: ${(battle.winner.contenders ?? [battle.winner.pipeline_id])
+                        .map(displayName)
+                        .join(", ")} are within ${Math.round((battle.winner.min_margin ?? 0.02) * 100)} points.`
+                    : `${displayName(battle.winner.pipeline_id)} led with ${(battle.winner.value * 100).toFixed(0)}% of the consensus.`}{" "}
+                  The result is below.
                 </p>
               ) : (
                 <p className="text-xs leading-5 text-onInk/80">
@@ -1012,7 +1114,7 @@ export default function Evaluation() {
           >
             <p className="flex items-center gap-1.5 font-pixelify text-sm font-bold uppercase tracking-[0.2em] text-onInk">
               <Trophy className="h-4 w-4" aria-hidden="true" />
-              {isPresentationStored() ? "Win tally" : "High scores"}
+              {isPresentationStored() ? "Decisive wins" : "High scores"}
             </p>
             <ol className="mt-2 space-y-1.5">
               {tally.map((entry, index) => {
@@ -1039,6 +1141,12 @@ export default function Evaluation() {
             </ol>
             <p className="mt-auto border-t border-onInk/20 pt-2 font-mono text-[10px] font-bold uppercase leading-4 tracking-[0.15em] text-onInk/75">
               {totalRuns} {totalRuns === 1 ? "battle" : "battles"} fought
+              {verdicts
+                ? ` · ${verdicts.decisive} decisive · ${verdicts.too_close} too close`
+                : ""}
+              {verdicts && verdicts.unknown + verdicts.legacy > 0
+                ? ` · ${verdicts.unknown + verdicts.legacy} unscored (older)`
+                : ""}
               {currentStreak > 1
                 ? ` · streak ×${currentStreak} for ${displayName(leader.id)}`
                 : ""}
@@ -1054,6 +1162,12 @@ export default function Evaluation() {
       {error && (
         <div className="status-error">{error}</div>
       )}
+
+      <BattleSeries
+        topK={topK}
+        name={displayName}
+        onBattle={() => void loadHistory(1)}
+      />
 
       {/* ======================================================
           RESULTS
@@ -1120,7 +1234,9 @@ export default function Evaluation() {
                 <div className="min-w-0">
                   <p className="animate-blink flex items-center gap-2 font-mono text-xs font-bold tracking-[0.3em] text-accent">
                     <Star className="h-3.5 w-3.5" />
-                    CONSENSUS LEADER · NO QUALITY VERDICT
+                    {battle.winner.decisive === false
+                      ? "TOO CLOSE TO CALL · NO QUALITY VERDICT"
+                      : "CONSENSUS LEADER · NO QUALITY VERDICT"}
                   </p>
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1131,6 +1247,17 @@ export default function Evaluation() {
                       {battle.winner.pipeline_id}
                     </span>
                   </div>
+
+                  {battle.winner.decisive === false && (
+                    <p className="mt-2 text-xs font-bold leading-5 text-accent">
+                      {(battle.winner.contenders ?? []).map(displayName).join(" · ")} are within{" "}
+                      {Math.round((battle.winner.min_margin ?? 0.02) * 100)} points of each other
+                      {battle.winner.margin != null
+                        ? ` (lead ${(battle.winner.margin * 100).toFixed(1)} points)`
+                        : ""}
+                      . The name above is only the nominal leader; do not read it as a win.
+                    </p>
+                  )}
 
                   <p className="mt-2 text-xs leading-5 text-onInk/70">
                     Captured the most independence-weighted
@@ -1641,6 +1768,22 @@ export default function Evaluation() {
               INTERPRETATION — citation-ready result summaries
               ------------------------------------------------ */}
 
+          {resultsTab === "differences" && battle && (
+            <BattleDifferencesPanel
+              differences={battle.differences}
+              name={displayName}
+            />
+          )}
+
+          {resultsTab === "judge" && battle && (
+            <BattleJudge
+              key={battle.battle_id ?? "unrecorded"}
+              battle={battle}
+              name={displayName}
+              onJudged={() => void loadHistory(historyPage)}
+            />
+          )}
+
           {resultsTab === "cite" && battle && citations && (
             <section className="rounded border-[3px] border-gray-900 bg-white">
               <div className="border-b border-gray-200 px-3 py-2">
@@ -1842,6 +1985,16 @@ export default function Evaluation() {
                         <td className="px-2 py-1.5 text-left">
                           <div className="w-full">
                             <PipelineChip pipelineId={run.winner_pipeline_id} grow />
+                            {run.decisive === false && (
+                              <span className="mt-0.5 block font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                                too close
+                              </span>
+                            )}
+                            {run.judged_basis && (
+                              <span className="mt-0.5 block font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
+                                judged{run.judged_leader ? ` · ${displayName(run.judged_leader)}` : ""}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono font-bold text-ink">

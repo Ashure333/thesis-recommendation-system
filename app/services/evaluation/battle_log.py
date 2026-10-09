@@ -62,11 +62,15 @@ SCALAR_COLUMNS: tuple[str, ...] = (
     "custom_weights",
     "corpus_size",
     "corpus_version",
+    "margin",
+    "decisive",
+    "judged_basis",
+    "judged_leader",
 )
 
 # Header of the CSV export: the scalars, then the derived columns.
 # The derived ones come last because they are computed, not stored --
-# someone reading only the first seventeen knows they are looking at
+# someone reading only the first twenty-one knows they are looking at
 # values straight out of the table.
 CSV_COLUMNS: tuple[str, ...] = SCALAR_COLUMNS + (
     "pipeline_count",

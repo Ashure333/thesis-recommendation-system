@@ -817,6 +817,39 @@ export interface CompareRankedPaper {
   title: string | null;
   year: number | null;
   score: number;
+  /** Weighted TF-IDF / S-BERT / metadata contributions behind the score. */
+  components?: Record<string, number> | null;
+}
+
+export type SignalName = "tfidf" | "sbert" | "metadata";
+
+export interface DifferencePaper {
+  paper_id: number;
+  title: string | null;
+  year: number | null;
+  in: string[];
+  out: string[];
+  ranks: Record<string, number>;
+  spread: number;
+  mean_rank: number;
+  /** Strongest signal behind this paper in each pipeline that returned it. */
+  drivers: Record<string, SignalName>;
+}
+
+export interface BattleDifferences {
+  n_pipelines: number;
+  union: number;
+  shared_by_all: number;
+  contested_count: number;
+  contested: DifferencePaper[];
+  unanimous: DifferencePaper[];
+  pipelines: {
+    id: string;
+    unique_count: number;
+    unique: DifferencePaper[];
+    signal_mix: Record<SignalName, number> | null;
+    dominant: SignalName | null;
+  }[];
 }
 
 export interface ComparePipelineBattle {
@@ -845,6 +878,44 @@ export interface CompareWinner {
   metric: "independence_weighted_consensus";
   value: number;
   avg_consensus_rank: number | null;
+  /** Lead over the runner-up's consensus share (0..1); null with one pipeline. */
+  margin?: number | null;
+  runner_up?: string | null;
+  /** margin >= min_margin. A leader inside the margin is "too close to call". */
+  decisive?: boolean | null;
+  /** Every pipeline within `min_margin` of the leader (leader included). */
+  contenders?: string[];
+  shares?: Record<string, number>;
+  min_margin?: number;
+}
+
+/** One pipeline's quality scores in a judged battle. */
+export interface JudgeScore {
+  ndcg: number;
+  hits: number;
+  hit: number;
+  precision: number;
+  mrr: number;
+  recall: number;
+  relevant_ids: number[];
+  returned: number;
+}
+
+export type JudgeBasis = "references" | "human";
+
+export interface BattleJudgement {
+  basis: JudgeBasis;
+  k: number;
+  n_relevant: number;
+  relevance: Record<string, number>;
+  scores: Record<string, JudgeScore>;
+  ranking: string[];
+  leaders: string[];
+  leader: string | null;
+  margin: number;
+  /** nDCG lead of at least 0.1: still one sample, not a finding. */
+  separated: boolean;
+  nothing_relevant_found: boolean;
 }
 
 export interface CompareResponse {
@@ -855,6 +926,70 @@ export interface CompareResponse {
   consensus: CompareConsensusEntry[];
   pairwise: ComparePairwiseAgreement[];
   winner: CompareWinner | null;
+  /** Id of the recorded battle (needed to judge it); null when not recorded. */
+  battle_id?: number | null;
+  /** Seed-paper battles are scored against the paper's own references. */
+  judgement?: BattleJudgement | null;
+  /** Where the pipelines disagreed and which signals drove each list. */
+  differences?: BattleDifferences | null;
+}
+
+export type CompareStreamEvent =
+  | { event: "start"; pipelines: string[] }
+  | { event: "pipeline"; id: string; seconds: number; results: CompareRankedPaper[] }
+  | { event: "done"; response: CompareResponse }
+  | { event: "error"; detail: string };
+
+/**
+ * The same battle as `comparePipelines`, reported as each pipeline
+ * finishes. Resolves with the final response; `onEvent` sees every step.
+ */
+export async function comparePipelinesStream(
+  params: Parameters<typeof comparePipelines>[0],
+  onEvent: (event: CompareStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<CompareResponse> {
+  const res = await fetch(`${API_URL}/api/recommendations/compare/stream`, {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(compareBody(params)),
+  });
+
+  if (!res.ok || !res.body) {
+    return handle<CompareResponse>(res);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let final: CompareResponse | null = null;
+
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as CompareStreamEvent;
+
+    if (event.event === "error") throw new Error(event.detail);
+    if (event.event === "done") final = event.response;
+    onEvent(event);
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+
+    buffer = lines.pop() ?? "";
+    lines.forEach(consume);
+  }
+
+  consume(buffer);
+
+  if (!final) throw new Error("The battle ended before it finished.");
+
+  return final;
 }
 
 export function comparePipelines(params: {
@@ -880,18 +1015,22 @@ export function comparePipelines(params: {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      query: params.query ?? null,
-      seed_paper_id: params.seedPaperId ?? null,
-      top_k: params.topK ?? 10,
-      custom_weights: params.customWeights ?? null,
-      mmr_lambda: params.mmrLambda ?? null,
-      mmr_pool: params.mmrPool ?? 50,
-      record_battle: params.recordBattle ?? true,
-      run_label: params.runLabel ?? null,
-      subject_class: params.subjectClass ?? null,
-    }),
+    body: JSON.stringify(compareBody(params)),
   }).then(handle<CompareResponse>);
+}
+
+function compareBody(params: Parameters<typeof comparePipelines>[0]) {
+  return {
+    query: params.query ?? null,
+    seed_paper_id: params.seedPaperId ?? null,
+    top_k: params.topK ?? 10,
+    custom_weights: params.customWeights ?? null,
+    mmr_lambda: params.mmrLambda ?? null,
+    mmr_pool: params.mmrPool ?? 50,
+    record_battle: params.recordBattle ?? true,
+    run_label: params.runLabel ?? null,
+    subject_class: params.subjectClass ?? null,
+  };
 }
 
 // ============================================================
@@ -949,6 +1088,21 @@ export interface BattleRun {
   query_kind?: string | null;
   corpus_size?: number | null;
   corpus_version?: string | null;
+  /** Lead over the runner-up; null on runs recorded before margins existed. */
+  margin?: number | null;
+  decisive?: boolean | null;
+  judged_basis?: JudgeBasis | null;
+  judged_leader?: string | null;
+}
+
+export interface BattleVerdictCounts {
+  decisive: number;
+  too_close: number;
+  /** Current metric but no margin recorded (and none recoverable). */
+  unknown: number;
+  /** Recorded under the retired vote-count metric. */
+  legacy: number;
+  judged: number;
 }
 
 export interface BattleHistoryResponse {
@@ -957,7 +1111,9 @@ export interface BattleHistoryResponse {
   page: number;
   page_size: number;
   pages: number;
+  /** Decisive wins only. */
   tally: { pipeline_id: string; wins: number }[];
+  verdicts?: BattleVerdictCounts;
 }
 
 export function getBattleHistory(
@@ -2000,4 +2156,127 @@ export function reanalyzeTournament(id: number): Promise<TournamentResult> {
   return fetch(`${API_URL}/api/evaluation/tournament/${id}/reanalyze`, {
     method: "POST",
   }).then(handle<TournamentResult>);
+}
+
+// ============================================================
+// BATTLE JUDGING — quality, not agreement.
+
+export function judgeBattle(params: {
+  battleId?: number;
+  lists?: Record<string, number[]>;
+  topK?: number;
+  relevant: number[];
+}): Promise<BattleJudgement> {
+  return fetch(`${API_URL}/api/evaluation/judge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      battle_id: params.battleId ?? null,
+      lists: params.lists ?? null,
+      top_k: params.topK ?? null,
+      relevant: params.relevant,
+    }),
+  }).then(handle<BattleJudgement>);
+}
+
+export interface JudgedBoard {
+  n_judged: number;
+  n_skipped_nothing_relevant: number;
+  by_basis: Record<string, number>;
+  min_for_verdict: number;
+  pipelines: {
+    pipeline: string;
+    mean: number;
+    lo: number;
+    hi: number;
+    n: number;
+    hit_rate: number;
+  }[];
+  verdict: {
+    outcome: string;
+    winner: string | null;
+    tie_groups: string[][];
+    reason?: string;
+  } | null;
+}
+
+export function getJudgedBattles(): Promise<JudgedBoard> {
+  return fetch(`${API_URL}/api/evaluation/battles/judged`).then(
+    handle<JudgedBoard>,
+  );
+}
+
+// ============================================================
+// BATTLE SERIES — many queries under one label, one board.
+
+export interface CleanedQueries {
+  queries: string[];
+  duplicates_dropped: number;
+  truncated: number;
+  over_limit: number;
+  limit: number;
+}
+
+export function cleanSeriesQueries(text: string): Promise<CleanedQueries> {
+  return fetch(`${API_URL}/api/evaluation/battle-series/queries`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  }).then(handle<CleanedQueries>);
+}
+
+export interface SeriesSeedPaper {
+  id: number;
+  title: string;
+  year: number | null;
+  n_refs: number;
+}
+
+export function sampleSeriesSeeds(
+  n: number,
+  seed: number,
+): Promise<{ eligible: number; papers: SeriesSeedPaper[] }> {
+  const search = new URLSearchParams({ n: String(n), seed: String(seed) });
+
+  return fetch(`${API_URL}/api/evaluation/battle-series/sample?${search}`).then(
+    handle<{ eligible: number; papers: SeriesSeedPaper[] }>,
+  );
+}
+
+export interface SeriesLabel {
+  label: string;
+  battles: number;
+  last: string | null;
+}
+
+export function getSeriesLabels(): Promise<SeriesLabel[]> {
+  return fetch(`${API_URL}/api/evaluation/battle-series/labels`).then(
+    handle<SeriesLabel[]>,
+  );
+}
+
+export interface SeriesSummary {
+  label: string;
+  n_battles: number;
+  n_queries: number;
+  decisive: number;
+  too_close: number;
+  unscored: number;
+  agreement: {
+    pipeline: string;
+    mean: number;
+    lo: number;
+    hi: number;
+    n: number;
+    decisive_wins: number;
+  }[];
+  judged: JudgedBoard;
+}
+
+export function getSeriesSummary(label: string): Promise<SeriesSummary> {
+  const search = new URLSearchParams({ label });
+
+  return fetch(`${API_URL}/api/evaluation/battle-series/summary?${search}`).then(
+    handle<SeriesSummary>,
+  );
 }

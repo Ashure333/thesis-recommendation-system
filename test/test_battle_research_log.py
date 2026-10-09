@@ -1434,7 +1434,10 @@ class BattleLogApiTest(unittest.TestCase):
         # export is what moves it.
         self.assertNotIn("response_json", run)
 
-        self.assertEqual(payload["tally"][0]["wins"], 1)
+        # The seeded run has no recorded margin, so it is not a decisive
+        # win; it is reported under `verdicts` instead of in the tally.
+        self.assertEqual(payload["tally"], [])
+        self.assertEqual(sum(payload["verdicts"].values()), 1)
 
 
 if __name__ == "__main__":

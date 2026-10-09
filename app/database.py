@@ -139,6 +139,13 @@ def backfill_authors() -> int:
 # (create_all never alters an existing table). SQLite supports ADD COLUMN;
 # each default is what an already-stored row should read as.
 _ADDED_COLUMNS = {
+    "battle_runs": [
+        ("margin", "FLOAT"),
+        ("decisive", "BOOLEAN"),
+        ("judged_basis", "VARCHAR(16)"),
+        ("judged_leader", "VARCHAR(50)"),
+        ("judgement_json", "TEXT"),
+    ],
     "tournament_runs": [
         ("status", "VARCHAR(16) NOT NULL DEFAULT 'done'"),
         ("progress_done", "INTEGER NOT NULL DEFAULT 0"),
