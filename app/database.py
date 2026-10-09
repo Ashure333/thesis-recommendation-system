@@ -135,10 +135,47 @@ def backfill_authors() -> int:
     return done
 
 
+# Columns added to tables that may already exist in a user's database
+# (create_all never alters an existing table). SQLite supports ADD COLUMN;
+# each default is what an already-stored row should read as.
+_ADDED_COLUMNS = {
+    "tournament_runs": [
+        ("status", "VARCHAR(16) NOT NULL DEFAULT 'done'"),
+        ("progress_done", "INTEGER NOT NULL DEFAULT 0"),
+        ("progress_total", "INTEGER NOT NULL DEFAULT 0"),
+        ("settings_json", "TEXT"),
+        ("error", "TEXT"),
+        ("busy_seconds", "FLOAT NOT NULL DEFAULT 0"),
+        ("finished_at", "DATETIME"),
+    ],
+}
+
+
+def _ensure_added_columns() -> None:
+    with engine.connect() as conn:
+        for table, columns in _ADDED_COLUMNS.items():
+            existing = {
+                row[1]
+                for row in conn.execute(text(f"PRAGMA table_info({table})"))
+            }
+
+            if not existing:
+                continue  # table not created yet; create_all makes it whole
+
+            for name, ddl in columns:
+                if name not in existing:
+                    conn.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+                    )
+
+        conn.commit()
+
+
 def init_db() -> None:
     """Create all tables if they don't already exist."""
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
+    _ensure_added_columns()
     backfill_authors()
 
 

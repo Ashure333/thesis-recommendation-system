@@ -249,5 +249,179 @@ class RankWithTiesTest(unittest.TestCase):
         self.assertLessEqual(winners / trials, 0.10)
 
 
+
+class BinaryMetricTest(unittest.TestCase):
+    """Hit rate is 0/1 per query: McNemar's exact test and Cohen's h."""
+
+    def _pair(self, a_only, b_only, both=5, neither=5):
+        a = np.array([1] * a_only + [0] * b_only + [1] * both + [0] * neither, float)
+        b = np.array([0] * a_only + [1] * b_only + [1] * both + [0] * neither, float)
+        return a, b
+
+    def test_mcnemar_known_values(self):
+        # 8 vs 2 discordant: 2 * (1 + 10 + 45) / 1024
+        r = stats.mcnemar_exact(*self._pair(8, 2))
+        self.assertAlmostEqual(r["p_value"], 112 / 1024)
+        self.assertEqual((r["a_only"], r["b_only"], r["n_discordant"]), (8, 2, 10))
+
+    def test_mcnemar_symmetry_and_degenerate_cases(self):
+        self.assertEqual(stats.mcnemar_exact(*self._pair(5, 5))["p_value"], 1.0)
+        self.assertEqual(stats.mcnemar_exact(*self._pair(0, 0))["p_value"], 1.0)
+        self.assertAlmostEqual(
+            stats.mcnemar_exact(*self._pair(12, 3))["p_value"],
+            stats.mcnemar_exact(*self._pair(3, 12))["p_value"],
+        )
+        # p never exceeds 1, even for a lopsided tie at the centre
+        self.assertLessEqual(stats.mcnemar_exact(*self._pair(1, 0))["p_value"], 1.0)
+
+    def test_mcnemar_large_counts_do_not_overflow(self):
+        r = stats.mcnemar_exact(*self._pair(1800, 1700))
+        self.assertTrue(0.0 < r["p_value"] <= 1.0)
+
+    def test_mcnemar_validates(self):
+        with self.assertRaises(ValueError):
+            stats.mcnemar_exact([1, 0], [1])
+
+    def test_cohens_h(self):
+        self.assertAlmostEqual(stats.cohens_h(0.5, 0.5), 0.0)
+        self.assertAlmostEqual(stats.cohens_h(0.743, 0.65), 0.203, places=3)
+        self.assertAlmostEqual(stats.cohens_h(0.65, 0.743), -0.203, places=3)
+        self.assertAlmostEqual(stats.cohens_h(1.0, 0.0), math.pi)
+        # a nine-point hit-rate gap is not "negligible", on either side of 0.2
+        self.assertEqual(stats.h_label(stats.cohens_h(0.743, 0.65)), "small")
+        self.assertEqual(stats.h_label(stats.cohens_h(0.74, 0.65)), "very small")
+        self.assertEqual(stats.h_label(0.05), "negligible")
+        self.assertEqual(stats.h_label(0.15), "very small")
+        self.assertEqual(stats.h_label(0.19), "very small")
+        self.assertEqual(stats.h_label(0.2), "small")
+        self.assertEqual(stats.h_label(0.6), "medium")
+        self.assertEqual(stats.h_label(0.9), "large")
+
+    def test_size_labels_for_cliffs_delta_are_unchanged(self):
+        self.assertEqual(stats.cliffs_label(0.1), "negligible")
+        self.assertEqual(stats.cliffs_label(0.2), "small")
+        self.assertEqual(stats.cliffs_label(0.4), "medium")
+        self.assertEqual(stats.cliffs_label(0.6), "large")
+
+    def test_is_binary(self):
+        self.assertTrue(stats.is_binary([0, 1, 1, 0.0]))
+        self.assertFalse(stats.is_binary([0, 0.5, 1]))
+        self.assertFalse(stats.is_binary([]))
+
+    def _hit_scores(self, rate_a, rate_b, n=300, seed=3):
+        rng = np.random.default_rng(seed)
+        shared = rng.uniform(0, 1, n)
+        return {
+            "a": (shared < rate_a).astype(float),
+            "b": (np.clip(shared + rng.normal(0, 0.15, n), 0, 1) < rate_b).astype(float),
+            "c": (rng.uniform(0, 1, n) < 0.5).astype(float),
+        }
+
+    def test_rank_with_ties_uses_mcnemar_and_h_on_binary_scores(self):
+        r = stats.rank_with_ties(self._hit_scores(0.75, 0.65), resamples=100, seed=1)
+        self.assertTrue(r["binary"])
+        self.assertEqual(r["pairwise_test"], "McNemar exact")
+        for row in r["pairwise"]:
+            self.assertEqual(row["test"], "mcnemar")
+            self.assertEqual(row["effect_kind"], "h")
+            self.assertEqual(row["effect_size"], row["cohens_h"])
+            self.assertIn(row["effect_label"], {"negligible", "very small", "small", "medium", "large"})
+            # the discordant counts account for the whole difference
+            self.assertEqual(row["a_only"] - row["b_only"], round(row["mean_diff"] * 300))
+
+    def test_a_nine_point_gap_is_not_called_negligible(self):
+        scores = {
+            "a": np.array([1.0] * 223 + [0.0] * 77),
+            "b": np.array([1.0] * 195 + [0.0] * 105),
+        }
+        rng = np.random.default_rng(0)
+        rng.shuffle(scores["a"]); rng.shuffle(scores["b"])
+        r = stats.rank_with_ties(scores, resamples=100, seed=1)
+        self.assertNotEqual(r["pairwise"][0]["effect_label"], "negligible")
+
+    def test_continuous_scores_use_wilcoxon_and_a_paired_delta(self):
+        rng = np.random.default_rng(0)
+        scores = {n: rng.uniform(0, 1, 60) + i * 0.1 for i, n in enumerate("abc")}
+        r = stats.rank_with_ties(scores, resamples=100, seed=1)
+        self.assertFalse(r["binary"])
+        self.assertEqual(r["pairwise_test"], "Wilcoxon signed-rank")
+        for row in r["pairwise"]:
+            self.assertEqual(row["test"], "wilcoxon")
+            self.assertEqual(row["effect_kind"], "delta")
+            # the label is read from the paired measure, not the unpaired one
+            self.assertEqual(row["effect_size"], row["paired_delta"])
+            self.assertIn("cliffs_delta", row)  # kept for stored-run comparability
+            self.assertNotIn("a_only", row)
+
+    def test_mixed_zero_one_and_fractions_is_not_binary(self):
+        scores = {"a": np.array([1.0, 0.0, 1.0, 0.5] * 5), "b": np.array([0.0, 1.0, 1.0, 0.0] * 5)}
+        self.assertFalse(stats.rank_with_ties(scores, resamples=50, seed=1)["binary"])
+
+    def test_false_positive_rate_on_equal_hit_rates(self):
+        rng = np.random.default_rng(11)
+        winners = 0
+        for _ in range(80):
+            scores = {n: (rng.uniform(0, 1, 200) < 0.7).astype(float) for n in "abc"}
+            winners += stats.rank_with_ties(scores, resamples=50, seed=1)["outcome"] == "winner"
+        self.assertLessEqual(winners / 80, 0.12)
+
+
+
+class PairedEffectSizeTest(unittest.TestCase):
+    def test_paired_dominance_counts_wins_minus_losses_per_query(self):
+        a = [3, 2, 5, 1, 4, 4]
+        b = [1, 2, 4, 3, 2, 4]  # a wins 3, loses 1, ties 2
+        self.assertAlmostEqual(stats.paired_dominance(a, b), (3 - 1) / 6)
+        self.assertAlmostEqual(stats.paired_dominance(b, a), -(3 - 1) / 6)
+        self.assertEqual(stats.paired_dominance([1, 2], [1, 2]), 0.0)
+        self.assertEqual(stats.paired_dominance([2, 3], [1, 1]), 1.0)
+
+    def test_paired_dominance_validates(self):
+        with self.assertRaises(ValueError):
+            stats.paired_dominance([1, 2], [1])
+        with self.assertRaises(ValueError):
+            stats.paired_dominance([], [])
+
+    def test_a_consistent_small_edge_is_not_swamped_by_query_difficulty(self):
+        # Queries differ hugely in difficulty (0.05 .. 0.95) but pipeline a
+        # beats b by a little on 70% of them and loses on 30%: the unpaired
+        # delta is near zero, the paired one reads the real consistency.
+        rng = np.random.default_rng(0)
+        difficulty = rng.uniform(0.05, 0.95, 400)
+        edge = np.where(rng.uniform(size=400) < 0.7, 0.03, -0.03)
+        a, b = difficulty + edge, difficulty
+        self.assertLess(abs(stats.cliffs_delta(a, b)), 0.1)
+        self.assertGreater(stats.paired_dominance(a, b), 0.35)
+        row = stats.rank_with_ties({"a": a, "b": b}, resamples=100, seed=1)["pairwise"][0]
+        self.assertEqual(row["effect_size"], row["paired_delta"])
+        self.assertNotEqual(row["effect_label"], "negligible")
+
+    def test_unpaired_and_paired_agree_when_scores_are_independent(self):
+        rng = np.random.default_rng(1)
+        a = rng.uniform(0, 1, 2000) + 0.2
+        b = rng.uniform(0, 1, 2000)
+        self.assertAlmostEqual(stats.cliffs_delta(a, b), stats.paired_dominance(a, b), delta=0.05)
+
+
+class DetectableGapTest(unittest.TestCase):
+    def test_gap_matches_the_sample_size_formula(self):
+        rng = np.random.default_rng(2)
+        base = rng.uniform(0, 1, 300)
+        scores = {"a": base + 0.01, "b": base + rng.normal(0, 0.06, 300)}
+        v = stats.rank_with_ties(scores, resamples=100, seed=1)
+        gap = v["detectable_gap"]
+        self.assertIsNotNone(gap)
+        # n queries can detect `gap`; the required n for that gap is ~ n
+        sd = float(np.std(np.array(scores[v["ranking"][0]["pipeline"]]) - np.array(scores[v["ranking"][1]["pipeline"]]), ddof=1))
+        self.assertAlmostEqual(stats.required_sample_size(gap, sd), 300, delta=2)
+
+    def test_more_queries_detect_smaller_gaps(self):
+        rng = np.random.default_rng(3)
+        def run(n):
+            base = rng.uniform(0, 1, n)
+            return stats.rank_with_ties({"a": base, "b": base + rng.normal(0, 0.1, n)}, resamples=50, seed=1)["detectable_gap"]
+        self.assertGreater(run(50), run(800))
+
+
 if __name__ == "__main__":
     unittest.main()

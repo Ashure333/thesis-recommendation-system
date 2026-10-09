@@ -639,12 +639,38 @@ class TournamentRun(Base):
     # JSON list of pipeline ids, in the order they were run.
 
     outcome = Column(String(16), nullable=False, index=True)
-    # "winner" | "tie" | "inconclusive"
+    # "winner" | "tie" | "inconclusive" while finished; "pending" until then.
     winner_pipeline_id = Column(String(50), nullable=True)
 
-    result_json = Column(Text, nullable=False)
+    result_json = Column(Text, nullable=False, default="{}")
     corpus_size = Column(Integer, nullable=True)
     corpus_version = Column(String(64), nullable=True)
+
+    # ---------------------------------------------------------
+    # Durable-run bookkeeping
+    #
+    # A tournament takes minutes, so it runs in the background and is
+    # saved as it goes: each query's scores are committed as soon as
+    # they exist. A laptop that sleeps, a page that reloads or a server
+    # that restarts therefore loses nothing -- the run is picked up from
+    # the next unscored query.
+    #
+    #   status          running | done | interrupted | error
+    #   progress_done   queries finished (scored or dropped)
+    #   progress_total  queries chosen for this run
+    #   settings_json   everything needed to resume: pipelines, top_k,
+    #                   metric, seed, alpha, resamples, min_refs, custom
+    #                   weights and the chosen query paper ids
+    #   busy_seconds    time actually spent scoring (not wall clock, so
+    #                   a sleep does not wreck the time estimate)
+    # ---------------------------------------------------------
+    status = Column(String(16), nullable=False, default="done", index=True)
+    progress_done = Column(Integer, nullable=False, default=0)
+    progress_total = Column(Integer, nullable=False, default=0)
+    settings_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    busy_seconds = Column(Float, nullable=False, default=0.0)
+    finished_at = Column(DateTime, nullable=True)
 
     def __repr__(self):
         return (

@@ -105,6 +105,7 @@ from app.services.literature_gather import (
     expand_references,
     gather_cited_works,
 )
+from app.services.evaluation import tournament_jobs
 from app.services.evaluation.tournament import (
     eligible_query_count,
     export_tournament,
@@ -277,6 +278,17 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
+
+    # A tournament that was running when the server last stopped has no
+    # worker any more. Flag it so the Arena offers "resume" instead of a
+    # progress bar that never moves.
+    try:
+        with SessionLocal() as session:
+            tournament_jobs.mark_interrupted(session)
+    except Exception as error:
+        logging.getLogger(__name__).warning(
+            "Could not flag interrupted tournaments: %s", error
+        )
 
     # Library Mode: make sure the site-editor account and the default
     # feature states exist before the first request.
@@ -3350,11 +3362,158 @@ def tournament_history(
     }
 
 
+# ---- durable tournaments: run in the background, survive sleep -------
+#
+# POST /start returns at once; the run lives on the server and is saved
+# query by query. Poll /status (or /active after a reload), /resume an
+# interrupted one, /stop to pause, DELETE to discard an unfinished one.
+
+@app.post("/api/evaluation/tournament/start")
+def start_pipeline_tournament(
+    request: TournamentRequest,
+    db: Session = Depends(get_session),
+):
+    custom_weights = _resolve_custom_recipe(request.custom_weights)
+    pipelines = request.pipelines
+
+    if custom_weights and pipelines and "custom" not in pipelines:
+        pipelines = [*pipelines, "custom"]
+
+    live = tournament_jobs.latest_unfinished(db)
+
+    if live is not None and tournament_jobs.status_payload(db, live)["status"] == "running":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A tournament is already running. Wait for it to finish "
+                "or stop it first."
+            ),
+        )
+
+    try:
+        run = tournament_jobs.create_run(
+            db,
+            pipelines=pipelines,
+            top_k=request.top_k,
+            n_queries=request.n_queries,
+            min_refs=request.min_refs,
+            primary_metric=request.primary_metric,
+            seed=request.seed,
+            custom_weights=custom_weights,
+            label=_clean_tag(request.label),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    tournament_jobs.start_run(SessionLocal, run.id)
+
+    # The worker flipped the row to "running" from its own session.
+    db.refresh(run)
+
+    return tournament_jobs.status_payload(db, run)
+
+
+@app.get("/api/evaluation/tournament/active")
+def active_tournament(db: Session = Depends(get_session)):
+    """The newest unfinished run (running / interrupted / failed), so a
+    reloaded page can pick it up again; ``{"run": null}`` if none."""
+
+    run = tournament_jobs.latest_unfinished(db)
+
+    return {
+        "run": tournament_jobs.status_payload(db, run) if run else None
+    }
+
+
+def _unfinished_run(db: Session, run_id: int) -> TournamentRun:
+    run = db.get(TournamentRun, run_id)
+
+    if run is None:
+        raise HTTPException(status_code=404, detail="Tournament not found.")
+
+    return run
+
+
+@app.get("/api/evaluation/tournament/{run_id}/status")
+def tournament_status(run_id: int, db: Session = Depends(get_session)):
+    return tournament_jobs.status_payload(db, _unfinished_run(db, run_id))
+
+
+@app.post("/api/evaluation/tournament/{run_id}/resume")
+def resume_tournament(run_id: int, db: Session = Depends(get_session)):
+    run = _unfinished_run(db, run_id)
+
+    if run.status == "done":
+        raise HTTPException(status_code=409, detail="That tournament is finished.")
+
+    if not tournament_jobs.start_run(SessionLocal, run_id):
+        raise HTTPException(status_code=409, detail="That tournament is already running.")
+
+    db.refresh(run)
+
+    return tournament_jobs.status_payload(db, run)
+
+
+@app.post("/api/evaluation/tournament/{run_id}/stop")
+def stop_tournament(run_id: int, db: Session = Depends(get_session)):
+    _unfinished_run(db, run_id)
+    tournament_jobs.stop_run(run_id)
+
+    return {"stopping": True}
+
+
+@app.post("/api/evaluation/tournament/{run_id}/reanalyze")
+def reanalyze_tournament(run_id: int, db: Session = Depends(get_session)):
+    """Re-run the statistics on a finished run's stored scores (the scores
+    are untouched; only the verdict is recomputed with the current tests)."""
+
+    run = db.get(TournamentRun, run_id)
+
+    if run is None:
+        raise HTTPException(status_code=404, detail="Tournament not found.")
+
+    if not tournament_jobs.reanalyze_run(db, run_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Only a finished tournament started from this version can be "
+                "re-analysed (older runs have no saved settings)."
+            ),
+        )
+
+    return _tournament_detail(db, run_id)
+
+
+@app.delete("/api/evaluation/tournament/{run_id}")
+def discard_tournament(run_id: int, db: Session = Depends(get_session)):
+    _unfinished_run(db, run_id)
+
+    if not tournament_jobs.discard_run(db, run_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Only a stopped, unfinished tournament can be discarded.",
+        )
+
+    return {"status": "discarded"}
+
+
 def _tournament_detail(db: Session, run_id: int) -> dict:
     run = db.get(TournamentRun, run_id)
 
     if run is None:
         raise HTTPException(status_code=404, detail="Tournament not found.")
+
+    # An unfinished run has no verdict yet (its result is an empty record).
+    # Handing that out as if it were a result is what let a client read
+    # `verdict.omnibus` of nothing, so say plainly that it is not ready.
+    if run.status != "done":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"That tournament is {run.status}, not finished: it has no "
+                "result yet."
+            ),
+        )
 
     scores = (
         db.query(TournamentQueryScore)

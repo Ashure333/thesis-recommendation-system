@@ -40,7 +40,11 @@ KIND_LOO = "loo_citations"
 CUSTOM_PIPELINE = "custom"
 
 RECALL_K = 20
-MAX_QUERIES = 300
+# Per-run ceiling. Runs are durable background jobs saved query by query,
+# so a long one is safe (about 0.4 s per pipeline per query: 5,000 queries
+# across two pipelines is under an hour), and the statistics scale: the
+# bootstrap and tests for 5,000 queries finish in a few seconds.
+MAX_QUERIES = 5000
 DEFAULT_QUERIES = 60
 
 PRIMARY_METRICS = {
@@ -113,6 +117,123 @@ def _validate(
     return names
 
 
+def score_query(
+    db: Session,
+    query: loo_qrels.LooQuery,
+    names: Sequence[str],
+    *,
+    top_k: int,
+    search: SearchCallable,
+    custom_weights: dict[str, float] | None,
+) -> tuple[dict[str, dict[str, float]] | None, str | None]:
+    """
+    Every pipeline's metrics on one query.
+
+    Returns ``(per_pipeline, None)``, or ``(None, reason)`` when the
+    query cannot be scored (nothing relevant, or a pipeline errored --
+    one bad query must not sink the run). The seed paper and its
+    duplicates are removed from each pipeline's candidates.
+    """
+
+    # Degenerate queries (nothing relevant) cannot discriminate.
+    if not query.relevance:
+        return None, "no relevant"
+
+    depth = min(
+        MAX_TOP_K * 2,
+        max(top_k, RECALL_K) + len(query.excluded_ids),
+    )
+    per_pipeline: dict[str, dict[str, float]] = {}
+
+    for name in names:
+        try:
+            raw = search(
+                db=db,
+                query=query.query,
+                seed_paper_id=None,
+                pipeline=name,
+                top_k=depth,
+                custom_weights=(
+                    custom_weights if name == CUSTOM_PIPELINE else None
+                ),
+            )
+        except Exception as error:
+            return None, f"{name}: {error}"
+
+        ranked = [
+            paper_id
+            for paper_id in _ranked_ids(raw)
+            if paper_id not in query.excluded_ids
+        ]
+        per_pipeline[name] = score_ranking(ranked, query.relevance, top_k)
+
+    return per_pipeline, None
+
+
+def assemble_result(
+    *,
+    names: Sequence[str],
+    scores: dict[str, dict[str, list[float]]],
+    dropped: list[dict],
+    top_k: int,
+    primary_metric: str,
+    min_refs: int,
+    seed: int,
+    alpha: float,
+    resamples: int,
+    label: str | None,
+) -> dict:
+    """The verdict and summaries for a set of per-query scores.
+
+    Pure function of ``scores`` and the settings, so a stored run can be
+    re-analysed identically. Raises ``ValueError`` below two queries.
+    """
+
+    names = list(names)
+    n_scored = len(scores[names[0]][METRIC_KEYS[0]])
+
+    if n_scored < 2:
+        raise ValueError(
+            f"Only {n_scored} query could be scored "
+            f"({len(dropped)} dropped); a tournament needs at least 2."
+        )
+
+    verdict = stats.rank_with_ties(
+        {name: scores[name][primary_metric] for name in names},
+        alpha=alpha,
+        resamples=resamples,
+        seed=seed,
+    )
+
+    secondary = {
+        key: {
+            name: stats.bootstrap_ci(
+                scores[name][key], resamples=resamples, seed=seed
+            )
+            for name in names
+        }
+        for key in METRIC_KEYS
+        if key != primary_metric
+    }
+
+    return {
+        "kind": KIND_LOO,
+        "label": label,
+        "primary_metric": primary_metric,
+        "primary_metric_name": PRIMARY_METRICS[primary_metric],
+        "top_k": top_k,
+        "recall_k": RECALL_K,
+        "pipelines": names,
+        "n_queries": n_scored,
+        "dropped": dropped,
+        "min_refs": min_refs,
+        "seed": seed,
+        "verdict": verdict,
+        "secondary": secondary,
+        "run_id": None,
+    }
+
+
 def run_tournament(
     db: Session,
     *,
@@ -164,7 +285,6 @@ def run_tournament(
             "first."
         )
 
-    depth_base = max(top_k, RECALL_K)
     scores: dict[str, dict[str, list[float]]] = {
         name: {key: [] for key in METRIC_KEYS} for name in names
     }
@@ -172,45 +292,18 @@ def run_tournament(
     dropped: list[dict] = []
 
     for query in pool:
-        # Degenerate queries (nothing relevant) cannot discriminate.
-        if not query.relevance:
+        per_pipeline, reason = score_query(
+            db,
+            query,
+            names,
+            top_k=top_k,
+            search=search,
+            custom_weights=custom_weights,
+        )
+
+        if per_pipeline is None:
             dropped.append(
-                {"seed_paper_id": query.seed_paper_id, "reason": "no relevant"}
-            )
-            continue
-
-        depth = min(MAX_TOP_K * 2, depth_base + len(query.excluded_ids))
-        per_pipeline: dict[str, dict[str, float]] = {}
-        failed = None
-
-        for name in names:
-            try:
-                raw = search(
-                    db=db,
-                    query=query.query,
-                    seed_paper_id=None,
-                    pipeline=name,
-                    top_k=depth,
-                    custom_weights=(
-                        custom_weights if name == CUSTOM_PIPELINE else None
-                    ),
-                )
-            except Exception as error:  # one bad query must not sink the run
-                failed = f"{name}: {error}"
-                break
-
-            ranked = [
-                paper_id
-                for paper_id in _ranked_ids(raw)
-                if paper_id not in query.excluded_ids
-            ]
-            per_pipeline[name] = score_ranking(
-                ranked, query.relevance, top_k
-            )
-
-        if failed is not None:
-            dropped.append(
-                {"seed_paper_id": query.seed_paper_id, "reason": failed}
+                {"seed_paper_id": query.seed_paper_id, "reason": reason}
             )
             continue
 
@@ -227,48 +320,18 @@ def run_tournament(
                 }
             )
 
-    n_scored = len(scores[names[0]][METRIC_KEYS[0]])
-
-    if n_scored < 2:
-        raise ValueError(
-            f"Only {n_scored} query could be scored "
-            f"({len(dropped)} dropped); a tournament needs at least 2."
-        )
-
-    verdict = stats.rank_with_ties(
-        {name: scores[name][primary_metric] for name in names},
+    result = assemble_result(
+        names=names,
+        scores=scores,
+        dropped=dropped,
+        top_k=top_k,
+        primary_metric=primary_metric,
+        min_refs=min_refs,
+        seed=seed,
         alpha=alpha,
         resamples=resamples,
-        seed=seed,
+        label=label,
     )
-
-    secondary = {
-        key: {
-            name: stats.bootstrap_ci(
-                scores[name][key], resamples=resamples, seed=seed
-            )
-            for name in names
-        }
-        for key in METRIC_KEYS
-        if key != primary_metric
-    }
-
-    result = {
-        "kind": KIND_LOO,
-        "label": label,
-        "primary_metric": primary_metric,
-        "primary_metric_name": PRIMARY_METRICS[primary_metric],
-        "top_k": top_k,
-        "recall_k": RECALL_K,
-        "pipelines": names,
-        "n_queries": n_scored,
-        "dropped": dropped,
-        "min_refs": min_refs,
-        "seed": seed,
-        "verdict": verdict,
-        "secondary": secondary,
-        "run_id": None,
-    }
 
     if record:
         result["run_id"] = _persist(
@@ -341,6 +404,7 @@ def run_summary(run: TournamentRun) -> dict:
         "dropped_queries": run.dropped_queries,
         "pipelines": json.loads(run.pipelines),
         "outcome": run.outcome,
+        "status": run.status,
         "winner_pipeline_id": run.winner_pipeline_id,
         "corpus_size": run.corpus_size,
         "corpus_version": run.corpus_version,
@@ -387,7 +451,14 @@ PAIR_COLUMNS = (
     "p_adjusted",
     "significant",
     "cliffs_delta",
+    "paired_delta",
     "cohens_dz",
+    "test",
+    "effect_kind",
+    "effect_size",
+    "effect_label",
+    "a_only",
+    "b_only",
 )
 
 
@@ -458,7 +529,14 @@ def export_tournament(
                 pair["p_adjusted"],
                 int(bool(pair["significant"])),
                 pair["cliffs_delta"],
+                pair.get("paired_delta", ""),
                 pair["cohens_dz"],
+                pair.get("test", "wilcoxon"),
+                pair.get("effect_kind", "delta"),
+                pair.get("effect_size", pair["cliffs_delta"]),
+                pair.get("effect_label", ""),
+                pair.get("a_only", ""),
+                pair.get("b_only", ""),
             ]
             for pair in detail["verdict"]["pairwise"]
         ]

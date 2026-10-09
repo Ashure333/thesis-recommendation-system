@@ -104,7 +104,6 @@ export const SHOTS: Shot[] = [
   S("arena-interpretation", "06 Interpretation", "A citation-ready paragraph describing the run in APA 7 and MLA 9."),
   S("arena-history", "Battle log", "Every recorded run, newest first, with the winner and its share, a winner-score spread and pagination."),
   S("arena-web-mode", "Web scope", "Switch the field to the live web: the same six pipelines rank OpenAlex, Crossref and arXiv hits. Web battles are never recorded."),
-  S("arena-stats-for-nerds", "Arena: Stats for Nerds", "The Arena's second tab shows the math behind the numbers."),
 
   /* ------------------------------------------------------------ lab */
   S("lab", "Lab: recipe bench", "Three dials, saved recipes and presets, and a leaderboard."),

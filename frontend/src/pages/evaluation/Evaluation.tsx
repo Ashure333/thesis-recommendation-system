@@ -31,8 +31,7 @@ import { useSun } from "../../state/sun";
 import StaggerIn from "../../components/retro/StaggerIn";
 import RetroDialog from "../../components/retro/RetroDialog";
 import PageTabs from "../../components/PageTabs";
-import StatsForNerds from "../../components/StatsForNerds";
-import TournamentNerdStats from "../../components/TournamentNerdStats";
+import ErrorBoundary from "../../components/ErrorBoundary";
 import TournamentPanel from "../../components/TournamentPanel";
 import FreqBars from "../../components/retro/FreqBars";
 import Pagination from "../../components/retro/Pagination";
@@ -40,7 +39,6 @@ import { ArrowRight, Star } from "../../components/retro/PixelIcons";
 import { Button, PageHeader, PageShell } from "../../components/ui";
 import HuntItem from "../../components/retro/HuntItem";
 import { HUNT_ITEMS } from "../../data/hunt";
-import { useNerdButtons } from "../../state/nerdButtons";
 import { useStatsDrawer } from "../../state/statsDrawer";
 
 // ============================================================
@@ -211,12 +209,7 @@ export default function Evaluation() {
   const [logNotice, setLogNotice] = useState<string | null>(null);
 
   /* Page-level view: the battle, or the ranking math. */
-  const { on: nerdOn } = useNerdButtons();
-  const [pageTabRaw, setPageTab] = useState<
-    "battle" | "tournament" | "stats"
-  >("battle");
-  const pageTab =
-    !nerdOn && pageTabRaw === "stats" ? "battle" : pageTabRaw;
+  const [pageTab, setPageTab] = useState<"battle" | "tournament">("battle");
 
   /* Arena results are tab-separated instead of one long stack. */
   const [resultsTab, setResultsTab] = useState<
@@ -747,29 +740,14 @@ export default function Evaluation() {
           options={[
             { id: "battle", label: "Battle" },
             { id: "tournament" as const, label: "Tournament" },
-            ...(nerdOn && !isPresentationStored()
-              ? [{ id: "stats" as const, label: "Stats for Nerds", nerd: true }]
-              : []),
           ]}
         />
       </div>
 
       {pageTab === "tournament" ? (
-        <TournamentPanel />
-      ) : pageTab === "stats" ? (
-        <section>
-          <StatsForNerds
-            inputs={{
-              mode: "keyword",
-              query: queryText,
-              topK,
-            }}
-            contextNote="Every battle runs the six presets on the same query; this is the shared computation behind their scores — expand the live trace to walk the current query through one pipeline."
-          />
-          <div className="mt-3">
-            <TournamentNerdStats />
-          </div>
-        </section>
+        <ErrorBoundary label="The tournament">
+          <TournamentPanel />
+        </ErrorBoundary>
       ) : (
         <>
 

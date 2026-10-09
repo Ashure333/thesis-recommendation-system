@@ -376,6 +376,33 @@ def cliffs_delta(a: Sequence[float], b: Sequence[float]) -> float:
     return float((greater - less) / (left.size * right.size))
 
 
+def paired_dominance(a: Sequence[float], b: Sequence[float]) -> float:
+    """
+    Paired Cliff's delta: P(a beats b on a query) - P(b beats a), over the
+    SAME queries (ties count for neither).
+
+    Cliff's delta between the two score lists treats them as independent
+    samples and compares every query of one with every other query of the
+    other, so a big gap in query difficulty swamps a small but consistent
+    advantage. These pipelines answer the same queries, so the right
+    question is "how often is a better than b on a given query?". On real
+    data one pipeline that wins on 49% of queries and loses on 25% scored
+    an unpaired delta of 0.13 ("negligible") against a paired 0.24
+    ("small"). Same Romano thresholds (0.147 / 0.33 / 0.474).
+    """
+
+    left = _as_vector(a, "a")
+    right = _as_vector(b, "b")
+
+    if left.size != right.size:
+        raise ValueError("a and b must have the same length.")
+
+    if left.size == 0:
+        raise ValueError("Samples must not be empty.")
+
+    return float((np.sum(left > right) - np.sum(left < right)) / left.size)
+
+
 def paired_cohens_dz(
     a: Sequence[float], b: Sequence[float]
 ) -> float | None:
@@ -395,6 +422,106 @@ def paired_cohens_dz(
         return 0.0 if float(diff.mean()) == 0.0 else None
 
     return float(diff.mean() / sd)
+
+
+# ------------------------------------------------------------
+# Binary (0/1) metrics: hit rate
+# ------------------------------------------------------------
+#
+# A hit-rate score is 0 or 1 per query. Rank-based tools fit it badly
+# (nearly every difference is a tie, and Cliff's delta degenerates into
+# the plain difference of the two hit rates, which the usual 0.15 / 0.33 /
+# 0.47 labels then call "negligible" for a nine-point gap). The right
+# tools are McNemar's exact test for a paired pair of yes/no outcomes,
+# and Cohen's h for the size of the difference between two proportions.
+
+
+def is_binary(values: Sequence[float]) -> bool:
+    """True when every value is exactly 0 or 1 (and there is at least one)."""
+
+    data = _as_vector(values)
+
+    return bool(data.size) and bool(np.all((data == 0.0) | (data == 1.0)))
+
+
+def mcnemar_exact(a: Sequence[float], b: Sequence[float]) -> dict:
+    """
+    Exact two-sided McNemar test on paired 0/1 outcomes.
+
+    Only the discordant queries carry information: ``a_only`` (a hit,
+    b missed) and ``b_only``. Under "no difference" each discordant query
+    is equally likely to go either way, so the p-value is the two-sided
+    binomial tail of ``min(a_only, b_only)`` out of ``a_only + b_only``
+    at probability 1/2.
+    """
+
+    left = _as_vector(a, "a")
+    right = _as_vector(b, "b")
+
+    if left.size != right.size:
+        raise ValueError("a and b must have the same length.")
+
+    a_only = int(np.sum((left == 1.0) & (right == 0.0)))
+    b_only = int(np.sum((left == 0.0) & (right == 1.0)))
+    n = a_only + b_only
+
+    if n == 0:
+        return {"p_value": 1.0, "a_only": 0, "b_only": 0, "n_discordant": 0}
+
+    tail = sum(math.comb(n, k) for k in range(min(a_only, b_only) + 1))
+
+    return {
+        # int / int true division stays exact for huge counts; a float
+        # product (2.0 * tail) would overflow beyond ~1000 discordant pairs.
+        "p_value": min(1.0, (2 * tail) / (2**n)),
+        "a_only": a_only,
+        "b_only": b_only,
+        "n_discordant": n,
+    }
+
+
+def cohens_h(p1: float, p2: float) -> float:
+    """Cohen's h: the difference of two proportions on the arcsine scale
+    (0.2 small, 0.5 medium, 0.8 large)."""
+
+    p1 = min(1.0, max(0.0, p1))
+    p2 = min(1.0, max(0.0, p2))
+
+    return 2.0 * math.asin(math.sqrt(p1)) - 2.0 * math.asin(math.sqrt(p2))
+
+
+def h_label(h: float) -> str:
+    """Cohen's conventions: 0.2 small, 0.5 medium, 0.8 large. Between 0.1
+    and 0.2 the effect is real but below "small", so it is called "very
+    small", not "negligible": a nine-point hit-rate gap (h about 0.2) must
+    not be written off, and two near-identical gaps must not land on
+    opposite sides of one cutoff."""
+
+    size = abs(h)
+
+    if size < 0.1:
+        return "negligible"
+    if size < 0.2:
+        return "very small"
+    if size < 0.5:
+        return "small"
+    if size < 0.8:
+        return "medium"
+
+    return "large"
+
+
+def cliffs_label(delta: float) -> str:
+    size = abs(delta)
+
+    if size < 0.147:
+        return "negligible"
+    if size < 0.33:
+        return "small"
+    if size < 0.474:
+        return "medium"
+
+    return "large"
 
 
 # ------------------------------------------------------------
@@ -629,6 +756,13 @@ def rank_with_ties(
         for name in names
     }
 
+    # Hit rate is a 0/1 score per query: it gets the tests built for that
+    # (McNemar's exact test, Cohen's h) instead of rank tests and Cliff's
+    # delta, whose usual size labels do not mean anything for 0/1 data. The
+    # Friedman omnibus needs no change: on binary data with its tie
+    # correction it is exactly Cochran's Q.
+    binary = all(is_binary(v) for v in vectors.values())
+
     omnibus = friedman(vectors)
 
     # All unordered pairs, reported best-first.
@@ -636,27 +770,51 @@ def rank_with_ties(
 
     for i, first in enumerate(ranking):
         for second in ranking[i + 1 :]:
-            test = wilcoxon_signed_rank(vectors[first], vectors[second])
             boot = paired_bootstrap(
                 vectors[first], vectors[second],
                 resamples=resamples, seed=seed,
             )
-            pair_rows.append(
-                {
-                    "a": first,
-                    "b": second,
-                    "mean_diff": boot["mean_diff"],
-                    "lo": boot["lo"],
-                    "hi": boot["hi"],
-                    "p_value": test["p_value"],
-                    "cliffs_delta": cliffs_delta(
-                        vectors[first], vectors[second]
-                    ),
-                    "cohens_dz": paired_cohens_dz(
-                        vectors[first], vectors[second]
-                    ),
-                }
-            )
+            # `cliffs_delta` (unpaired) is kept so stored runs and exports
+            # stay comparable; the label is read from the paired version.
+            delta = cliffs_delta(vectors[first], vectors[second])
+            paired = paired_dominance(vectors[first], vectors[second])
+            row = {
+                "a": first,
+                "b": second,
+                "mean_diff": boot["mean_diff"],
+                "lo": boot["lo"],
+                "hi": boot["hi"],
+                "cliffs_delta": delta,
+                "paired_delta": paired,
+                "cohens_dz": paired_cohens_dz(vectors[first], vectors[second]),
+            }
+
+            if binary:
+                test = mcnemar_exact(vectors[first], vectors[second])
+                h = cohens_h(
+                    float(vectors[first].mean()), float(vectors[second].mean())
+                )
+                row.update(
+                    test="mcnemar",
+                    p_value=test["p_value"],
+                    a_only=test["a_only"],
+                    b_only=test["b_only"],
+                    cohens_h=h,
+                    effect_size=h,
+                    effect_kind="h",
+                    effect_label=h_label(h),
+                )
+            else:
+                test = wilcoxon_signed_rank(vectors[first], vectors[second])
+                row.update(
+                    test="wilcoxon",
+                    p_value=test["p_value"],
+                    effect_size=paired,
+                    effect_kind="delta",
+                    effect_label=cliffs_label(paired),
+                )
+
+            pair_rows.append(row)
 
     adjusted = holm_adjust([row["p_value"] for row in pair_rows])
 
@@ -701,6 +859,14 @@ def rank_with_ties(
     lead_diff = vectors[ranking[0]] - vectors[ranking[1]]
     sd = float(lead_diff.std(ddof=1)) if n_queries > 1 else 0.0
     required_n = required_sample_size(min_effect, sd)
+    # The smallest gap between the top two this many queries can reliably
+    # detect at the observed spread (80% power, alpha 0.05): the honest
+    # statement of what a null result rules out.
+    detectable = (
+        (_normal_ppf(1 - alpha / 2) + _normal_ppf(0.8)) * sd / math.sqrt(n_queries)
+        if n_queries > 0
+        else None
+    )
     # The observed spread of a handful of queries is itself noisy, so
     # a hard floor stops a lucky-small SD from certifying a null.
     needed = (
@@ -741,8 +907,11 @@ def rank_with_ties(
         "tie_groups": groups,
         "top_group": top_group,
         "omnibus": omnibus,
+        "binary": binary,
+        "pairwise_test": "McNemar exact" if binary else "Wilcoxon signed-rank",
         "pairwise": pair_rows,
         "required_n": required_n,
+        "detectable_gap": detectable,
         "min_effect": min_effect,
         "seed": DEFAULT_SEED if seed is None else seed,
         "resamples": resamples,

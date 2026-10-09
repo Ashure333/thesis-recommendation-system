@@ -1,32 +1,54 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeftRight,
   BarChart3,
   Download,
+  FileText,
   Layers,
   Trophy,
 } from "lucide-react";
 
 import {
+  discardTournament,
   exportTournament,
+  reanalyzeTournament,
   GatherJob,
   gatherLiterature,
+  getActiveTournament,
   getGatherStatus,
   getTournament,
   getTournamentHistory,
   getTournamentPool,
+  getTournamentStatus,
   linkReferences,
-  runTournament,
+  resumeTournament,
+  startTournament,
+  stopTournament,
   TournamentExportFormat,
   TournamentMetric,
   TournamentOutcome,
   TournamentPair,
   TournamentResult,
+  TournamentRunStatus,
   TournamentRunSummary,
 } from "../api";
 import { pipelineConfigs, pipelineName } from "../data/pipelineConfigs";
+import { intFieldError } from "../utils/intField.ts";
+import {
+  MAX_QUERIES,
+  METRIC_PROFILE,
+  describeRecommendation,
+  estimateRuntime,
+  recommendedSettings,
+  requiredQueries,
+  type MetricId,
+} from "../utils/tournamentDefaults.ts";
 import GatherProgress from "./GatherProgress";
-import PixelProgress from "./retro/PixelProgress";
+import { useNerdButtons } from "../state/nerdButtons";
+import ErrorBoundary from "./ErrorBoundary";
+import TournamentInterpretation from "./TournamentInterpretation";
+import TournamentNerdStats from "./TournamentNerdStats";
+import TournamentProgress from "./TournamentProgress";
 import RetroDialog from "./retro/RetroDialog";
 import { Star } from "./retro/PixelIcons";
 
@@ -44,6 +66,12 @@ import { Star } from "./retro/PixelIcons";
    ============================================================ */
 
 const configById = new Map(pipelineConfigs.map((c) => [c.id, c]));
+
+/* Mirror the server's limits (app/services/evaluation/tournament.py). */
+const MAX_TOP_K = 50;
+const MAX_MIN_REFS = 20;
+const MAX_SEED = 2_147_483_647;
+const MAX_LABEL = 60;
 
 function name(id: string): string {
   const config = configById.get(id);
@@ -69,6 +97,7 @@ const RESULT_TABS = [
   { id: "board", label: "Leaderboard", icon: BarChart3 },
   { id: "pairwise", label: "Pairwise", icon: ArrowLeftRight },
   { id: "metrics", label: "Metrics", icon: Layers },
+  { id: "interpret", label: "Interpretation", icon: FileText },
   { id: "data", label: "Data", icon: Download },
 ] as const;
 
@@ -107,6 +136,16 @@ function saveText(filename: string, text: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Trim, drop control characters, collapse whitespace, cap the length. */
+function cleanLabel(raw: string): string {
+  return raw
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_LABEL);
+}
+
 /* Shared control styles: light buttons for panels, dark for the screen. */
 const BTN =
   "inline-flex h-9 items-center justify-center whitespace-nowrap rounded border-[3px] border-gray-900 bg-white px-3 font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-ink transition-colors pixel-ease hover:bg-accentSoft disabled:cursor-not-allowed disabled:opacity-50";
@@ -120,10 +159,13 @@ const SCREEN_INPUT =
 function ScreenField({
   label,
   hint,
+  note,
   children,
 }: {
   label: string;
   hint?: string;
+  /** The line under the control, so every field in the row is as tall. */
+  note?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -133,7 +175,110 @@ function ScreenField({
     >
       {label}
       {children}
+      <span className="min-h-[2.2em] text-[10px] font-normal normal-case leading-[1.15] tracking-normal text-onInk/50">
+        {note}
+      </span>
     </label>
+  );
+}
+
+/* ------------------------------------------------------------
+   WHOLE-NUMBER TEXT FIELDS
+   A number input that coerces on every keystroke cannot be cleared
+   and retyped (an empty box becomes 0 or the minimum straight away).
+   These keep what the person typed as text, validate it strictly and
+   say what is wrong, and only hand a number to the rest of the panel
+   when the text really is a whole number in range.
+   ------------------------------------------------------------ */
+
+interface IntField {
+  text: string;
+  setText: (text: string) => void;
+  /** The parsed number, or null while the text is invalid. */
+  value: number | null;
+  error: string | null;
+  /** Tidy the text on blur ("007" -> "7", " 12 " -> "12"). */
+  normalize: () => void;
+}
+
+function useIntField(initial: number, min: number, max: number): IntField {
+  const [text, setText] = useState(String(initial));
+  const error = intFieldError(text, min, max);
+
+  return {
+    text,
+    setText,
+    value: error ? null : Number(text.trim()),
+    error,
+    normalize: () => {
+      if (!error) setText(String(Number(text.trim())));
+    },
+  };
+}
+
+/** A labelled text box for an IntField: range hint, or the error. */
+function IntInput({
+  label,
+  hint,
+  field,
+  min,
+  max,
+  disabled,
+  warning,
+  fixedNote,
+}: {
+  label: string;
+  hint: string;
+  field: IntField;
+  min: number;
+  max: number;
+  disabled: boolean;
+  /** Valid but below the recommended minimum: amber, not an error. */
+  warning?: string | null;
+  /** The setting does not apply (e.g. Recall is always at 20). */
+  fixedNote?: string;
+}) {
+  const id = `tournament-${label.toLowerCase().replace(/\W+/g, "-")}`;
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <label
+        htmlFor={id}
+        title={hint}
+        className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80"
+      >
+        {label}
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        spellCheck={false}
+        value={field.text}
+        disabled={disabled || fixedNote != null}
+        aria-invalid={field.error != null}
+        aria-describedby={`${id}-note`}
+        onChange={(e) => field.setText(e.target.value)}
+        onBlur={field.normalize}
+        className={`${SCREEN_INPUT} ${
+          field.error ? "!border-red-400 focus:!border-red-400" : ""
+        }`}
+      />
+      <p
+        id={`${id}-note`}
+        role={field.error ? "alert" : undefined}
+        className={`min-h-[2.2em] text-[10px] leading-[1.15] ${
+          field.error
+            ? "font-bold text-red-300"
+            : warning && !fixedNote
+              ? "text-accent"
+              : "text-onInk/50"
+        }`}
+      >
+        {field.error ?? fixedNote ?? warning ?? `${min}\u2013${max}`}
+      </p>
+    </div>
   );
 }
 
@@ -142,18 +287,48 @@ function ScreenField({
    ------------------------------------------------------------ */
 
 export default function TournamentPanel() {
-  const [nQueries, setNQueries] = useState(60);
-  const [topK, setTopK] = useState(10);
-  const [minRefs, setMinRefs] = useState(3);
+  const queriesField = useIntField(60, 2, MAX_QUERIES);
+  const topKField = useIntField(10, 1, MAX_TOP_K);
+  const minRefsField = useIntField(3, 1, MAX_MIN_REFS);
+  const seedField = useIntField(0, 0, MAX_SEED);
   const [metric, setMetric] = useState<TournamentMetric>("ndcg");
-  const [seed, setSeed] = useState(0);
   const [label, setLabel] = useState("");
+  /* Which pipelines compete. All six by default; two is a head-to-head
+     (three times faster, and the way to resolve a close pair). */
+  const [selected, setSelected] = useState<string[]>(
+    pipelineConfigs.map((c) => c.id),
+  );
+  const pipelinesValid = selected.length >= 2;
+  function togglePipeline(id: string) {
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((x) => x !== id)
+        : // keep the canonical order so runs are comparable
+          pipelineConfigs.map((c) => c.id).filter((x) => x === id || current.includes(x)),
+    );
+  }
+
+  const inputsValid =
+    pipelinesValid &&
+    queriesField.value != null &&
+    topKField.value != null &&
+    minRefsField.value != null &&
+    seedField.value != null;
+
+  /* Values used while the text is mid-edit and invalid: the last good
+     number, so the eligible count and copy never flash NaN. */
+  const nQueries = queriesField.value ?? 60;
+  const minRefs = minRefsField.value ?? 3;
 
   const [pool, setPool] = useState<{
     available: number;
     required: number;
   } | null>(null);
-  const [running, setRunning] = useState(false);
+  /* The tournament job running (or paused / failed) on the server. */
+  const [run, setRun] = useState<TournamentRunStatus | null>(null);
+  const [pollFailed, setPollFailed] = useState(false);
+  const [runBusy, setRunBusy] = useState(false);
+  const running = run?.status === "running";
   const [linking, setLinking] = useState(false);
   const [job, setJob] = useState<GatherJob | null>(null);
   const gathering = job?.state === "running";
@@ -166,7 +341,50 @@ export default function TournamentPanel() {
   const [historyTotal, setHistoryTotal] = useState(0);
   const [tab, setTab] = useState<ResultTab>("verdict");
 
-  const busy = running || gathering || linking;
+  const busy = running || gathering || linking || runBusy;
+
+  /* Per-metric starting minimums: how many queries the metric needs to
+     tell two pipelines apart, its top-k, and the references a query must
+     have. Applied when the metric changes and once the eligible count is
+     known; "Use recommended" re-applies them after manual edits. */
+  const profile = METRIC_PROFILE[metric as MetricId];
+  const recommendation = recommendedSettings(
+    metric as MetricId,
+    pool?.available ?? null,
+  );
+
+  function applyRecommended(forMetric: MetricId, available: number | null) {
+    const rec = recommendedSettings(forMetric, available);
+    queriesField.setText(String(rec.queries));
+    topKField.setText(String(rec.topK));
+    minRefsField.setText(String(rec.minRefs));
+  }
+
+  function chooseMetric(next: TournamentMetric) {
+    setMetric(next);
+    applyRecommended(next as MetricId, pool?.available ?? null);
+  }
+
+  /* Once the eligible count first arrives, start from the recommended
+     numbers (the boxes began at generic defaults). */
+  const autoApplied = useRef(false);
+  useEffect(() => {
+    if (pool != null && !autoApplied.current) {
+      autoApplied.current = true;
+      applyRecommended(metric as MetricId, pool.available);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool]);
+
+  const needed = requiredQueries(profile.sd);
+  const queriesWarning =
+    queriesField.value != null && queriesField.value < needed
+      ? `Under the ~${needed} advised`
+      : null;
+  const minRefsWarning =
+    minRefsField.value != null && minRefsField.value < profile.minRefs
+      ? `Best with ${profile.minRefs}+`
+      : null;
 
   function refreshHistory() {
     getTournamentHistory(1, 100)
@@ -201,25 +419,130 @@ export default function TournamentPanel() {
   }, [minRefs, poolTick]);
 
   async function start() {
-    setRunning(true);
+    if (
+      queriesField.value == null ||
+      topKField.value == null ||
+      minRefsField.value == null ||
+      seedField.value == null
+    ) {
+      setError("Fix the highlighted settings before starting.");
+      return;
+    }
+
+    setRunBusy(true);
     setError(null);
     setLinkNote(null);
     try {
-      const data = await runTournament({
-        topK,
-        nQueries,
-        minRefs,
-        primaryMetric: metric,
-        seed,
-        label,
-      });
-      setResult(data);
-      setTab("verdict");
-      refreshHistory();
+      // Returns at once; the run lives on the server from here on.
+      setRun(
+        await startTournament({
+          pipelines: selected,
+          topK: topKField.value,
+          nQueries: queriesField.value,
+          minRefs: minRefsField.value,
+          primaryMetric: metric,
+          seed: seedField.value,
+          label: cleanLabel(label),
+        }),
+      );
+      setResult(null);
+      setPollFailed(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Tournament failed.");
     } finally {
-      setRunning(false);
+      setRunBusy(false);
+    }
+  }
+
+  /* One status check. A finished run becomes the shown result; a failed
+     check (offline, laptop just woke) only flags the connection -- the
+     run itself is unaffected and the next poll recovers. */
+  const pollOnce = useCallback(async (id: number) => {
+    try {
+      const status = await getTournamentStatus(id);
+      setPollFailed(false);
+
+      if (status.status === "done") {
+        setResult(await getTournament(id));
+        setTab("verdict");
+        setRun(null);
+        refreshHistory();
+      } else {
+        setRun(status);
+      }
+    } catch {
+      setPollFailed(true);
+    }
+  }, []);
+
+  /* Re-attach to a run left going (page reload, tab reopened). */
+  useEffect(() => {
+    getActiveTournament()
+      .then((active) => {
+        if (active.run) setRun(active.run);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  /* Follow a running tournament. Polling also fires the moment the tab
+     is visible again or the network returns, so waking a sleeping laptop
+     shows the true state straight away instead of after the next tick. */
+  useEffect(() => {
+    if (run?.status !== "running") return;
+    const id = run.run_id;
+    const timer = window.setInterval(() => void pollOnce(id), 1500);
+    const wake = () => {
+      if (document.visibilityState !== "hidden") void pollOnce(id);
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    window.addEventListener("online", wake);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("online", wake);
+    };
+  }, [run?.status, run?.run_id, pollOnce]);
+
+  async function stopRun() {
+    if (!run) return;
+    setRunBusy(true);
+    try {
+      await stopTournament(run.run_id);
+      await pollOnce(run.run_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not pause.");
+    } finally {
+      setRunBusy(false);
+    }
+  }
+
+  async function resumeRun() {
+    if (!run) return;
+    setRunBusy(true);
+    setError(null);
+    try {
+      setRun(await resumeTournament(run.run_id));
+      setPollFailed(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not resume.");
+    } finally {
+      setRunBusy(false);
+    }
+  }
+
+  async function discardRun() {
+    if (!run) return;
+    setRunBusy(true);
+    try {
+      await discardTournament(run.run_id);
+      setRun(null);
+      refreshHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not discard.");
+    } finally {
+      setRunBusy(false);
     }
   }
 
@@ -299,19 +622,26 @@ export default function TournamentPanel() {
       }
     }
     const decisive = [...wins.values()].reduce((sum, n) => sum + n, 0);
+    const finished = history.filter(
+      (run) => !run.status || run.status === "done",
+    ).length;
     const rows = pipelineConfigs
       .map((c) => ({ id: c.id, wins: wins.get(c.id) ?? 0 }))
       .sort((a, b) => b.wins - a.wins);
-    return { rows, decisive, undecided: history.length - decisive };
+    return { rows, decisive, undecided: finished - decisive };
   }, [history]);
 
   const status = running
     ? "Scoring"
-    : gathering
-      ? "Gathering"
-      : result
-        ? "Tournament complete"
-        : "Insert coin";
+    : run
+      ? run.status === "error"
+        ? "Stopped"
+        : "Paused"
+      : gathering
+        ? "Gathering"
+        : result
+          ? "Tournament complete"
+          : "Insert coin";
 
   return (
     <div className="space-y-3">
@@ -346,52 +676,44 @@ export default function TournamentPanel() {
             </p>
 
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 border-b-[3px] border-accent pb-3 sm:grid-cols-3 xl:grid-cols-6">
-              <ScreenField label="Queries" hint="Papers to use as queries">
-                <input
-                  className={SCREEN_INPUT}
-                  type="number"
-                  min={2}
-                  max={300}
-                  value={nQueries}
-                  disabled={busy}
-                  onChange={(e) => setNQueries(Number(e.target.value) || 2)}
-                />
-              </ScreenField>
-              <ScreenField label="Top-k" hint="List length the metrics score">
-                <input
-                  className={SCREEN_INPUT}
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={topK}
-                  disabled={busy}
-                  onChange={(e) => setTopK(Number(e.target.value) || 1)}
-                />
-              </ScreenField>
-              <ScreenField
+              <IntInput
+                label="Queries"
+                hint="Papers to use as queries"
+                field={queriesField}
+                min={2}
+                max={MAX_QUERIES}
+                disabled={busy}
+                warning={queriesWarning}
+              />
+              <IntInput
+                label="Top-k"
+                hint="List length the metrics score"
+                field={topKField}
+                min={1}
+                max={MAX_TOP_K}
+                disabled={busy}
+                fixedNote={profile.topKFixed ? "fixed at 20" : undefined}
+              />
+              <IntInput
                 label="Min refs"
                 hint="A paper needs this many resolved references to be a query"
-              >
-                <input
-                  className={SCREEN_INPUT}
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={minRefs}
-                  disabled={busy}
-                  onChange={(e) => setMinRefs(Number(e.target.value) || 1)}
-                />
-              </ScreenField>
+                field={minRefsField}
+                min={1}
+                max={MAX_MIN_REFS}
+                disabled={busy}
+                warning={minRefsWarning}
+              />
               <ScreenField
                 label="Metric"
                 hint="Chosen before the run; it decides the verdict"
+                note="sets the minimums below"
               >
                 <select
                   className={SCREEN_INPUT}
                   value={metric}
                   disabled={busy}
                   onChange={(e) =>
-                    setMetric(e.target.value as TournamentMetric)
+                    chooseMetric(e.target.value as TournamentMetric)
                   }
                 >
                   {(Object.keys(METRIC_LABELS) as TournamentMetric[]).map(
@@ -403,26 +725,126 @@ export default function TournamentPanel() {
                   )}
                 </select>
               </ScreenField>
-              <ScreenField label="Seed" hint="Fixes sampling and resampling">
-                <input
-                  className={SCREEN_INPUT}
-                  type="number"
-                  value={seed}
-                  disabled={busy}
-                  onChange={(e) => setSeed(Number(e.target.value) || 0)}
-                />
-              </ScreenField>
-              <ScreenField label="Label">
+              <IntInput
+                label="Seed"
+                hint="Fixes sampling and resampling (0 or higher)"
+                field={seedField}
+                min={0}
+                max={MAX_SEED}
+                disabled={busy}
+              />
+              <ScreenField
+                label="Label"
+                hint="An optional name saved with the run"
+                note={`optional \u00b7 ${label.length}/${MAX_LABEL}`}
+              >
                 <input
                   className={SCREEN_INPUT}
                   type="text"
-                  maxLength={60}
+                  maxLength={MAX_LABEL}
                   value={label}
                   placeholder="optional"
                   disabled={busy}
+                  autoComplete="off"
+                  spellCheck={false}
                   onChange={(e) => setLabel(e.target.value)}
                 />
               </ScreenField>
+            </div>
+
+            {/* WHO COMPETES */}
+            <div className="mt-2 border-b-2 border-dashed border-onInk/25 pb-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/80">
+                  Pipelines
+                </span>
+                {pipelineConfigs.map((config) => {
+                  const on = selected.includes(config.id);
+                  return (
+                    <button
+                      key={config.id}
+                      type="button"
+                      aria-pressed={on}
+                      disabled={busy}
+                      onClick={() => togglePipeline(config.id)}
+                      className={`rounded border-[2px] px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] transition-colors pixel-ease disabled:cursor-not-allowed disabled:opacity-50 ${
+                        on
+                          ? "border-accent bg-accent text-onAccent"
+                          : "border-onInk/40 text-onInk/70 hover:border-accent hover:text-accent"
+                      }`}
+                    >
+                      {pipelineName(config)}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-[10px] text-onInk/60">Presets</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={SCREEN_BTN}
+                  onClick={() => setSelected(pipelineConfigs.map((c) => c.id))}
+                >
+                  All six
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={SCREEN_BTN}
+                  title="Head-to-head: does adding metadata to S-BERT help?"
+                  onClick={() => setSelected(["sbert", "sbert_metadata"])}
+                >
+                  S-BERT vs +metadata
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={SCREEN_BTN}
+                  title="Head-to-head: S-BERT against TF-IDF"
+                  onClick={() => setSelected(["tfidf", "sbert"])}
+                >
+                  TF-IDF vs S-BERT
+                </button>
+                <span
+                  role={pipelinesValid ? undefined : "alert"}
+                  className={`ml-auto text-[11px] ${
+                    pipelinesValid ? "text-onInk/60" : "font-bold text-red-300"
+                  }`}
+                >
+                  {pipelinesValid
+                    ? `${selected.length} pipelines · ${estimateRuntime(
+                        Math.min(nQueries, pool?.available ?? nQueries),
+                        selected.length,
+                      )}`
+                    : "Pick at least two pipelines."}
+                </span>
+              </div>
+              {selected.length === 2 && (
+                <p className="mt-1 text-[11px] leading-4 text-onInk/60">
+                  A head-to-head: close pairs need many queries, and nDCG needs
+                  the fewest of the four metrics to separate them.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1">
+              <p className="min-w-0 flex-1 basis-72 text-[11px] leading-4 text-onInk/70">
+                <span className="font-bold text-onInk/90">Recommended · </span>
+                {describeRecommendation(metric as MetricId, recommendation)}{" "}
+                {profile.why}
+              </p>
+              <button
+                type="button"
+                className={SCREEN_BTN}
+                onClick={() =>
+                  applyRecommended(metric as MetricId, pool?.available ?? null)
+                }
+                disabled={busy}
+                title="Fill Queries, Top-k and Min refs with the recommended numbers"
+              >
+                Use recommended
+              </button>
             </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -448,31 +870,37 @@ export default function TournamentPanel() {
               <button
                 type="button"
                 onClick={() => void start()}
-                disabled={busy || (pool != null && pool.available < 2)}
+                disabled={
+                  busy ||
+                  !inputsValid ||
+                  (pool != null && pool.available < 2)
+                }
+                title={
+                  inputsValid ? undefined : "Fix the highlighted settings first"
+                }
                 className={`ml-auto rounded border-[3px] border-black/60 bg-accent px-5 py-1.5 font-pixelify text-base font-bold uppercase tracking-[0.2em] text-onAccent shadow-[0_4px_0_rgba(0,0,0,0.45)] transition-all pixel-ease hover:brightness-110 active:translate-y-[3px] active:shadow-[0_1px_0_rgba(0,0,0,0.45)] disabled:cursor-not-allowed disabled:opacity-50 ${
-                  !busy && (pool == null || pool.available >= 2)
+                  !busy &&
+                  inputsValid &&
+                  (pool == null || pool.available >= 2)
                     ? "animate-blink"
                     : ""
                 }`}
               >
-                {running ? "Running…" : "Press start"}
+                {running ? "Running…" : runBusy ? "Starting…" : "Press start"}
               </button>
             </div>
 
             {/* what the screen says: the live job, or the attract text */}
             <div className="mt-2 border-t-2 border-dashed border-onInk/25 pt-2">
-              {running ? (
-                <div>
-                  <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-onInk">
-                    Scoring {Math.min(nQueries, pool?.available ?? nQueries)}{" "}
-                    queries across every pipeline
-                  </p>
-                  <PixelProgress
-                    value={null}
-                    stage="SEARCHING, SCORING, TESTING"
-                    className="mt-2 w-full"
-                  />
-                </div>
+              {run ? (
+                <TournamentProgress
+                  run={run}
+                  disconnected={pollFailed}
+                  busy={runBusy}
+                  onStop={() => void stopRun()}
+                  onResume={() => void resumeRun()}
+                  onDiscard={() => void discardRun()}
+                />
               ) : job && job.state !== "idle" ? (
                 <GatherProgress job={job} />
               ) : (
@@ -499,7 +927,7 @@ export default function TournamentPanel() {
                 </>
               )}
 
-              {pool != null && pool.available < 2 && !running && (
+              {pool != null && pool.available < 2 && !run && (
                 <p className="mt-2 text-xs leading-5 text-onInk/80">
                   No paper has {minRefs}+ references that resolve to other
                   papers in your library, so there is nothing to score
@@ -583,6 +1011,7 @@ export default function TournamentPanel() {
           tab={tab}
           onTab={setTab}
           onError={setError}
+          onResult={setResult}
         />
       )}
 
@@ -618,20 +1047,30 @@ export default function TournamentPanel() {
               >
                 <span className="min-w-0 font-mono">
                   #{run.id} · {new Date(run.created_at).toLocaleString()} ·{" "}
-                  {run.n_queries} queries
-                  {run.label ? ` · ${run.label}` : ""} ·{" "}
+                  {run.status && run.status !== "done"
+                    ? `${run.status} · `
+                    : `${run.n_queries} queries · `}
+                  {run.label ? `${run.label} · ` : ""}
                   <strong>
-                    {run.outcome === "winner" && run.winner_pipeline_id
-                      ? `winner ${name(run.winner_pipeline_id)}`
-                      : run.outcome}
+                    {run.status && run.status !== "done"
+                      ? "unfinished"
+                      : run.outcome === "winner" && run.winner_pipeline_id
+                        ? `winner ${name(run.winner_pipeline_id)}`
+                        : run.outcome}
                   </strong>
                 </span>
                 <button
                   type="button"
                   className={BTN}
-                  onClick={() => void load(run.id)}
+                  onClick={() =>
+                    run.status && run.status !== "done"
+                      ? void getTournamentStatus(run.id)
+                          .then(setRun)
+                          .catch(() => undefined)
+                      : void load(run.id)
+                  }
                 >
-                  View
+                  {run.status && run.status !== "done" ? "Open" : "View"}
                 </button>
               </li>
             ))}
@@ -692,12 +1131,16 @@ function TournamentResults({
   tab,
   onTab,
   onError,
+  onResult,
 }: {
   result: TournamentResult;
   tab: ResultTab;
   onTab: (tab: ResultTab) => void;
   onError: (message: string | null) => void;
+  /** A re-analysis replaced the shown result. */
+  onResult: (result: TournamentResult) => void;
 }) {
+  const { on: nerdOn } = useNerdButtons();
   const { verdict } = result;
   const copy = OUTCOME_COPY[verdict.outcome];
   const metricName =
@@ -952,10 +1395,11 @@ function TournamentResults({
                             forward ? pair.lo : -pair.hi,
                           )} to ${fmt(
                             forward ? pair.hi : -pair.lo,
-                          )}), Cliff's δ ${fmt(
-                            pair.cliffs_delta * sign,
-                            2,
-                          )}, Holm ${fmtP(pair.p_adjusted)}`}
+                          )}), ${
+                            pair.effect_kind === "h"
+                              ? `Cohen's h ${fmt((pair.effect_size ?? 0) * sign, 2)}`
+                              : `${pair.paired_delta !== undefined ? "Paired δ" : "Cliff's δ"} ${fmt((pair.effect_size ?? pair.paired_delta ?? pair.cliffs_delta) * sign, 2)}`
+                          }${pair.effect_label ? ` (${pair.effect_label})` : ""}, Holm ${fmtP(pair.p_adjusted)}`}
                         >
                           {diff >= 0 ? "+" : ""}
                           {fmt(diff)}
@@ -1018,9 +1462,22 @@ function TournamentResults({
           </section>
         )}
 
+        {/* ---------------- INTERPRETATION ---------------- */}
+        {tab === "interpret" && (
+          <TournamentInterpretation result={result} nameOf={name} />
+        )}
+
         {/* ---------------- DATA ---------------- */}
         {tab === "data" && (
-          <DataPanel result={result} onError={onError} />
+          <>
+            <DataPanel result={result} onError={onError} onResult={onResult} />
+            {/* The full inferential output, for the Stats-for-Nerds switch. */}
+            {nerdOn && (
+              <ErrorBoundary label="The tournament statistics" resetKey={result.run_id}>
+                <TournamentNerdStats />
+              </ErrorBoundary>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -1031,12 +1488,30 @@ function TournamentResults({
 function DataPanel({
   result,
   onError,
+  onResult,
 }: {
   result: TournamentResult;
   onError: (message: string | null) => void;
+  onResult: (result: TournamentResult) => void;
 }) {
   const [format, setFormat] = useState<TournamentExportFormat>("csv");
   const [downloading, setDownloading] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
+
+  /* The scores never change; the tests that read them can improve. This
+     recomputes the verdict from the stored scores with the current code. */
+  async function reanalyze() {
+    if (result.run_id == null) return;
+    setReanalyzing(true);
+    onError(null);
+    try {
+      onResult(await reanalyzeTournament(result.run_id));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Re-analysis failed.");
+    } finally {
+      setReanalyzing(false);
+    }
+  }
   const runId = result.run_id;
 
   async function download() {
@@ -1113,6 +1588,22 @@ function DataPanel({
         re-run any test elsewhere. The JSON holds the whole verdict, the
         secondary metrics and the dropped queries.
       </p>
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-gray-900/20 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => void reanalyze()}
+          disabled={reanalyzing || result.run_id == null}
+          className={BTN}
+          title="Recompute the verdict from the stored scores with the current tests (the scores are not touched)"
+        >
+          {reanalyzing ? "Working…" : "Re-run statistics"}
+        </button>
+        <span className="text-xs text-ink/70">
+          Uses the stored scores with the current tests, e.g. after a better
+          test replaces an older one. The scores are never changed.
+        </span>
+      </div>
     </section>
   );
 }
