@@ -683,7 +683,7 @@ export default function Lab() {
                     Sources
                   </span>
 
-                  {(["openalex", "crossref", "arxiv"] as const).map(
+                  {(["openalex", "crossref", "arxiv", "doaj"] as const).map(
                     (source) => (
                       <label
                         key={source}
@@ -710,7 +710,9 @@ export default function Lab() {
                           ? "OpenAlex"
                           : source === "crossref"
                             ? "Crossref"
-                            : "arXiv"}
+                            : source === "doaj"
+                              ? "DOAJ"
+                              : "arXiv"}
                       </label>
                     ),
                   )}

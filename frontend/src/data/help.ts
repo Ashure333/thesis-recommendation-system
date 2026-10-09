@@ -257,6 +257,24 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "tool can derive judgments from OpenAlex citation links. This " +
       "makes pipeline tuning measurable outside the Arena.",
   },
+  {
+    title: "WEB SEARCH SOURCES",
+    keywords: [
+      "doaj",
+      "source",
+      "sources",
+      "openalex",
+      "crossref",
+      "arxiv",
+      "open access",
+      "web search",
+    ],
+    body:
+      "Web search can draw on OpenAlex, Crossref, arXiv, and DOAJ. " +
+      "DOAJ (the Directory of Open Access Journals) is opt-in: tick it " +
+      "to add free-to-read articles from vetted open-access journals. " +
+      "Every DOAJ hit is open access; it has no citation counts.",
+  },
 ];
 
 /* Every tip becomes a help entry; the deep tips carry their own

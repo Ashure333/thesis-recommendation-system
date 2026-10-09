@@ -712,7 +712,7 @@ export default function Evaluation() {
                   <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-onInk/70">
                     Sources
                   </span>
-                  {(["openalex", "crossref", "arxiv"] as const).map((source) => (
+                  {(["openalex", "crossref", "arxiv", "doaj"] as const).map((source) => (
                     <label key={source} className="flex cursor-pointer items-center gap-1.5 hover:text-onInk">
                       <input
                         type="checkbox"
@@ -729,7 +729,7 @@ export default function Evaluation() {
                         }
                         className="accent-gold"
                       />
-                      {source === "openalex" ? "OpenAlex" : source === "crossref" ? "Crossref" : "arXiv"}
+                      {source === "openalex" ? "OpenAlex" : source === "crossref" ? "Crossref" : source === "doaj" ? "DOAJ" : "arXiv"}
                     </label>
                   ))}
                 </div>

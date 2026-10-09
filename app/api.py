@@ -1647,7 +1647,7 @@ def search_web_endpoint(
     requested_sources = tuple(
         source.strip()
         for source in sources.split(",")
-        if source.strip() in ("openalex", "crossref", "arxiv")
+        if source.strip() in ("openalex", "crossref", "arxiv", "doaj")
     )
 
     try:
@@ -2789,7 +2789,7 @@ def web_compare_recommendation_pipelines(
     requested_sources = tuple(
         source.strip()
         for source in request.sources.split(",")
-        if source.strip() in ("openalex", "crossref", "arxiv")
+        if source.strip() in ("openalex", "crossref", "arxiv", "doaj")
     )
 
     try:
@@ -2907,7 +2907,7 @@ def recommend_from_web(
     requested_sources = tuple(
         source.strip()
         for source in sources.split(",")
-        if source.strip() in ("openalex", "crossref", "arxiv")
+        if source.strip() in ("openalex", "crossref", "arxiv", "doaj")
     )
 
     try:

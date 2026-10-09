@@ -1149,7 +1149,7 @@ export default function Repository() {
           loading
             ? "Loading papers…"
             : searchMode === "web"
-              ? `Web search · legitimate sources (OpenAlex, Crossref, arXiv) · ${
+              ? `Web search · legitimate sources (OpenAlex, Crossref, arXiv, DOAJ) · ${
                   webSearched
                     ? `${webResults.length} result${webResults.length === 1 ? "" : "s"}`
                     : "peer-reviewed by default"
@@ -1360,7 +1360,7 @@ export default function Repository() {
                       <span className="block text-xs leading-4 text-muted">
                         Journals, conferences, book chapters, no
                         preprints, datasets, or retracted work. Selecting arXiv as a source
-                        includes preprints by design.
+                        includes preprints by design; DOAJ adds open-access journal articles.
                       </span>
                     </span>
                   </label>
@@ -1406,6 +1406,13 @@ export default function Repository() {
                       <option value="openalex">OpenAlex only</option>
                       <option value="crossref">Crossref only</option>
                       <option value="arxiv">arXiv only</option>
+                      <option value="openalex,crossref,doaj">
+                        OpenAlex + Crossref + DOAJ
+                      </option>
+                      <option value="openalex,crossref,arxiv,doaj">
+                        All four (+ arXiv, DOAJ)
+                      </option>
+                      <option value="doaj">DOAJ only</option>
                     </select>
                   </div>
 

@@ -469,7 +469,7 @@ export interface WebSearchResult {
   publication_year: number | null;
   doi: string | null;
   venue: string | null;
-  /** Which legitimate API answered: "openalex" | "crossref". */
+  /** Which legitimate API answered: "openalex" | "crossref" | "arxiv" | "doaj". */
   source: string;
   citations: number | null;
   /** null = unknown (Crossref has no reliable OA flag). */
@@ -492,7 +492,7 @@ export interface WebSearchParams {
   year_max?: number | null;
   peer_reviewed?: boolean;
   open_access?: boolean;
-  /** Comma-joined: "openalex,crossref". */
+  /** Comma-joined: "openalex,crossref" (also "arxiv", "doaj"). */
   sources?: string;
   sort?: "relevance" | "citations" | "year";
   limit?: number;

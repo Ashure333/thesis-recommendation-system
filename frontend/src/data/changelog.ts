@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "doaj-web-source",
+    date: "Oct 9",
+    title: "DOAJ joins web search as an opt-in source",
+    tag: "NEW",
+    body: "Web search can now include DOAJ, the Directory of Open Access Journals. Every hit is a free-to-read article from a vetted open-access journal. It is off by default, so tick DOAJ under Sources to add it.",
+    details: [
+      "app/services/web_search.py: new _search_doaj() against doaj.org/api/search/articles/{query}, labelled doaj-search for the circuit breaker; SOURCES now includes doaj and _merge/_interleave dedupe it DOI-first.",
+      "Year filters become an Elasticsearch range (bibjson.year:[min TO max]) and are re-checked client side. DOAJ has no citation counts and sorting by year server-side times out upstream, so sort=year/citations is handled by the shared merge.",
+      "app/api.py: the sources allow-list on /api/recommendations/web, /web-compare and the web search endpoint accepts doaj.",
+    ],
+  },
+  {
     id: "pro-pack-demo",
     date: "Oct 9",
     title: "A simulated Pro Pack: unlock Pro with a demo checkout",
