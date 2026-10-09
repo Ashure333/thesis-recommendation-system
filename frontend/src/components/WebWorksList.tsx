@@ -12,7 +12,8 @@ interface WebWorksListProps {
   works: WebWork[];
   activeKey: string | null;
   onActiveKey: (key: string | null) => void;
-  onShowInGraph: () => void;
+  /** Omit where there is no graph to jump to. */
+  onShowInGraph?: () => void;
   widened?: boolean;
 }
 
@@ -43,7 +44,12 @@ export default function WebWorksList({
     <div className="p-4" data-web-works={side}>
       <div className="flex items-start justify-between gap-3">
         <p className="max-w-3xl text-sm leading-6 text-muted">
-          {DESCRIPTIONS[side]}
+          {onShowInGraph
+            ? DESCRIPTIONS[side]
+            : DESCRIPTIONS[side].replace(
+                " Selecting one highlights its node in the graph.",
+                ""
+              )}
         </p>
 
         {works.length > 0 && (
@@ -149,7 +155,7 @@ export default function WebWorksList({
                     OpenAlex
                   </a>
 
-                  <button
+                  {onShowInGraph && (<button
                     type="button"
                     onClick={onShowInGraph}
                     className={`ml-auto font-mono text-[10px] font-bold uppercase tracking-[0.12em] underline ${
@@ -157,7 +163,7 @@ export default function WebWorksList({
                     }`}
                   >
                     Show in graph
-                  </button>
+                  </button>)}
                 </div>
               </li>
             );

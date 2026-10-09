@@ -16,6 +16,7 @@ Every network read goes through an injectable `fetch(url) -> dict`
 """
 
 import re
+from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor
 
 from app.services.citations import (
@@ -233,6 +234,47 @@ def _build_edges(
     return edges[:limit]
 
 
+def _title_key(title: str | None) -> str:
+    """Lowercased alphanumeric skeleton of a title, for matching."""
+    return re.sub(r"[^a-z0-9]+", " ", str(title or "").lower()).strip()
+
+
+def _lookup_by_title(title: str, fetch) -> dict | None:
+    """Best OpenAlex work for a title, only when the title matches.
+
+    Title search is fuzzy, so the top hit is accepted only when its
+    own title equals the query after normalization (or one contains
+    the other and they share most words) -- a wrong neighborhood is
+    worse than none.
+    """
+    wanted = _title_key(title)
+
+    if len(wanted) < 8:
+        return None
+
+    url = (
+        f"{OPENALEX_WORK_BASE}?search={quote(str(title)[:300])}"
+        f"&per-page=3&select={_SELECT}"
+    )
+    page = fetch(url)
+
+    for work in (page.get("results") or [])[:3]:
+        found = _title_key(work.get("title"))
+
+        if not found:
+            continue
+
+        if found == wanted:
+            return work
+
+        shorter, longer = sorted((found, wanted), key=len)
+
+        if len(shorter) >= 0.9 * len(longer) and shorter in longer:
+            return work
+
+    return None
+
+
 def fetch_web_neighborhood(
     paper,
     *,
@@ -240,21 +282,74 @@ def fetch_web_neighborhood(
     max_references: int = MAX_REFERENCES,
     max_citers: int = MAX_CITERS,
 ) -> dict:
-    """Prior/derivative works for one paper, straight from OpenAlex.
+    """Prior/derivative works for one saved paper (by its DOI)."""
+    return fetch_neighborhood(
+        doi=paper.doi,
+        fetch=fetch,
+        max_references=max_references,
+        max_citers=max_citers,
+    )
 
-    Never raises: network and parse problems come back as
-    {"ok": False, "reason": ...} for the endpoint to translate.
+
+def fetch_neighborhood(
+    *,
+    doi: str | None = None,
+    title: str | None = None,
+    work_id: str | None = None,
+    fetch=None,
+    max_references: int = MAX_REFERENCES,
+    max_citers: int = MAX_CITERS,
+) -> dict:
+    """Prior/derivative works for a work given by DOI, OpenAlex id
+    or (last resort) exact-ish title, straight from OpenAlex.
+
+    Only api.openalex.org URLs are ever built: the DOI goes through
+    normalize_doi and is percent-quoted, the id must be W<digits>, and
+    the title is a quoted search parameter. Never raises: network and
+    parse problems come back as {"ok": False, "reason": ...}.
     """
     if fetch is None:
         fetch = _default_fetch
 
-    doi = normalize_doi(paper.doi)
+    doi = normalize_doi(doi)
+    work_id = (work_id or "").strip()
 
-    if not doi:
+    if work_id and not re.fullmatch(r"W\d+", work_id):
+        work_id = ""
+
+    title = (title or "").strip()
+
+    if not doi and not work_id and not title:
         return {"ok": False, "reason": "no_doi"}
 
+    root = None
+
+    def get_or_none(url: str):
+        """One lookup; an HTTP 404 means "OpenAlex has no such work"."""
+        try:
+            return fetch(url)
+        except Exception as error:
+            if getattr(error, "code", None) == 404:
+                return None
+            raise
+
+    def found(work) -> bool:
+        return isinstance(work, dict) and bool(work.get("id"))
+
     try:
-        root = fetch(f"{OPENALEX_WORK_BASE}/doi:{doi}?select={_SELECT}")
+        if doi:
+            root = get_or_none(
+                f"{OPENALEX_WORK_BASE}/doi:{quote(doi, safe='/:()')}"
+                f"?select={_SELECT}"
+            )
+
+        if not found(root) and work_id:
+            root = get_or_none(
+                f"{OPENALEX_WORK_BASE}/{work_id}?select={_SELECT}"
+            )
+
+        if not found(root) and title:
+            root = _lookup_by_title(title, fetch)
     except Exception as error:
         return {
             "ok": False,
@@ -336,7 +431,7 @@ def fetch_web_neighborhood(
 
     return {
         "ok": True,
-        "doi": doi,
+        "doi": (root_entry or {}).get("doi") or doi,
         "work_id": root_entry["work_id"] if root_entry else None,
         "prior_works": prior_works,
         "derivative_works": derivative_works,

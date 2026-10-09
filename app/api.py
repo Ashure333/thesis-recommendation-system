@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, Depends, Form, HTTPException, UploadFile, File, Header
+from fastapi import FastAPI, Depends, Form, HTTPException, UploadFile, File, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -60,6 +60,7 @@ from app.services.citations import (
     refresh_paper_citations,
 )
 from app.services.web_connections import (
+    fetch_neighborhood,
     fetch_web_neighborhood,
     resolve_work_titles,
 )
@@ -3371,6 +3372,49 @@ def paper_web_connections(
     result["paper_id"] = paper.id
 
     return result
+
+
+@app.get("/api/web/connections")
+def web_result_connections(
+    doi: str | None = Query(default=None, max_length=300),
+    title: str | None = Query(default=None, max_length=400),
+    work_id: str | None = Query(default=None, max_length=32),
+):
+    """Related works for a web result that is not in the library.
+
+    Same OpenAlex neighborhood as a saved paper's web-connections,
+    resolved by DOI, else OpenAlex work id, else a title match. Only
+    OpenAlex is ever contacted. Replies 200 with empty lists and
+    `resolved: false` when nothing could be matched, so the client
+    can show an empty state rather than an error.
+    """
+    result = fetch_neighborhood(doi=doi, title=title, work_id=work_id)
+
+    if result.get("ok"):
+        result["resolved"] = True
+        return result
+
+    if result.get("reason") == "no_doi" or (
+        result.get("reason") == "lookup_failed"
+        and not result.get("detail")
+    ):
+        return {
+            "ok": True,
+            "resolved": False,
+            "doi": None,
+            "work_id": None,
+            "prior_works": [],
+            "derivative_works": [],
+            "edges": [],
+        }
+
+    raise HTTPException(
+        status_code=502,
+        detail=(
+            "OpenAlex could not be reached for this result. "
+            "Try again in a moment."
+        ),
+    )
 
 
 @app.post("/api/papers/{paper_id}/citations/refresh")

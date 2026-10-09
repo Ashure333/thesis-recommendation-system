@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "web-result-similar",
+    date: "Oct 9",
+    title: "Similar papers for web results",
+    tag: "NEW",
+    body: "Selecting a web result now offers a Similar tab, in the inspector and its pop-up. In your library ranks your repository against the web paper's title and abstract with the active algorithm; On the web lists its OpenAlex prior and derivative works.",
+    details: [
+      "src/components/WebSimilarPanel.tsx: the library scope calls getRecommendations with a text query built from the title plus abstract (capped at 1,500 characters) and the current pipeline, custom weights and Top K (max 25); selecting a row opens that paper in the inspector. The web scope reuses WebWorksList. Both abort stale requests when the selection or settings change.",
+      "app/api.py GET /api/web/connections?doi=&title=&work_id=: resolves the work in OpenAlex by DOI, then work id, then a title search accepted only when the top hit's title matches, and returns the same prior/derivative lists as a saved paper. Unmatched results answer 200 with resolved:false and empty lists; only OpenAlex is contacted and the DOI goes through normalize_doi.",
+      "app/services/web_connections.py: fetch_neighborhood() holds the logic; fetch_web_neighborhood(paper) now delegates to it. test/test_web_result_connections.py covers it offline through the fetch seam.",
+    ],
+  },
+  {
     id: "recommend-blend-web",
     date: "Oct 9",
     title: "Recommend can blend in live web results",

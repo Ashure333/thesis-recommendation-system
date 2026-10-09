@@ -251,6 +251,11 @@ export function Recommending() {
             As in Recommend, pressing another algorithm re-ranks the web results: the candidates stay,
             their order and scores change. Web recommendations are exploratory and never stored.
           </P>
+          <P>
+            Selecting a web result opens an inspector with its own <Chip>Similar</Chip> tab: <Chip>In
+            your library</Chip> ranks your repository against the result's title and abstract with the
+            active algorithm, and <Chip>On the web</Chip> lists its OpenAlex prior and derivative works.
+          </P>
           <WikiHatnote>
             Main article: <Xref to="/walkthrough-engine/web-ranking">Ranking the web</Xref> on the Engine page.
           </WikiHatnote>

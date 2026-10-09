@@ -34,6 +34,7 @@ export default function InspectorPopup({
   onClose,
   renderTab,
   onOpenSearch,
+  tabs = INSPECTOR_TABS,
 }: {
   open: boolean;
   title: string;
@@ -43,6 +44,8 @@ export default function InspectorPopup({
   renderTab: (tab: InspectorTab) => ReactNode;
   /** Secondary action: continue on the Search page. */
   onOpenSearch?: () => void;
+  /** Tabs to offer (a web result has only Details and Similar). */
+  tabs?: typeof INSPECTOR_TABS;
 }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef(onClose);
@@ -122,7 +125,7 @@ export default function InspectorPopup({
           role="tablist"
           className="flex shrink-0 gap-0.5 border-b-[3px] border-gray-900 bg-canvas p-2"
         >
-          {INSPECTOR_TABS.map(({ id, label, icon }) => (
+          {tabs.map(({ id, label, icon }) => (
             <button
               key={id}
               type="button"

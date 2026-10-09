@@ -214,6 +214,23 @@ const SPECIAL_ENTRIES: HelpEntry[] = [
       "repository results.",
   },
   {
+    title: "SIMILAR PAPERS FOR A WEB RESULT",
+    keywords: [
+      "web similar",
+      "similar web result",
+      "related works web",
+      "web prior works",
+      "web inspector similar",
+    ],
+    body:
+      "Select a web result and open its Similar tab. In your library ranks " +
+      "your repository against the result's title and abstract with the " +
+      "active algorithm; click a row to open that paper. On the web lists " +
+      "the result's prior and derivative works from OpenAlex, found by DOI " +
+      "or, failing that, by title. If OpenAlex cannot match it, you see " +
+      "No related works found for this result.",
+  },
+  {
     title: "DUPLICATES",
     keywords: [
       "duplicate",

@@ -36,9 +36,11 @@ import StaggerIn from "../../components/retro/StaggerIn";
 import Pagination from "../../components/retro/Pagination";
 import PaneHandle, { usePaneWidth } from "../../components/ResizeHandle";
 import Highlight from "../../components/Highlight";
+import WebSimilarPanel from "../../components/WebSimilarPanel";
 import ConnectionsPane from "../../components/ConnectionsPane";
 import ConnectionsWorkbench from "../../components/ConnectionsWorkbench";
 import InspectorPopup, {
+  INSPECTOR_TABS,
   type InspectorTab,
 } from "../../components/InspectorPopup";
 import {
@@ -106,6 +108,10 @@ const BLEND_WEB_KEY = "paperrec_repo_blend_web";
 function webKey(result: WebSearchResult): string {
   return result.doi ?? result.landing_url ?? result.title;
 }
+
+const WEB_INSPECTOR_TABS = INSPECTOR_TABS.filter(
+  (tab) => tab.id === "details" || tab.id === "similar",
+);
 
 export default function Repository() {
   const catalog = useCatalog();
@@ -238,6 +244,7 @@ export default function Repository() {
   const [detailTab, setDetailTab] = useState<InspectorTab>("details");
   // Shared tabbed inspector pop-up (same tab bodies as the inline pane).
   const [popupOpen, setPopupOpen] = useState(false);
+  const [webTab, setWebTab] = useState<"details" | "similar">("details");
 
   // Right-side Stats for Nerds pane (live while you search).
   const { on: nerdOn } = useNerdButtons();
@@ -1154,7 +1161,133 @@ export default function Repository() {
   }
 
   const selected = selectedPaper;
+  const webInspectorActive =
+    searchMode === "web" ||
+    (searchMode === "recommend" && selectedWeb !== null);
   const selectedSaved = selected ? savedIds.has(selected.id) : false;
+
+  /** Web-result inspector tabs: Details (the record + Import) and
+   *  Similar (library neighbours + OpenAlex related works). */
+  function renderWebInspectorTab(tab: "details" | "similar") {
+    const result = selectedWeb;
+    if (!result) return null;
+    if (tab === "similar") {
+      return (
+        <WebSimilarPanel
+          result={result}
+          pipeline={pipelineId}
+          pipelineLabel={pipelineName(activePipelineConfig)}
+          weights={pipelineId === "custom" ? customWeights : undefined}
+          topK={topK}
+          onSelectPaper={(paper) => {
+            /* Web mode has no local selection pane: hop to the
+               repository scope (web results stay loaded). */
+            if (searchMode === "web") setSearchMode("repository");
+            else setSelectedWeb(null);
+            setPopupOpen(false);
+            selectPaper(paper);
+          }}
+        />
+      );
+    }
+    return (
+              <div className="min-h-0 flex-1 overflow-y-auto p-5">
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-xs font-bold uppercase tracking-[0.1em] text-ink">
+                    {result.source}
+                  </span>
+                  <span className="text-muted">{result.publication_year ?? "—"}</span>
+                  <span className="text-muted">·</span>
+                  <span className="text-muted">{result.document_type ?? "Work"}</span>
+                  {result.is_oa === true && (
+                    <span className="rounded border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 text-xs font-bold uppercase tracking-[0.1em] text-onAccent">
+                      Open access
+                    </span>
+                  )}
+                </div>
+
+                <h2 className="text-base font-bold leading-6 text-ink">
+                  {result.title}
+                </h2>
+                <p className="mt-1 text-xs text-muted">
+                  {result.author ?? "Unknown author"}
+                  {result.venue ? ` · ${result.venue}` : ""}
+                  {result.citations != null && result.citations > 0
+                    ? ` · cited ${result.citations}`
+                    : ""}
+                </p>
+
+                {result.abstract && (
+                  <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-muted">
+                    {result.abstract}
+                  </p>
+                )}
+
+                {result.doi && (
+                  <p className="mt-3 break-all text-xs text-muted">
+                    <span className="font-bold text-ink">DOI:</span>{" "}
+                    {result.doi}
+                  </p>
+                )}
+
+                {result.landing_url && (
+                  <a
+                    href={result.landing_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 block break-all text-xs font-bold text-ink underline hover:decoration-2"
+                  >
+                    Open landing page ↗
+                  </a>
+                )}
+
+                {/* Actions */}
+                <div className="mt-5 flex flex-wrap gap-2 border-t-[3px] border-gray-900 pt-4">
+                  {(() => {
+                    const key = webKey(result);
+                    const status = webImportStatus[key];
+
+                    if (status === "saved") {
+                      return (
+                        <span className="inline-flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accent px-3 py-2 text-sm font-bold text-onAccent">
+                          <Check className="h-3.5 w-3.5" />
+                          Saved to repository
+                        </span>
+                      );
+                    }
+
+                    if (status === "exists") {
+                      return (
+                        <span className="inline-flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-white px-3 py-2 text-sm font-bold text-ink">
+                          <Check className="h-3.5 w-3.5" />
+                          Already in repository
+                        </span>
+                      );
+                    }
+
+                    return (
+                      <Button
+                        variant="primary"
+                        type="button"
+                        onClick={() => void importWebResult(result)}
+                        disabled={importingKey !== null}
+                      >
+                        {importingKey === key
+                          ? "Importing…"
+                          : "Import into repository"}
+                      </Button>
+                    );
+                  })()}
+
+                  {webRowErrors[webKey(result)] && (
+                    <span className="text-xs font-bold text-ink">
+                      {webRowErrors[webKey(result)]}
+                    </span>
+                  )}
+                </div>
+              </div>
+    );
+  }
 
   /** One implementation of each inspector tab body, rendered inline
    *  (compact) in the right pane and full-size in the pop-up. */
@@ -2781,100 +2914,35 @@ export default function Repository() {
                 </p>
               </div>
             ) : (
-              <div className="p-5">
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="rounded border-[2px] border-gray-900 bg-white px-1.5 py-0.5 font-mono text-xs font-bold uppercase tracking-[0.1em] text-ink">
-                    {selectedWeb.source}
-                  </span>
-                  <span className="text-muted">{selectedWeb.publication_year ?? "—"}</span>
-                  <span className="text-muted">·</span>
-                  <span className="text-muted">{selectedWeb.document_type ?? "Work"}</span>
-                  {selectedWeb.is_oa === true && (
-                    <span className="rounded border-[2px] border-gray-900 bg-accent px-1.5 py-0.5 text-xs font-bold uppercase tracking-[0.1em] text-onAccent">
-                      Open access
-                    </span>
-                  )}
-                </div>
-
-                <h2 className="text-base font-bold leading-6 text-ink">
-                  {selectedWeb.title}
-                </h2>
-                <p className="mt-1 text-xs text-muted">
-                  {selectedWeb.author ?? "Unknown author"}
-                  {selectedWeb.venue ? ` · ${selectedWeb.venue}` : ""}
-                  {selectedWeb.citations != null && selectedWeb.citations > 0
-                    ? ` · cited ${selectedWeb.citations}`
-                    : ""}
-                </p>
-
-                {selectedWeb.abstract && (
-                  <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-muted">
-                    {selectedWeb.abstract}
-                  </p>
-                )}
-
-                {selectedWeb.doi && (
-                  <p className="mt-3 break-all text-xs text-muted">
-                    <span className="font-bold text-ink">DOI:</span>{" "}
-                    {selectedWeb.doi}
-                  </p>
-                )}
-
-                {selectedWeb.landing_url && (
-                  <a
-                    href={selectedWeb.landing_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 block break-all text-xs font-bold text-ink underline hover:decoration-2"
+              <div className="flex h-full flex-col">
+                <div className="flex shrink-0 gap-0.5 border-b-[3px] border-gray-900 bg-canvas p-2">
+                  {WEB_INSPECTOR_TABS.map(({ id, label }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setWebTab(id as "details" | "similar")}
+                      aria-pressed={webTab === id}
+                      className={`flex-1 rounded border-[3px] border-gray-900 px-2 py-1.5 text-sm font-semibold transition-colors pixel-ease ${
+                        webTab === id
+                          ? "bg-accent text-onAccent"
+                          : "bg-surface text-ink hover:bg-accentSoft"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setPopupOpen(true)}
+                    title="Open in pop-up"
+                    className="shrink-0 rounded border-[3px] border-gray-900 bg-surface px-2 py-1.5 text-ink transition-colors pixel-ease hover:bg-accent hover:text-onAccent"
                   >
-                    Open landing page ↗
-                  </a>
-                )}
-
-                {/* Actions */}
-                <div className="mt-5 flex flex-wrap gap-2 border-t-[3px] border-gray-900 pt-4">
-                  {(() => {
-                    const key = webKey(selectedWeb);
-                    const status = webImportStatus[key];
-
-                    if (status === "saved") {
-                      return (
-                        <span className="inline-flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-accent px-3 py-2 text-sm font-bold text-onAccent">
-                          <Check className="h-3.5 w-3.5" />
-                          Saved to repository
-                        </span>
-                      );
-                    }
-
-                    if (status === "exists") {
-                      return (
-                        <span className="inline-flex items-center gap-1.5 rounded border-[3px] border-gray-900 bg-white px-3 py-2 text-sm font-bold text-ink">
-                          <Check className="h-3.5 w-3.5" />
-                          Already in repository
-                        </span>
-                      );
-                    }
-
-                    return (
-                      <Button
-                        variant="primary"
-                        type="button"
-                        onClick={() => void importWebResult(selectedWeb)}
-                        disabled={importingKey !== null}
-                      >
-                        {importingKey === key
-                          ? "Importing…"
-                          : "Import into repository"}
-                      </Button>
-                    );
-                  })()}
-
-                  {webRowErrors[webKey(selectedWeb)] && (
-                    <span className="text-xs font-bold text-ink">
-                      {webRowErrors[webKey(selectedWeb)]}
-                    </span>
-                  )}
+                    <ResponsiveLabel icon={Maximize2} collapseBelow="xl">
+                      Pop-up
+                    </ResponsiveLabel>
+                  </button>
                 </div>
+                {renderWebInspectorTab(webTab)}
               </div>
             )
           ) : !selected ? (
@@ -2986,19 +3054,36 @@ export default function Repository() {
       )}
 
       <InspectorPopup
-        open={popupOpen && !!selected}
-        title={selected?.title || "Paper"}
-        tab={detailTab}
-        onTabChange={setDetailTab}
+        open={popupOpen && (webInspectorActive ? !!selectedWeb : !!selected)}
+        title={
+          webInspectorActive
+            ? selectedWeb?.title || "Web result"
+            : selected?.title || "Paper"
+        }
+        tab={webInspectorActive ? webTab : detailTab}
+        tabs={webInspectorActive ? WEB_INSPECTOR_TABS : INSPECTOR_TABS}
+        onTabChange={(tab) =>
+          webInspectorActive
+            ? setWebTab(tab === "similar" ? "similar" : "details")
+            : setDetailTab(tab)
+        }
         onClose={() => setPopupOpen(false)}
-        renderTab={(tab) => renderInspectorTab(tab, true)}
-        onOpenSearch={() => {
-          if (!selected) return;
-          setPopupOpen(false);
-          navigate("/recommendations", {
-            state: { graphPaperId: selected.id, searchTab: "connections" },
-          });
-        }}
+        renderTab={(tab) =>
+          webInspectorActive
+            ? renderWebInspectorTab(tab === "similar" ? "similar" : "details")
+            : renderInspectorTab(tab, true)
+        }
+        onOpenSearch={
+          webInspectorActive
+            ? undefined
+            : () => {
+                if (!selected) return;
+                setPopupOpen(false);
+                navigate("/recommendations", {
+                  state: { graphPaperId: selected.id, searchTab: "connections" },
+                });
+              }
+        }
       />
 
       <RetroDialog

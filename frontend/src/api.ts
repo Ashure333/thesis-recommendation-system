@@ -661,7 +661,8 @@ export interface RecommendationParams {
 }
 
 export function getRecommendations(
-  params: RecommendationParams
+  params: RecommendationParams,
+  signal?: AbortSignal
 ): Promise<SearchResult[]> {
   const search = new URLSearchParams();
 
@@ -708,7 +709,8 @@ export function getRecommendations(
   }
 
   return fetch(
-    `${API_URL}/api/recommendations?${search.toString()}`
+    `${API_URL}/api/recommendations?${search.toString()}`,
+    signal ? { signal } : undefined
   ).then(handle<SearchResult[]>);
 }
 
@@ -1243,6 +1245,33 @@ export function getWebConnections(
   return fetch(
     `${API_URL}/api/papers/${paperId}/web-connections`
   ).then(handle<WebConnections>);
+}
+
+/** Related works for a web result that is not in the library. */
+export interface WebResultConnections
+  extends Omit<WebConnections, "paper_id"> {
+  /** false when OpenAlex could not match the result (empty lists). */
+  resolved: boolean;
+}
+
+/**
+ * Prior (references) and derivative (citers) works of a web result,
+ * resolved by DOI, else OpenAlex work id, else title.
+ */
+export function getWebResultConnections(
+  params: { doi?: string | null; title?: string | null; workId?: string | null },
+  signal?: AbortSignal
+): Promise<WebResultConnections> {
+  const search = new URLSearchParams();
+
+  if (params.doi) search.set("doi", params.doi);
+  if (params.title) search.set("title", params.title);
+  if (params.workId) search.set("work_id", params.workId);
+
+  return fetch(
+    `${API_URL}/api/web/connections?${search.toString()}`,
+    signal ? { signal } : undefined
+  ).then(handle<WebResultConnections>);
 }
 
 // ============================================================
