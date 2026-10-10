@@ -5,7 +5,7 @@
 Re:Search keeps a local repository of papers, ranks related literature with three signals (lexical, semantic and metadata), and lets you compare six ways of combining them side by side. It runs entirely on your own machine: a FastAPI + SQLite backend and a React + TypeScript frontend.
 
 <p align="center">
-  <img src="frontend/public/walkthrough/repository.png" alt="The Repository: filters, paper table and inspector" width="820">
+  <img src="frontend/public/walkthrough/repository.png?v=indigo" alt="The Repository: filters, paper table and inspector" width="820">
 </p>
 
 > **Status:** a local research prototype. It is built to be explored and measured, not deployed.
@@ -28,14 +28,14 @@ Re:Search keeps a local repository of papers, ranks related literature with thre
 
 <table>
   <tr>
-    <td width="33%"><img src="frontend/public/walkthrough/repository-web.png" alt="Web results ranked by an algorithm"><br><b>Recommend</b><br>Pick an algorithm and the results re-rank at once, on your papers or on the web.</td>
-    <td width="33%"><img src="frontend/public/walkthrough/arena-winner.png" alt="The Arena's winner banner"><br><b>Arena</b><br>Six pipelines, one query: consensus, pairwise agreement and a winner.</td>
-    <td width="33%"><img src="frontend/public/walkthrough/library-graph-selected.png" alt="The similar-papers graph with cluster labels"><br><b>My Library</b><br>See how your papers cluster, then ask questions across them.</td>
+    <td width="33%"><img src="frontend/public/walkthrough/repository-web.png?v=indigo" alt="Web results ranked by an algorithm"><br><b>Recommend</b><br>Pick an algorithm and the results re-rank at once, on your papers or on the web.</td>
+    <td width="33%"><img src="frontend/public/walkthrough/arena-winner.png?v=indigo" alt="The Arena's winner banner"><br><b>Arena</b><br>Six pipelines, one query: consensus, pairwise agreement and a winner.</td>
+    <td width="33%"><img src="frontend/public/walkthrough/library-graph-selected.png?v=indigo" alt="The similar-papers graph with cluster labels"><br><b>My Library</b><br>See how your papers cluster, then ask questions across them.</td>
   </tr>
   <tr>
-    <td><img src="frontend/public/walkthrough/upload-identifier-review.png" alt="The Upload review form"><br><b>Upload</b><br>Review what was extracted, fix it, and see a duplicate warning before you save.</td>
-    <td><img src="frontend/public/walkthrough/lab-simulated.png" alt="The Lab's recipe bench"><br><b>Lab</b><br>Mix the three signals into your own recipe and test it against the presets.</td>
-    <td><img src="frontend/public/walkthrough/repository-stats-for-nerds.png" alt="Stats for Nerds"><br><b>Stats for Nerds</b><br>The exact numbers behind any ranking, live as you search.</td>
+    <td><img src="frontend/public/walkthrough/upload-identifier-review.png?v=indigo" alt="The Upload review form"><br><b>Upload</b><br>Review what was extracted, fix it, and see a duplicate warning before you save.</td>
+    <td><img src="frontend/public/walkthrough/lab-simulated.png?v=indigo" alt="The Lab's recipe bench"><br><b>Lab</b><br>Mix the three signals into your own recipe and test it against the presets.</td>
+    <td><img src="frontend/public/walkthrough/repository-stats-for-nerds.png?v=indigo" alt="Stats for Nerds"><br><b>Stats for Nerds</b><br>The exact numbers behind any ranking, live as you search.</td>
   </tr>
 </table>
 
