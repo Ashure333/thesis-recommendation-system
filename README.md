@@ -18,9 +18,9 @@ Re:Search keeps a local repository of papers, ranks related literature with thre
 | --- | --- |
 | **Find** | Search your own papers, rank them against a query or a seed paper, or rank the open scholarly web (OpenAlex, Crossref, arXiv) with the same algorithms. |
 | **Add** | Drop PDFs, BibTeX, RIS or EndNote files, paste DOIs and arXiv ids, or send a Google Scholar citation. Everything is checked before it is saved. |
-| **Compare** | The Arena runs all six pipelines on one query and tells you where they agree, where they split and which one wins. |
-| **Keep** | A personal library with a dashboard, a similarity graph and a research chat that cites its sources. |
-| **Explore** | A recipe bench for designing your own weights, and a few playful extras we'd rather you discover than read about. |
+| **Compare** | The Arena runs all six pipelines on one query and tells you where they agree, where they split and which one wins, or that the call is too close to make. A tournament then tests them on many papers with known references. |
+| **Keep** | A personal library you can organise into your own nested folders, with a dashboard, a similarity graph and a research chat that cites its sources. |
+| **Explore** | A Lab for designing your own weights, dueling them against the presets and sweeping the whole blend triangle, plus a few playful extras we'd rather you discover than read about. |
 
 ---
 
@@ -55,6 +55,18 @@ Six fixed pipelines combine them (each alone, three pairs, and all three togethe
 
 ---
 
+## Organising and checking
+
+| | |
+| --- | --- |
+| **Folders** | My Library keeps folders like Zotero or Mendeley: nested, a paper can sit in several, and nothing is deleted when a folder is. Drag papers onto a folder (the ghost turns into a folder as you reach it), or right-click a paper and pick one. Right-click menus always open fully inside the window. |
+| **Honest verdicts** | A battle's winner is the pipeline most others agree with, which is not the same as the best one. A lead of under two points is shown as *too close to call*, and only decisive wins are tallied. |
+| **Judging** | A battle on a seed paper is scored against that paper's own references; a text battle can be judged by ticking what is relevant, blind to which pipeline found it. Judged battles pool into a board that states a verdict only once there are enough of them. |
+| **Series** | Run many queries, or sampled library papers, under one label and read them as one board with intervals. |
+| **Sweep** | In the Lab, score a grid of blends on leave-one-out queries and see where quality lives on the TF-IDF / S-BERT / metadata triangle. The best blend is picked on half of the queries and confirmed on the other half, so a lucky winner is not mistaken for a finding. |
+
+---
+
 ## The wiki
 
 Re:Search documents itself. Once it is running, open the app and go to:
@@ -74,9 +86,9 @@ There is a search box, a contents rail and full-screen figures. We kept the surp
 | --- | --- |
 | **Library** | Visitors: a calm "smarter librarian" with only the features the library staff enable. |
 | **Researcher** | The full tool, every control switched on. |
-| **Presentation** | The version that ships: no developer controls, the study's own features, formal names throughout. |
+| **Presentation** | The version that ships: no developer controls, the study's own features, formal names throughout, and a plain Settings page (account, preferences, about). |
 
-Switch in **Settings**. (Presentation can be left again with a key combination and a password; the wiki says how.)
+Switch in **Settings**; Presentation has its own Settings page with the same switch. In Library and Presentation, the demo Pro purchase (nothing is charged) opens the **Lab** as a beta, with the tree in its Garden tab, and in Presentation the pixel pet too, all without developer controls. Presentation can also be left with a key combination and a password; the wiki says how.
 
 ---
 
@@ -131,6 +143,8 @@ python -m unittest discover -s test          # backend
 cd frontend && npm run test:units            # frontend logic
 cd frontend && npm run check                 # type-check
 ```
+
+To try destructive actions (deleting papers, say) without touching your data, point a second backend at a copy of the database with `RESEARCH_DB_PATH=/path/to/copy.db`; add `RESEARCH_CORS_ORIGINS=http://localhost:5174` if you also run a second dev server.
 
 ---
 
