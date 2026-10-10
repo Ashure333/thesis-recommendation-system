@@ -912,3 +912,57 @@ class SiteSetting(Base):
 
     def __repr__(self):
         return f"<SiteSetting key={self.key!r}>"
+
+# ============================================================
+# LIBRARY FOLDERS
+# ============================================================
+
+class LibraryFolder(Base):
+    """A folder in a user's library, optionally inside another folder.
+
+    A paper can sit in several folders (like Zotero collections); the
+    folder only organises the library, it never owns or deletes a paper.
+    Sibling names are unique ignoring case, enforced in
+    ``app/services/library_folders.py`` (a UNIQUE constraint would not
+    cover root folders, whose parent is NULL).
+    """
+
+    __tablename__ = "library_folders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    user_id = Column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+
+    parent_id = Column(
+        Integer, ForeignKey("library_folders.id"), nullable=True, index=True
+    )
+
+    name = Column(String(80), nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class LibraryFolderPaper(Base):
+    """A saved paper placed in a folder."""
+
+    __tablename__ = "library_folder_papers"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "folder_id", "paper_id", name="uq_folder_paper"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    folder_id = Column(
+        Integer, ForeignKey("library_folders.id"), nullable=False, index=True
+    )
+
+    paper_id = Column(
+        Integer, ForeignKey("papers.id"), nullable=False, index=True
+    )
+
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)

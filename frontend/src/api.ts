@@ -2388,3 +2388,73 @@ export async function runRecipeSweep(
 
   return final;
 }
+
+// ============================================================
+// LIBRARY FOLDERS — organise saved papers (Zotero / Mendeley style).
+
+export interface LibraryFolder {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  /** Papers placed directly in this folder (not its subfolders). */
+  paper_count: number;
+}
+
+export interface LibraryFolderOverview {
+  folders: LibraryFolder[];
+  /** paper id (as a string key) -> the folders it is in. */
+  memberships: Record<string, number[]>;
+  /** Saved papers that are in no folder. */
+  unfiled: number;
+  max_depth: number;
+}
+
+export function getLibraryFolders(): Promise<LibraryFolderOverview> {
+  return fetch(`${API_URL}/api/library/folders`).then(handle<LibraryFolderOverview>);
+}
+
+export function createLibraryFolder(
+  name: string,
+  parentId: number | null = null,
+): Promise<{ id: number; name: string; parent_id: number | null }> {
+  return fetch(`${API_URL}/api/library/folders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, parent_id: parentId }),
+  }).then(handle<{ id: number; name: string; parent_id: number | null }>);
+}
+
+/** Rename and/or move; pass `parentId: null` to move to the top level. */
+export function updateLibraryFolder(
+  id: number,
+  changes: { name?: string; parentId?: number | null },
+): Promise<{ id: number; name: string; parent_id: number | null }> {
+  const body: Record<string, unknown> = {};
+
+  if (changes.name !== undefined) body.name = changes.name;
+  if (changes.parentId !== undefined) body.parent_id = changes.parentId;
+
+  return fetch(`${API_URL}/api/library/folders/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(handle<{ id: number; name: string; parent_id: number | null }>);
+}
+
+export function deleteLibraryFolder(id: number): Promise<{ status: string; folders_removed: number }> {
+  return fetch(`${API_URL}/api/library/folders/${id}`, { method: "DELETE" }).then(
+    handle<{ status: string; folders_removed: number }>,
+  );
+}
+
+export function setLibraryFolderPapers(
+  id: number,
+  paperIds: number[],
+  action: "add" | "remove",
+): Promise<{ changed: number; skipped: number[] }> {
+  return fetch(`${API_URL}/api/library/folders/${id}/papers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paper_ids: paperIds, action }),
+  }).then(handle<{ changed: number; skipped: number[] }>);
+}

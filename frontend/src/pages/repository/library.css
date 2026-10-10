@@ -116,3 +116,51 @@
   .lib-shelf-row { padding: 0 .25rem; }
   .lib-row { flex-wrap: wrap; }
 }
+
+/* ---- folders (the sidebar) ---- */
+.lib-layout { display: grid; gap: 1.25rem; }
+@media (min-width: 1024px) {
+  .lib-layout { grid-template-columns: 17rem minmax(0, 1fr); align-items: start; }
+  .lib-folders { position: sticky; top: 0.5rem; max-height: calc(100dvh - 2rem); overflow-y: auto; }
+}
+.lib-folders {
+  padding: 0.75rem;
+  border: 2px solid rgb(var(--gray-900));
+  border-radius: 0.75rem;
+  background: rgb(var(--surface));
+}
+.lib-folders-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+.lib-folders-head h2 { font-size: 1rem; font-weight: 700; color: rgb(var(--ink)); }
+.lib-folder-icon-btn {
+  display: inline-flex; height: 1.9rem; width: 1.9rem; align-items: center; justify-content: center;
+  border: 2px solid rgb(var(--gray-900)); border-radius: 0.4rem; background: rgb(var(--surface));
+  color: rgb(var(--ink)); cursor: pointer;
+}
+.lib-folder-icon-btn:hover { background: rgb(var(--accent)); color: rgb(var(--on-accent)); }
+.lib-folder-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.lib-folder-row {
+  display: flex; width: 100%; align-items: center; gap: 0.4rem; padding: 0.3rem 0.4rem;
+  border: 2px solid transparent; border-radius: 0.4rem; background: transparent;
+  color: rgb(var(--ink)); font-size: 0.85rem; text-align: left; cursor: pointer; user-select: none;
+}
+.lib-folder-row:hover { background: rgb(var(--accent-soft)); }
+.lib-folder-row:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
+.lib-folder-row[data-active="true"] { background: rgb(var(--accent)); color: rgb(var(--on-accent)); }
+.lib-folder-row[data-drop="true"] { border-color: rgb(var(--gray-900)); border-style: dashed; background: rgb(var(--accent-soft)); }
+.lib-folder-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.lib-folder-count { flex-shrink: 0; font-family: ui-monospace, monospace; font-size: 0.7rem; opacity: 0.75; }
+.lib-folder-twist, .lib-folder-more {
+  display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center;
+  height: 1.3rem; width: 1.3rem; border: 0; border-radius: 0.3rem; background: transparent; color: inherit; cursor: pointer;
+}
+.lib-folder-more { opacity: 0; }
+.lib-folder-row:hover .lib-folder-more, .lib-folder-row:focus-within .lib-folder-more, .lib-folder-more:focus-visible { opacity: 1; }
+.lib-folder-twist:hover, .lib-folder-more:hover { background: rgb(var(--gray-900) / 0.15); }
+.lib-folder-edit { min-width: 0; flex: 1; }
+.lib-folder-edit-row { padding: 0.15rem 0.4rem; }
+.lib-folder-msg {
+  margin-top: 0.5rem; padding: 0.4rem 0.5rem; border: 2px solid rgb(var(--gray-900)); border-radius: 0.4rem;
+  background: rgb(var(--accent-soft)); font-size: 0.75rem; color: rgb(var(--ink));
+}
+.lib-folder-hint { margin-top: 0.6rem; font-size: 0.75rem; line-height: 1.4; color: rgb(var(--muted)); }
+.lib-folder-sub { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; font-size: 0.78rem; color: rgb(var(--ink)); cursor: pointer; }

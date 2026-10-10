@@ -400,6 +400,12 @@ export default function AppLayout() {
                       <span className="sr-only">{item.label}</span>
                     )}
 
+                    {item.feature === "lab" && mode !== "researcher" && (
+                      <span className="rounded border-[2px] border-gray-900 bg-accent px-1 font-mono text-[9px] font-bold uppercase leading-4 tracking-wide text-onAccent">
+                        Beta
+                      </span>
+                    )}
+
 
                     {item.badge && libraryCount > 0 && (
 
@@ -494,7 +500,8 @@ export default function AppLayout() {
           PAGE CONTENT
           ====================================================== */}
 
-      {!presenting && <PixelPet />}
+      {/* The pet is part of Pro in the shipped Presentation build. */}
+      {(!presenting || proPurchased) && <PixelPet />}
 
       <main
         ref={contentRef}

@@ -64,3 +64,34 @@
   letter-spacing: 0.14em;
   color: rgb(var(--muted));
 }
+
+/* The inspector's pop-out button: an icon, filled with ink so it reads as
+   an action, not a fourth tab (the tabs are accent when active, pale
+   otherwise). */
+.inspector-popout-btn {
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid rgb(var(--gray-900));
+  border-radius: 0.25rem;
+  background: rgb(var(--gray-900));
+  color: rgb(var(--on-ink));
+  box-shadow: 2px 2px 0 rgb(var(--accent));
+  transition: transform 0.12s steps(2), box-shadow 0.12s steps(2), filter 0.12s;
+  cursor: pointer;
+}
+.inspector-popout-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 rgb(var(--accent));
+}
+.inspector-popout-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 0 0 0 rgb(var(--accent));
+}
+.inspector-popout-btn:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}

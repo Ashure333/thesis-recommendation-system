@@ -18,7 +18,12 @@ from app.models.models import Base
 # regardless of where a script that imports this module is run from.
 _DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 os.makedirs(_DB_DIR, exist_ok=True)
-DATABASE_URL = f"sqlite:///{os.path.join(_DB_DIR, 'academic_repository.db')}"
+# RESEARCH_DB_PATH points the app at another database file (a throwaway copy
+# for testing destructive actions, say). Unset, it is app/data/.
+_DB_PATH = os.environ.get("RESEARCH_DB_PATH") or os.path.join(
+    _DB_DIR, "academic_repository.db"
+)
+DATABASE_URL = f"sqlite:///{_DB_PATH}"
 
 # check_same_thread=False is needed because frameworks like FastAPI/Flask
 # may handle a single SQLite connection across different threads.

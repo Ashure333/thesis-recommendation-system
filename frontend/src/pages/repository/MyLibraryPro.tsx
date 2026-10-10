@@ -40,7 +40,12 @@ import PetFigure from "../../components/PetFigure";
 import Highlight from "../../components/Highlight";
 import PixelBurst from "../../components/retro/PixelBurst";
 import RetroDialog from "../../components/retro/RetroDialog";
-import { crumpledBallDataURL } from "../../components/retro/CrumpledPaper";
+import ContextMenu, { type MenuEntry } from "../../components/ContextMenu";
+import LibraryFolderTree, { type FolderChoice } from "../../components/LibraryFolderTree";
+import { useLibraryFolders } from "../../state/libraryFolders";
+import { flatPaths, folderPath, papersInFolder } from "../../utils/folderTree";
+import PaperDragGhost from "../../components/PaperDragGhost";
+import { beginPaperDrag } from "../../utils/paperDrag";
 import { Button, EmptyState } from "../../components/ui";
 import { emitPetChat } from "../../utils/petChat";
 import { contextTerm } from "../../utils/petMarkov";
@@ -59,35 +64,64 @@ const DEFAULT_QUESTION_PILLS = [
 
 /* ------------------------------------------------------------ */
 
+const FOLDER_CHOICE_KEY = "paperrec_library_folder";
+const FOLDER_SUB_KEY = "paperrec_library_folder_sub";
+
+function readFolderChoice(): FolderChoice {
+  try {
+    const raw = window.localStorage.getItem(FOLDER_CHOICE_KEY);
+
+    if (raw === "unfiled") return "unfiled";
+    if (raw && /^\d+$/.test(raw)) return Number(raw);
+  } catch {
+    /* best-effort */
+  }
+
+  return "all";
+}
+
+function readIncludeSub(): boolean {
+  try {
+    return window.localStorage.getItem(FOLDER_SUB_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /* The pet's drag payload (see PixelPet.tsx): JSON {id, title?}. */
 const PAPER_DROP_MIME = "application/x-research-paper";
 
-/* Crumpled-paper drag ghost, prepared once. */
-let dragGhost: HTMLImageElement | null = null;
+/* A 1x1 transparent image, prepared once: it replaces the native drag image. */
+let blankDragImage: HTMLImageElement | null = null;
 
-function getDragGhost(): HTMLImageElement | null {
-  if (dragGhost) return dragGhost;
+function getBlankDragImage(): HTMLImageElement | null {
+  if (blankDragImage) return blankDragImage;
   const img = new Image();
-  img.src = crumpledBallDataURL(96);
-  void img.decode().catch(() => undefined);
-  dragGhost = img;
+  img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+  blankDragImage = img;
   return img;
 }
 
 function startPaperDrag(
   event: React.DragEvent<HTMLElement>,
   paper: Paper,
+  ids: number[] = [paper.id],
 ) {
+  // `id`/`title` is what the pet reads; `ids` lets a folder take the whole
+  // selection when a selected paper is dragged.
   event.dataTransfer.setData(
     PAPER_DROP_MIME,
-    JSON.stringify({ id: paper.id, title: paper.title }),
+    JSON.stringify({ id: paper.id, title: paper.title, ids }),
   );
   event.dataTransfer.effectAllowed = "move";
 
-  const ghost = getDragGhost();
-  if (ghost) {
-    event.dataTransfer.setDragImage(ghost, 32, 32);
+  // Hide the browser's flat drag image: PaperDragGhost draws a document
+  // that changes shape over a drop zone (see utils/paperDrag.ts).
+  const blank = getBlankDragImage();
+  if (blank) {
+    event.dataTransfer.setDragImage(blank, 0, 0);
   }
+  beginPaperDrag({ title: paper.title ?? "Untitled paper", count: ids.length, x: event.clientX, y: event.clientY });
 }
 
 /* The shared bordered-chip look across the page's controls. */
@@ -174,6 +208,17 @@ export default function MyLibraryPro({
     "all",
   );
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  /* Folders (the sidebar), the folder being viewed and the menus on papers. */
+  const folders = useLibraryFolders();
+  const [folderChoice, setFolderChoice] = useState<FolderChoice>(readFolderChoice);
+  const [includeSub, setIncludeSub] = useState(readIncludeSub);
+  const [paperMenu, setPaperMenu] = useState<{ x: number; y: number; papers: Paper[]; title?: string } | null>(null);
+  const [newFolderFor, setNewFolderFor] = useState<Paper[] | null>(null);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderError, setNewFolderError] = useState<string | null>(null);
+  const [removeFor, setRemoveFor] = useState<Paper[] | null>(null);
+  const [folderNote, setFolderNote] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [stats, setStats] = useState<{
@@ -549,13 +594,28 @@ export default function MyLibraryPro({
 
   const q = query.trim().toLowerCase();
 
+  const inChosenFolder = useMemo<Set<number> | null>(() => {
+    if (folderChoice === "all") return null;
+
+    if (folderChoice === "unfiled") {
+      return new Set(
+        papers.filter((paper) => (folders.memberships[String(paper.id)] ?? []).length === 0).map((p) => p.id),
+      );
+    }
+
+    return papersInFolder(folders.folders, folders.memberships, folderChoice, includeSub);
+  }, [folderChoice, includeSub, papers, folders.folders, folders.memberships]);
+
   const filtered = useMemo(() => {
     const withPill = papers.filter((paper) => {
+      if (inChosenFolder && !inChosenFolder.has(paper.id)) return false;
+
       if (pill === "pdf") {
         return paper.stored_path?.toLowerCase().endsWith(".pdf");
       }
       if (pill === "unsorted") {
-        return !paper.subject_category;
+        // The same test the "Unsorted" shelf uses, so the chip and the shelf agree.
+        return !categoryOf(paper).subject;
       }
       if (pill === "recent") {
         return (paper.publication_year ?? 0) >= 2023;
@@ -574,7 +634,7 @@ export default function MyLibraryPro({
           .includes(q) ||
         (paper.author ?? "").toLowerCase().includes(q),
     );
-  }, [papers, pill, q]);
+  }, [papers, pill, q, inChosenFolder]);
 
   const deskEntries = useMemo(
     () =>
@@ -584,8 +644,14 @@ export default function MyLibraryPro({
     [entries],
   );
 
+  // An empty folder is empty; a folder with papers that the filters hide is not.
+  const folderIsEmpty = folderChoice !== "all" && inChosenFolder !== null && inChosenFolder.size === 0;
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageStart = (page - 1) * pageSize;
+  // Deleting, filtering or filing can leave the current page past the end:
+  // always draw a page that exists.
+  const safePage = Math.min(Math.max(1, page), pageCount);
+  const pageStart = (safePage - 1) * pageSize;
   const paged = filtered.slice(pageStart, pageStart + pageSize);
 
   /* Shelves: the current page grouped by subject. */
@@ -598,6 +664,169 @@ export default function MyLibraryPro({
     return [...map.entries()];
   }, [paged]);
 
+
+  // Selected papers that are no longer in the library (removed here, in
+  // another tab or by the pet) must not linger in the selection.
+  useEffect(() => {
+    setSelectedIds((current) => {
+      if (current.size === 0) return current;
+
+      const present = new Set(papers.map((paper) => paper.id));
+      const kept = new Set([...current].filter((id) => present.has(id)));
+
+      return kept.size === current.size ? current : kept;
+    });
+  }, [papers]);
+
+  // Keep the stored page number valid too (the pager reads safePage).
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  /* ---------------- folders: choosing, filing, menus ---------------- */
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FOLDER_CHOICE_KEY, String(folderChoice));
+      window.localStorage.setItem(FOLDER_SUB_KEY, includeSub ? "1" : "0");
+    } catch {
+      /* best-effort */
+    }
+  }, [folderChoice, includeSub]);
+
+  // A folder that was deleted (here or elsewhere) falls back to All papers.
+  useEffect(() => {
+    if (
+      folders.loaded &&
+      typeof folderChoice === "number" &&
+      !folders.folders.some((folder) => folder.id === folderChoice)
+    ) {
+      setFolderChoice("all");
+    }
+  }, [folders.loaded, folders.folders, folderChoice]);
+
+  function chooseFolder(choice: FolderChoice) {
+    setFolderChoice(choice);
+    setPage(1);
+    setFolderNote(null);
+  }
+
+  function say(message: string) {
+    setFolderNote(message);
+    window.setTimeout(() => setFolderNote((current) => (current === message ? null : current)), 4000);
+  }
+
+  async function filePapers(folderId: number, ids: number[]) {
+    const name = folders.folders.find((folder) => folder.id === folderId)?.name ?? "the folder";
+
+    try {
+      const result = await folders.addPapers(folderId, ids);
+
+      say(
+        result.changed > 0
+          ? `Added ${result.changed} paper${result.changed === 1 ? "" : "s"} to “${name}”.`
+          : `Already in “${name}”.`,
+      );
+    } catch (cause) {
+      say(cause instanceof Error ? cause.message : "Could not add to the folder.");
+    }
+  }
+
+  async function unfilePapers(folderId: number, ids: number[]) {
+    const name = folders.folders.find((folder) => folder.id === folderId)?.name ?? "the folder";
+
+    try {
+      const result = await folders.removePapers(folderId, ids);
+
+      say(`Took ${result.changed} paper${result.changed === 1 ? "" : "s"} out of “${name}”.`);
+    } catch (cause) {
+      say(cause instanceof Error ? cause.message : "Could not remove from the folder.");
+    }
+  }
+
+  async function createFolderWith(name: string, targets: Paper[]) {
+    try {
+      const made = await folders.createFolder(name, typeof folderChoice === "number" ? folderChoice : null);
+
+      await folders.addPapers(made.id, targets.map((paper) => paper.id));
+      setNewFolderFor(null);
+      say(`Made “${made.name}” with ${targets.length} paper${targets.length === 1 ? "" : "s"}.`);
+    } catch (cause) {
+      setNewFolderError(cause instanceof Error ? cause.message : "Could not create the folder.");
+    }
+  }
+
+  /** The papers a menu acts on: the whole selection if the clicked paper is in it. */
+  function menuTargets(paper: Paper): Paper[] {
+    return selectedIds.has(paper.id) && selectedIds.size > 1
+      ? papers.filter((candidate) => selectedIds.has(candidate.id))
+      : [paper];
+  }
+
+  function paperMenuEntries(targets: Paper[]): MenuEntry[] {
+    const many = targets.length > 1;
+    const ids = targets.map((paper) => paper.id);
+    const paths = flatPaths(folders.folders);
+    const entries: MenuEntry[] = [];
+
+    if (!many) {
+      entries.push({ id: "open", label: "Open", onSelect: () => viewer.openPaper(targets[0]) });
+      entries.push({ id: "sep0", separator: true });
+    }
+
+    entries.push({ id: "fh", heading: many ? `Folders for ${targets.length} papers` : "Folders" });
+
+    for (const row of paths.slice(0, 40)) {
+      const inAll = ids.every((id) => folders.foldersOf(id).includes(row.id));
+
+      entries.push({
+        id: `f-${row.id}`,
+        label: row.path,
+        checked: inAll,
+        onSelect: () => void (inAll ? unfilePapers(row.id, ids) : filePapers(row.id, ids)),
+      });
+    }
+
+    entries.push({
+      id: "new",
+      label: many ? "New folder with these papers…" : "New folder with this paper…",
+      onSelect: () => {
+        setNewFolderError(null);
+        setNewFolderName("");
+        setNewFolderFor(targets);
+      },
+    });
+
+    if (typeof folderChoice === "number" && ids.some((id) => folders.foldersOf(id).includes(folderChoice))) {
+      entries.push({
+        id: "unfile",
+        label: `Remove from “${folders.folders.find((f) => f.id === folderChoice)?.name ?? "this folder"}”`,
+        onSelect: () => void unfilePapers(folderChoice, ids),
+      });
+    }
+
+    entries.push({ id: "sep1", separator: true });
+    entries.push({
+      id: "remove",
+      label: many ? `Remove ${targets.length} papers from library…` : "Remove from library…",
+      danger: true,
+      onSelect: () => setRemoveFor(targets),
+    });
+
+    return entries;
+  }
+
+  function openPaperMenu(event: React.MouseEvent, paper: Paper) {
+    event.preventDefault();
+    const targets = menuTargets(paper);
+
+    setPaperMenu({
+      x: event.clientX,
+      y: event.clientY,
+      papers: targets,
+      title: targets.length > 1 ? `${targets.length} papers` : undefined,
+    });
+  }
 
   function toggleSelected(id: number) {
     setSelectedIds((current) => {
@@ -623,17 +852,47 @@ export default function MyLibraryPro({
     );
   }
 
+  /** A click on a card or row opens the paper, except on its own controls. */
+  function openFromCard(event: React.MouseEvent, paper: Paper) {
+    if ((event.target as HTMLElement).closest("button, input, a, label, select, textarea")) {
+      return;
+    }
+
+    // Ending a drag on the pet is not a click on the paper.
+    if (window.getSelection()?.toString()) return;
+
+    viewer.openPaper(paper);
+  }
+
+  const removing = useRef<Set<number>>(new Set());
+
   async function handleRemove(paper: Paper, event?: MouseEvent<HTMLButtonElement>) {
+    // A double-click (or a menu action racing the button) must not remove twice.
+    if (removing.current.has(paper.id)) return;
+    removing.current.add(paper.id);
+
     if (event) {
       burstAt(event);
     }
-    await removeFromLibrary(paper.id);
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      next.delete(paper.id);
-      return next;
-    });
-    onRemoved(paper.id);
+
+    try {
+      await removeFromLibrary(paper.id);
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        next.delete(paper.id);
+        return next;
+      });
+      onRemoved(paper.id);
+      void folders.refresh();
+    } catch (cause) {
+      say(
+        cause instanceof Error
+          ? `Could not remove “${paper.title}”: ${cause.message}`
+          : `Could not remove “${paper.title}”.`,
+      );
+    } finally {
+      removing.current.delete(paper.id);
+    }
   }
 
   /* Dashboard aggregates. */
@@ -762,7 +1021,23 @@ export default function MyLibraryPro({
 
       {/* ================= LIBRARY ================= */}
       {tab === "library" && (
-        <div className="lib-page flex flex-col gap-6">
+        <div className="lib-layout">
+        <LibraryFolderTree
+          api={folders}
+          total={papers.length}
+          active={folderChoice}
+          onChoose={chooseFolder}
+          includeSubfolders={includeSub}
+          onIncludeSubfolders={(value) => {
+            setIncludeSub(value);
+            setPage(1);
+          }}
+          onFilePapers={(folderId, ids) => void filePapers(folderId, ids)}
+          onSelectFolder={(folderId) =>
+            setSelectedIds(papersInFolder(folders.folders, folders.memberships, folderId, includeSub))
+          }
+        />
+        <div className="lib-page flex min-w-0 flex-col gap-6">
           {/* On my desk: the most recently saved papers */}
           {deskEntries.length > 0 && (
             <section className="lib-desk" aria-label="On my desk">
@@ -777,6 +1052,10 @@ export default function MyLibraryPro({
                     type="button"
                     data-lib-tone={toneOf(entry.paper)}
                     onClick={() => viewer.openPaper(entry.paper)}
+                    draggable
+                    onDragStart={(event) =>
+                      startPaperDrag(event, entry.paper, selectedIds.has(entry.paper.id) ? [...selectedIds] : [entry.paper.id])
+                    }
                     className="lib-desk-item"
                   >
                     <h4>
@@ -840,6 +1119,23 @@ export default function MyLibraryPro({
                 : "Enter a question and press Enter: the Chat tab answers it against your collection, the repository, or the web, citing the sources it used."}
             </p>
           </div>
+
+          {/* Which folder is open, and the last folder action */}
+          {(folderChoice !== "all" || folderNote) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink" aria-live="polite">
+              {folderChoice !== "all" && (
+                <span className="font-mono text-xs font-bold uppercase tracking-[0.12em] text-muted">
+                  Viewing:{" "}
+                  <span className="text-ink">
+                    {folderChoice === "unfiled" ? "Unfiled papers" : folderPath(folders.folders, folderChoice)}
+                  </span>
+                  {" · "}
+                  {filtered.length} paper{filtered.length === 1 ? "" : "s"}
+                </span>
+              )}
+              {folderNote && <span className="text-xs text-muted">{folderNote}</span>}
+            </div>
+          )}
 
           {/* Filters */}
           <div className="flex flex-wrap items-center justify-between gap-3 lib-panel p-3">
@@ -919,7 +1215,19 @@ export default function MyLibraryPro({
               <span className="font-mono text-xs font-bold text-ink">
                 {selectedCount} selected
               </span>
-              <div className="ml-auto">
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const targets = papers.filter((paper) => selectedIds.has(paper.id));
+
+                    setPaperMenu({ x: rect.left, y: rect.bottom + 4, papers: targets, title: `${targets.length} selected` });
+                  }}
+                >
+                  Folders…
+                </Button>
                 <Button
                   type="button"
                   variant="secondary"
@@ -935,8 +1243,12 @@ export default function MyLibraryPro({
           {filtered.length === 0 ? (
             <div className="lib-panel p-6">
               <EmptyState
-                title="No papers match."
-                description="Try a different filter or search term."
+                title={folderIsEmpty ? "Nothing in this folder." : "No papers match."}
+                description={
+                  folderIsEmpty
+                    ? "Drag papers onto the folder, or right-click a paper and choose a folder."
+                    : "Try a different filter or search term."
+                }
                 figure={<PetFigure size={72} />}
               />
             </div>
@@ -957,7 +1269,9 @@ export default function MyLibraryPro({
                         draggable
                         data-lib-tone={toneOf(paper)}
                         data-selected={selectedIds.has(paper.id)}
-                        onDragStart={(event) => startPaperDrag(event, paper)}
+                        onDragStart={(event) => startPaperDrag(event, paper, selectedIds.has(paper.id) ? [...selectedIds] : [paper.id])}
+                        onClick={(event) => openFromCard(event, paper)}
+                        onContextMenu={(event) => openPaperMenu(event, paper)}
                         className="lib-cover cursor-grab active:cursor-grabbing"
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -1018,7 +1332,9 @@ export default function MyLibraryPro({
                 <div
                   key={paper.id}
                   draggable
-                  onDragStart={(event) => startPaperDrag(event, paper)}
+                  onDragStart={(event) => startPaperDrag(event, paper, selectedIds.has(paper.id) ? [...selectedIds] : [paper.id])}
+                  onClick={(event) => openFromCard(event, paper)}
+                  onContextMenu={(event) => openPaperMenu(event, paper)}
                   data-lib-tone={toneOf(paper)}
                   className={`lib-row cursor-grab active:cursor-grabbing ${
                     selectedIds.has(paper.id) ? "!bg-accentSoft/60" : ""
@@ -1090,21 +1406,21 @@ export default function MyLibraryPro({
                 aria-label="Previous page"
                 title="Previous page"
                 variant="secondary"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                onClick={() => setPage(Math.max(1, safePage - 1))}
               >
                 <ResponsiveLabel icon={ChevronLeft}>Prev</ResponsiveLabel>
               </Button>
               <span className="font-mono text-xs text-muted">
-                {page} / {pageCount}
+                {safePage} / {pageCount}
               </span>
               <Button
                 type="button"
                 aria-label="Next page"
                 title="Next page"
                 variant="secondary"
-                disabled={page >= pageCount}
-                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                disabled={safePage >= pageCount}
+                onClick={() => setPage(Math.min(pageCount, safePage + 1))}
               >
                 <ResponsiveLabel icon={ChevronRight}>Next</ResponsiveLabel>
               </Button>
@@ -1128,6 +1444,7 @@ export default function MyLibraryPro({
               </label>
             </div>
           </div>
+        </div>
         </div>
       )}
 
@@ -1790,6 +2107,75 @@ export default function MyLibraryPro({
         ))}
 
       {burst && <PixelBurst key={burst.key} x={burst.x} y={burst.y} />}
+
+      <PaperDragGhost />
+
+      {paperMenu && (
+        <ContextMenu
+          x={paperMenu.x}
+          y={paperMenu.y}
+          title={paperMenu.title ?? paperMenu.papers[0]?.title}
+          ariaLabel="Paper actions"
+          entries={paperMenuEntries(paperMenu.papers)}
+          onClose={() => setPaperMenu(null)}
+        />
+      )}
+
+      <RetroDialog
+        open={newFolderFor !== null}
+        title="New folder"
+        confirmLabel="Create folder"
+        onCancel={() => setNewFolderFor(null)}
+        onConfirm={() => {
+          if (newFolderFor) void createFolderWith(newFolderName, newFolderFor);
+        }}
+      >
+        <label className="block text-sm font-bold text-ink" htmlFor="lib-new-folder-name">
+          Folder name
+        </label>
+        <input
+          id="lib-new-folder-name"
+          autoFocus
+          value={newFolderName}
+          maxLength={80}
+          onChange={(event) => setNewFolderName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && newFolderFor) void createFolderWith(newFolderName, newFolderFor);
+          }}
+          placeholder="e.g. Thesis, chapter 2"
+          className="ui-input mt-1"
+        />
+        <p className="mt-2 text-xs text-muted">
+          {newFolderFor?.length === 1 ? "This paper" : `These ${newFolderFor?.length ?? 0} papers`} will go in it
+          {typeof folderChoice === "number" ? `, inside “${folderPath(folders.folders, folderChoice)}”` : ""}.
+        </p>
+        {newFolderError && (
+          <p role="alert" className="mt-2 rounded border-2 border-gray-900 bg-accentSoft px-2 py-1 text-xs text-ink">
+            {newFolderError}
+          </p>
+        )}
+      </RetroDialog>
+
+      <RetroDialog
+        open={removeFor !== null}
+        title="Remove from library"
+        confirmLabel="Remove"
+        onCancel={() => setRemoveFor(null)}
+        onConfirm={() => {
+          const targets = removeFor ?? [];
+
+          setRemoveFor(null);
+          void (async () => {
+            for (const paper of targets) await handleRemove(paper);
+          })();
+        }}
+      >
+        <p className="text-sm leading-6 text-ink">
+          Remove{" "}
+          {removeFor && removeFor.length === 1 ? <strong>{removeFor[0].title}</strong> : `${removeFor?.length ?? 0} papers`}{" "}
+          from your library? They are also taken out of every folder. The papers stay in the repository.
+        </p>
+      </RetroDialog>
 
       <RetroDialog
         open={confirmDeleteAll}

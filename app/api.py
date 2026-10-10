@@ -32,6 +32,7 @@ from app.models.models import (
     TournamentRun,
     TournamentQueryScore,
 )
+from app.services import library_folders
 from app.services.catalog import (
     DEFAULT_CATEGORIES,
     DEFAULT_DOCUMENT_TYPES,
@@ -265,6 +266,12 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        # Extra origins, comma separated (a second dev server for testing).
+        *[
+            origin.strip()
+            for origin in os.environ.get("RESEARCH_CORS_ORIGINS", "").split(",")
+            if origin.strip()
+        ],
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -2172,6 +2179,100 @@ def assign_library_keywords(
 # SAVE PAPER TO LIBRARY
 # ============================================================
 
+# ============================================================
+# LIBRARY FOLDERS
+# (registered before the "/api/library/{paper_id}" routes, so "folders"
+# is never read as a paper id)
+# ============================================================
+
+class FolderCreate(BaseModel):
+    name: str
+    parent_id: int | None = None
+
+
+class FolderUpdate(BaseModel):
+    name: str | None = None
+    # Present and null moves the folder to the top level; absent leaves it.
+    parent_id: int | None = None
+
+
+class FolderPapers(BaseModel):
+    paper_ids: list[int]
+    action: str = "add"
+
+
+def _folder_call(fn):
+    try:
+        return fn()
+    except library_folders.FolderError as error:
+        raise HTTPException(status_code=error.status, detail=error.message) from error
+
+
+@app.get("/api/library/folders")
+def get_library_folders(db: Session = Depends(get_session)):
+    user = get_or_create_default_user(db)
+
+    return library_folders.overview(db, user.id)
+
+
+@app.post("/api/library/folders", status_code=201)
+def create_library_folder(
+    request: FolderCreate, db: Session = Depends(get_session)
+):
+    user = get_or_create_default_user(db)
+    folder = _folder_call(
+        lambda: library_folders.create_folder(
+            db, user.id, request.name, request.parent_id
+        )
+    )
+
+    return {"id": folder.id, "name": folder.name, "parent_id": folder.parent_id}
+
+
+@app.patch("/api/library/folders/{folder_id}")
+def update_library_folder(
+    folder_id: int, request: FolderUpdate, db: Session = Depends(get_session)
+):
+    user = get_or_create_default_user(db)
+    fields = request.model_fields_set
+    changes: dict = {}
+
+    if "name" in fields:
+        changes["name"] = request.name
+
+    if "parent_id" in fields:
+        changes["parent_id"] = request.parent_id
+
+    folder = _folder_call(
+        lambda: library_folders.update_folder(db, user.id, folder_id, **changes)
+    )
+
+    return {"id": folder.id, "name": folder.name, "parent_id": folder.parent_id}
+
+
+@app.delete("/api/library/folders/{folder_id}")
+def delete_library_folder(folder_id: int, db: Session = Depends(get_session)):
+    user = get_or_create_default_user(db)
+    removed = _folder_call(
+        lambda: library_folders.delete_folder(db, user.id, folder_id)
+    )
+
+    return {"status": "deleted", "folders_removed": removed}
+
+
+@app.post("/api/library/folders/{folder_id}/papers")
+def set_library_folder_papers(
+    folder_id: int, request: FolderPapers, db: Session = Depends(get_session)
+):
+    user = get_or_create_default_user(db)
+
+    return _folder_call(
+        lambda: library_folders.set_membership(
+            db, user.id, folder_id, request.paper_ids, request.action
+        )
+    )
+
+
 @app.post("/api/library/{paper_id}")
 def save_to_library(
     paper_id: int,
@@ -2274,6 +2375,8 @@ def remove_from_library(
         }
 
     db.delete(entry)
+    # A paper that leaves the library leaves its folders too.
+    library_folders.clear_paper(db, user.id, paper_id)
     db.commit()
 
     return {

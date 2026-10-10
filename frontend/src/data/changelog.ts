@@ -23,6 +23,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "library-folders",
+    date: "Oct 10",
+    title: "Folders for My Library, and a right-click menu that stays on screen",
+    tag: "NEW",
+    body: "Organise saved papers into your own nested folders, like Zotero or Mendeley: create, rename, move and delete folders, drag papers onto them, or right-click a paper to file it. A paper can sit in several folders. Right-click menus now always open fully inside the window, flipping away from the edges.",
+    details: [
+      "Backend: tables library_folders and library_folder_papers; rules in app/services/library_folders.py (six levels deep, sibling names unique ignoring case, no folder inside itself, only saved papers can be filed, removing a paper from the library clears its placements); routes under /api/library/folders, registered before the /api/library/{paper_id} routes.",
+      "UI: components/LibraryFolderTree.tsx (sidebar, drag and drop, inline rename, delete confirmation) and state/libraryFolders.ts; tree and move rules in utils/folderTree.ts.",
+      "Menus: components/ContextMenu.tsx renders into <body> (the page's entry animation made position: fixed relative to <main>, so menus drifted) and places itself with utils/menuPosition.ts; LiteratureMenu uses the same placement.",
+    ],
+  },
+  {
     id: "garden-charm-word-pairing",
     date: "Oct 9",
     title: "Feeding the tree announces the right charm word",

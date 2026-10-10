@@ -150,10 +150,17 @@ export function SiteModes() {
             Inside it the Stats button, theme picker, layout switcher, Stats for Nerds, the pet,
             the cheat console, the garden, the ticker, scanlines and the boot screen are gone. What
             remains is what the study delivers: <Chip>Repository</Chip>, <Chip>Upload</Chip>,{" "}
-            <Chip>My Library</Chip> (free tabs only), <Chip>Arena</Chip>, <Chip>Engine</Chip> and{" "}
-            <Chip>FAQ</Chip>. Pipelines carry their formal names (TF-IDF, S-BERT + Metadata) in
+            <Chip>My Library</Chip> (free tabs only), <Chip>Arena</Chip>, <Chip>Engine</Chip>,{" "}
+            <Chip>FAQ</Chip> and <Chip>Settings</Chip>. Settings here is a plain account page, not
+            the developer one: your name and email with <Chip>Sign out</Chip>, the interface
+            labels, citation style, copy behavior, the similar-papers scope, and an About panel.
+            It has a mode switch (Presentation, Library, Researcher) and no Developer tab. Pipelines carry their formal names (TF-IDF, S-BERT + Metadata) in
             place of the arcade codenames, and the Arena says <Chip>Run Arena</Chip> and{" "}
             <Chip>Win tally</Chip>. Any route outside this lineup sends you back to the Repository.
+            The demo Pro purchase, made from the locked tabs of My Library, then opens the{" "}
+            <Chip>Lab</Chip> as a beta (the recipe bench and the duel), the pixel pet and the tree
+            of knowledge, all without their developer controls. Library mode gets the same Pro
+            unlocks.
           </P>
           <WikiSteps
             steps={[

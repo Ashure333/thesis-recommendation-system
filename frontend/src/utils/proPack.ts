@@ -17,13 +17,14 @@ export const PRO_PACK_SEED_PACKS = 1;
 
 export const PRO_PACK_BENEFITS: string[] = [
   "Every PRO tab of My Library: Dashboard, Graph and Chat",
+  "The Lab (beta), the pixel pet and the tree of knowledge",
   `${PRO_PACK_FERTILIZER.toLocaleString("en-US")} fertilizer in your hold`,
   `${PRO_PACK_TOKENS.toLocaleString("en-US")} tree tokens`,
   `${PRO_PACK_SEED_PACKS} free seed pack (a new tree for the seed bank)`,
 ];
 
 export const PRO_PACK_QUEST_NOTE =
-  "Unlocks more features – the secret quests, Pet and Garden, are still yours to finish.";
+  "Unlocks more features – the secret quests are still yours to finish.";
 
 export interface ProPackWallet {
   tokens: number;

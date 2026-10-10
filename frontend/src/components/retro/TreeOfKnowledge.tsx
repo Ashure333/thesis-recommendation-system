@@ -76,6 +76,7 @@ import ThemeShop from "./ThemeShop";
 import SparkleGlyph from "./SparkleGlyph";
 import SunGlyph from "./SunGlyph";
 import TokenGlyph from "./TokenGlyph";
+import { useSiteMode } from "../../state/siteMode";
 import RetroDialog from "./RetroDialog";
 import { Palette, Sparkles, Sprout } from "lucide-react";
 
@@ -515,6 +516,10 @@ export default function TreeOfKnowledge({
   /** Hide the inline marker chips (shown in the Garden band). */
   hideMarkers?: boolean;
 }) {
+  // Developer controls (the Dev tab and what it opens) are Researcher-only.
+  const { mode: siteMode } = useSiteMode();
+  const devControls = siteMode === "researcher";
+
   const { count: treasures } = useHunt();
   const { unlocked } = useAchievements();
   const {
@@ -1192,13 +1197,15 @@ export default function TreeOfKnowledge({
           <div className="flex items-center gap-2">
             <FramePicker frame={frame} onPick={setFrame} />
             {/* the developer switch stands apart from the shops */}
-            <MenuButton
-              test
-              active={menu === "wallet"}
-              onClick={() => setMenu(menu === "wallet" ? null : "wallet")}
-              title="Developer tab: test wallet, growth, looks and scenery controls"
-              label="Dev"
-            />
+            {devControls && (
+              <MenuButton
+                test
+                active={menu === "wallet"}
+                onClick={() => setMenu(menu === "wallet" ? null : "wallet")}
+                title="Developer tab: test wallet, growth, looks and scenery controls"
+                label="Dev"
+              />
+            )}
           </div>
         </div>
 

@@ -166,7 +166,7 @@ function TypeSlider({
         {...limits}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="w-32 accent-[#f39c18]"
+        className="w-32"
       />
       <span className="w-14 text-right font-mono text-xs text-ink">{format(value)}</span>
     </Row>
@@ -392,7 +392,7 @@ export default function DevPanel({ garden = false }: { garden?: boolean }) {
             max={95}
             value={Math.round(custom.live.dim * 100)}
             onChange={(event) => setLive({ dim: Number(event.target.value) / 100 })}
-            className="w-32 accent-[#f39c18]"
+            className="w-32"
           />
           <span className="w-10 text-right font-mono text-xs text-ink">{Math.round(custom.live.dim * 100)}%</span>
         </Row>
@@ -492,7 +492,7 @@ export default function DevPanel({ garden = false }: { garden?: boolean }) {
             step={10}
             value={sun.fertilizer}
             onChange={(event) => sun.testSetFertilizer(Number(event.target.value))}
-            className="w-40 accent-[#f39c18]"
+            className="w-40"
           />
           <span className="w-12 text-right font-mono text-xs text-ink">{sun.fertilizer}</span>
         </Row>

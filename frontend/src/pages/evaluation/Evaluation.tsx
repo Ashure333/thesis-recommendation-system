@@ -1022,7 +1022,7 @@ export default function Evaluation() {
                               : [current, source].filter(Boolean).join(","),
                           )
                         }
-                        className="accent-gold"
+                        className=""
                       />
                       {source === "openalex" ? "OpenAlex" : source === "crossref" ? "Crossref" : source === "doaj" ? "DOAJ" : "arXiv"}
                     </label>
@@ -1033,7 +1033,7 @@ export default function Evaluation() {
                     type="checkbox"
                     checked={openAccess}
                     onChange={(event) => setOpenAccess(event.target.checked)}
-                    className="accent-gold"
+                    className=""
                   />
                   Open access only
                 </label>

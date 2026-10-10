@@ -285,7 +285,7 @@ export default function BattleJudge({ battle, name, onJudged }: Props) {
                       type="checkbox"
                       checked={ticked.has(paper.paper_id)}
                       onChange={() => toggle(paper.paper_id)}
-                      className="mt-1 accent-[#f39c18]"
+                      className="mt-1"
                     />
                     <span className="min-w-0">
                       {paper.title ?? `Paper ${paper.paper_id}`}

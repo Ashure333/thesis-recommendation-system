@@ -2983,12 +2983,11 @@ export default function Repository() {
                     type="button"
                     onClick={() => setPopupOpen(true)}
                     title="Open in pop-up"
-                    className="shrink-0 rounded border-[3px] border-gray-900 bg-surface px-2 py-1.5 text-ink transition-colors pixel-ease hover:bg-accent hover:text-onAccent"
-                  >
-                    <ResponsiveLabel icon={Maximize2} collapseBelow="xl">
-                      Pop-up
-                    </ResponsiveLabel>
-                  </button>
+                    aria-label="Open in pop-up"
+                    className="inspector-popout-btn"
+                    >
+                      <Maximize2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
                 </div>
                 {renderWebInspectorTab(webTab)}
               </div>
@@ -3032,12 +3031,11 @@ export default function Repository() {
                   type="button"
                   onClick={() => setPopupOpen(true)}
                   title="Open in pop-up"
-                  className="shrink-0 rounded border-[3px] border-gray-900 bg-surface px-2 py-1.5 text-ink transition-colors pixel-ease hover:bg-accent hover:text-onAccent"
-                >
-                  <ResponsiveLabel icon={Maximize2} collapseBelow="xl">
-                    Pop-up
-                  </ResponsiveLabel>
-                </button>
+                  aria-label="Open in pop-up"
+                  className="inspector-popout-btn"
+                  >
+                    <Maximize2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
               </div>
 
               {renderInspectorTab(detailTab, false)}

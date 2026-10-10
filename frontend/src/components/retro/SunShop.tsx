@@ -45,6 +45,7 @@ import { useHunt } from "../../state/hunt";
 import { useAchievements } from "../../state/achievements";
 import { addOwnedSkin, useOwnedSkins } from "../../state/skins";
 import DevPanel from "../DevPanel";
+import { useSiteMode } from "../../state/siteMode";
 import KnowledgeTree from "./KnowledgeTree";
 import { CardBadge, CardButton, CardTag, ShopCard } from "./ShopCard";
 import SpeciesPreview from "./SpeciesPreview";
@@ -59,7 +60,7 @@ import { DEFAULT_BACKDROP_THEME, type BackdropThemeId } from "../../data/backdro
 
 export type ShopTabId = "shop" | "skins" | "themes" | "earn" | "wallet";
 
-const RAIL_TABS: {
+const ALL_RAIL_TABS: {
   id: ShopTabId;
   label: string;
   glyph: JSX.Element;
@@ -190,6 +191,14 @@ export default function SunShop({
   plantedSpecies?: TreeSpeciesId;
   onPlantSpecies?: (id: TreeSpeciesId) => void;
 }) {
+  // The Developer tab (test wallet, Pro override, looks) is for Researcher
+  // mode only; the shipped tree has the shops and the earn guide.
+  const { mode: siteMode } = useSiteMode();
+  const RAIL_TABS =
+    siteMode === "researcher"
+      ? ALL_RAIL_TABS
+      : ALL_RAIL_TABS.filter((entry) => entry.id !== "wallet");
+
   const {
     balance,
     fertilizer,

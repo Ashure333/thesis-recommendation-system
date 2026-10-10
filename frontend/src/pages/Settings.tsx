@@ -13,11 +13,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import DevPanel from "../components/DevPanel";
 import "./settings.css";
 
+import { getRecommendationIndexStatus } from "../api";
 import { useSiteMode } from "../state/siteMode";
 import { useLayoutPrefs } from "../state/layoutPrefs";
 import {
@@ -124,6 +125,31 @@ const PREF_SECTIONS: [string, string][] = [
   ["set-connections", "Similar papers"],
 ];
 
+/* Presentation mode (the shipped build for the defense): no developer or
+   mode controls, an account section with sign-out, and an About panel. */
+const PRESENTATION_SECTIONS: [string, string][] = [
+  ["set-account", "Account"],
+  ["set-mode", "Mode"],
+  ["set-interface", "Interface"],
+  ["set-citation-style", "Citation style"],
+  ["set-copy", "Copy behavior"],
+  ["set-connections", "Similar papers"],
+  ["set-about", "About"],
+];
+
+function readAccount(): { name: string; email: string } {
+  try {
+    const email = window.localStorage.getItem("paperrec_user_email") ?? "";
+    const name =
+      window.localStorage.getItem("paperrec_user_name") ||
+      (email ? email.split("@")[0] : "");
+
+    return { name, email };
+  } catch {
+    return { name: "", email: "" };
+  }
+}
+
 function jump(id: string) {
   document
     .getElementById(id)
@@ -132,8 +158,31 @@ function jump(id: string) {
 
 export default function Settings() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "dev" ? "dev" : "preferences";
   const { mode, setMode } = useSiteMode();
+  const presenting = mode === "presentation";
+  // The Developer page does not exist in the shipped build.
+  const tab = !presenting && params.get("tab") === "dev" ? "dev" : "preferences";
+  const navigate = useNavigate();
+  const [account] = useState(readAccount);
+  const [indexStale, setIndexStale] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!presenting) return;
+    getRecommendationIndexStatus()
+      .then((status) => setIndexStale(status.stale))
+      .catch(() => setIndexStale(null));
+  }, [presenting]);
+
+  function signOut() {
+    try {
+      for (const key of ["paperrec_logged_in", "paperrec_user_email", "paperrec_user_name", "paperrec_remember_me"]) {
+        window.localStorage.removeItem(key);
+      }
+    } catch {
+      // Best-effort.
+    }
+    navigate("/");
+  }
   const { prefs, setNavLabels } = useLayoutPrefs();
 
   const [settings, setSettings] = useState(readSettings);
@@ -204,7 +253,7 @@ export default function Settings() {
     }
   }
 
-  const railItems = tab === "dev" ? devSections : PREF_SECTIONS;
+  const railItems = tab === "dev" ? devSections : presenting ? PRESENTATION_SECTIONS : PREF_SECTIONS;
   const modeLabel =
     mode === "library"
       ? "Library"
@@ -219,7 +268,7 @@ export default function Settings() {
     <div className="mx-auto flex w-full max-w-[960px] flex-col gap-5">
       <header>
         <p className="font-mono text-xs font-bold uppercase tracking-[0.15em] text-muted">
-          Preferences
+          {presenting ? "Account" : "Preferences"}
         </p>
 
         <h1 className="font-pixelify mt-2 text-3xl font-bold leading-none text-ink">
@@ -227,11 +276,12 @@ export default function Settings() {
         </h1>
 
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-          These preferences stay in this browser. The citation
-          style sets the default for Copy as → Formatted citation
-          in the paper context menu.
+          {presenting
+            ? "Your account and the preferences this browser remembers. The citation style sets the default for Copy as → Formatted citation in the paper context menu."
+            : "These preferences stay in this browser. The citation style sets the default for Copy as → Formatted citation in the paper context menu."}
         </p>
 
+        {!presenting && (
         <div role="tablist" aria-label="Settings pages" className="mt-4 flex gap-1.5">
           {(
             [
@@ -253,6 +303,7 @@ export default function Settings() {
             </button>
           ))}
         </div>
+        )}
       </header>
 
       <div className="set-shell">
@@ -283,6 +334,64 @@ export default function Settings() {
 
           {tab === "preferences" && (
             <>
+
+              {presenting && (
+                <SetPanel id="account" title="Account" count={account.email || undefined}>
+                  <SetRow title="Name" note="Shown on this device only." lamp="on" value={account.name || "Not set"}>
+                    <span />
+                  </SetRow>
+                  <SetRow title="Email" note="The address you signed in with." lamp="on" value={account.email || "Not set"}>
+                    <span />
+                  </SetRow>
+                  <SetRow
+                    title="Session"
+                    note="Signing out returns you to the sign-in page. It does not delete the repository or your saved papers."
+                    lamp="on"
+                    value="Signed in"
+                  >
+                    <button type="button" className="set-reset" style={{ opacity: 1 }} onClick={signOut}>
+                      Sign out
+                    </button>
+                  </SetRow>
+                </SetPanel>
+              )}
+
+              {presenting && (
+                <SetPanel id="mode" title="Mode" count={modeLabel}>
+                  <SetRow
+                    title="Site mode"
+                    note="Presentation is the shipped build. Library is the visitor-friendly librarian; Researcher is the full tool. Your own settings come back when you leave Presentation."
+                    lamp="on"
+                    stack
+                  >
+                    <div role="radiogroup" aria-label="Site mode" className="set-seg w-full flex-col sm:w-fit sm:flex-row">
+                      {(
+                        [
+                          ["presentation", "PRESENTATION", "Shipped version"],
+                          ["library", "LIBRARY", "Visitor view"],
+                          ["researcher", "RESEARCHER", "Full pro tool"],
+                        ] as const
+                      ).map(([id, label, hint]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          role="radio"
+                          aria-checked={mode === id}
+                          onClick={() => setMode(id)}
+                          className={`flex flex-col px-3 py-2 text-left font-mono transition-colors pixel-ease ${
+                            mode === id ? "bg-accent text-onAccent" : "text-muted hover:text-ink"
+                          }`}
+                        >
+                          <span className="text-xs font-bold uppercase tracking-[0.1em]">{label}</span>
+                          <span className="text-[10px] normal-case tracking-normal opacity-80">{hint}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </SetRow>
+                </SetPanel>
+              )}
+
+              {!presenting && (
               <SetPanel id="mode" title="Site mode" count={modeLabel}>
                 <SetRow
                   title="Mode"
@@ -333,6 +442,7 @@ export default function Settings() {
                   </div>
                 </SetRow>
               </SetPanel>
+              )}
 
               <SetPanel id="interface" title="Interface">
                 <SetRow
@@ -468,6 +578,7 @@ export default function Settings() {
                 </SetRow>
               </SetPanel>
 
+              {!presenting && (
               <SetPanel id="pet" title="Pixel pet">
                 <SetRow
                   title="Pixel pet companion"
@@ -490,6 +601,7 @@ export default function Settings() {
                   </label>
                 </SetRow>
               </SetPanel>
+              )}
 
               <SetPanel id="connections" title="Similar-papers scope" count={scope}>
                 <SetRow
@@ -524,11 +636,33 @@ export default function Settings() {
                 </SetRow>
               </SetPanel>
 
+              {presenting && (
+                <SetPanel id="about" title="About">
+                  <SetRow
+                    title="Re:Search"
+                    note="A paper repository and recommendation system for BulSU BSMCS students. Papers are ranked by a TF-IDF lexical signal, an S-BERT semantic signal and a metadata signal, blended under configurable weights."
+                    lamp="on"
+                  >
+                    <span />
+                  </SetRow>
+                  <SetRow
+                    title="Recommendation index"
+                    note="The vectors behind search and recommendations. It is rebuilt from the Repository when papers change."
+                    lamp={indexStale === null ? "off" : indexStale ? "changed" : "on"}
+                    value={indexStale === null ? "Checking…" : indexStale ? "Needs rebuild" : "Up to date"}
+                  >
+                    <span />
+                  </SetRow>
+                </SetPanel>
+              )}
+
+              {!presenting && (
               <p className="text-xs text-muted">
                 Current mode:{" "}
                 <span className="font-bold text-ink">{modeLabel}</span>{" "}
                 — switch it in the Site mode section above.
               </p>
+              )}
             </>
           )}
         </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNerdButtons } from "../../state/nerdButtons";
+import { useSiteMode } from "../../state/siteMode";
 import {
   comparePipelinesStream,
   webComparePipelines,
@@ -204,7 +205,12 @@ export default function Lab() {
 
   /* Right-side Stats for Nerds pane: collapsible, and it traces the
      dial mix against a query you type here. */
-  const { on: nerdOn } = useNerdButtons();
+  // Outside Researcher mode the Lab is a beta: the recipe bench, the duel and
+  // the garden; no Sweep experiment and no Stats for Nerds.
+  const { mode: siteMode } = useSiteMode();
+  const beta = siteMode !== "researcher";
+  const { on: nerdSwitch } = useNerdButtons();
+  const nerdOn = nerdSwitch && !beta;
   const [statsOpenRaw, setStatsOpen] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem("paperrec_lab_stats") === "1";
@@ -461,13 +467,17 @@ export default function Lab() {
       <PageHeader
         eyebrow="Lab"
         title="Re:Search Laboratory"
-        description="Combine the three signals into your own recipe, duel it against the six presets on one query or seed paper, or sweep the whole blend triangle to see where quality lives. Experiments here are not saved to the Arena's log."
+        description={
+          beta
+            ? "Beta: combine the three signals into your own recipe and duel it against the six presets on one query or seed paper. The garden is here too. More experiments arrive after the beta."
+            : "Combine the three signals into your own recipe, duel it against the six presets on one query or seed paper, or sweep the whole blend triangle to see where quality lives. Experiments here are not saved to the Arena's log."
+        }
       />
 
       <div className="mt-4" aria-hidden="true">
         <div className="lab-hazard" />
         <div className="lab-strip">
-          <span>Experimental area</span>
+          <span>{beta ? "Beta · early access" : "Experimental area"}</span>
           <span>Notebook entry no. {String(runs.length + 1).padStart(3, "0")}</span>
           <span>Results here are not recorded to the Arena</span>
         </div>
@@ -488,6 +498,7 @@ export default function Lab() {
         >
           <ResponsiveLabel icon={FlaskConical}>Re:Search Laboratory</ResponsiveLabel>
         </button>
+        {!beta && (
         <button
           type="button"
           role="tab"
@@ -502,6 +513,7 @@ export default function Lab() {
         >
           <ResponsiveLabel icon={Radar}>Sweep</ResponsiveLabel>
         </button>
+        )}
         <button
           type="button"
           role="tab"
@@ -612,7 +624,7 @@ export default function Lab() {
                   setDiversifyLambda(Number(event.target.value))
                 }
                 aria-label="MMR lambda"
-                className="min-w-0 flex-1 accent-[#f39c18] disabled:opacity-40"
+                className="min-w-0 flex-1 disabled:opacity-40"
               />
               <span className="w-8 shrink-0 text-right font-bold text-ink">
                 {diversifyLambda.toFixed(2)}
@@ -806,7 +818,7 @@ export default function Lab() {
                                     .join(",")
                             )
                           }
-                          className="accent-gold"
+                          className=""
                         />
                         {source === "openalex"
                           ? "OpenAlex"
@@ -825,7 +837,7 @@ export default function Lab() {
                     type="checkbox"
                     checked={openAccess}
                     onChange={(e) => setOpenAccess(e.target.checked)}
-                    className="accent-gold"
+                    className=""
                   />
                   Open access only
                 </label>
@@ -1126,7 +1138,7 @@ export default function Lab() {
       </div>
       )}
 
-      {tab === "sweep" && (
+      {!beta && tab === "sweep" && (
         <div className="mt-6">
           <RecipeSweep
             presetName={(id) => pipelineConfigs.find((c) => c.id === id)?.codename ?? id}
@@ -1144,7 +1156,7 @@ export default function Lab() {
           {gardenNarrow && (
             <div
               role="status"
-              className="mb-4 flex items-start gap-2 rounded-lg border-[3px] border-[#b45309]/60 bg-[#fff7e6] px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-wide text-[#7a4a10]"
+              className="mb-4 flex items-start gap-2 rounded-lg border-[3px] border-gray-900 bg-accentSoft px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-wide text-ink"
             >
               <span aria-hidden="true">{"\u26A0"}</span>
               <span>
@@ -1169,10 +1181,10 @@ export default function Lab() {
               </p>
             </div>
             <div
-              className="flex items-center gap-1.5 rounded-lg border-[3px] border-[#8a5a2b]/45 bg-[#fffdf5] px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-[#6b4c1f] shadow-[2px_2px_0_rgba(0,0,0,0.06)]"
+              className="flex items-center gap-1.5 rounded-lg border-[3px] border-gray-900 bg-surface px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-ink shadow-[2px_2px_0_rgba(0,0,0,0.12)]"
               title="Three thousand packets take the tree from seed to ancient maple"
             >
-              <span aria-hidden="true" className="text-[#8a5a2b]">
+              <span aria-hidden="true" className="text-accent">
                 {"\u25CF"}
               </span>
               3,000 packets
